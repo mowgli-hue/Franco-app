@@ -157,9 +157,9 @@ function AuthLandingScreen({onNavigate, onGuest}){
         </button>
 
         <button onClick={onGuest}
-          style={{marginTop:8,padding:"11px 28px",background:"#EFF6FF",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
+          style={{marginTop:8,padding:"11px 28px",background:"#fff",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
           onMouseEnter={e=>{e.currentTarget.style.background="#E2ECFF";}}
-          onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";}}>
+          onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
           Try as Guest
         </button>
 
@@ -172,7 +172,7 @@ function AuthLandingScreen({onNavigate, onGuest}){
         {features.map(f=>(
           <div key={f.id}
             onMouseEnter={()=>setHovered(f.id)} onMouseLeave={()=>setHovered(null)}
-            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?"#BFDBFE":"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
+            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?T.border:"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
             <span style={{fontSize:20}}>{f.icon}</span>
             <span style={{fontSize:14,fontWeight:600,color:"#0D1B3E"}}>{f.text}</span>
           </div>
@@ -237,7 +237,7 @@ function LoginScreen({onNavigate, prefillEmail="", notice=""}){
         </div>
 
         {!firebaseReady&&(
-          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:T.navy}}>
             ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable login. You can still <span onClick={()=>onNavigate("guest")} style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>continue as guest</span>.
           </div>
         )}
@@ -303,7 +303,7 @@ function RegisterScreen({onNavigate}){
         </div>
 
         {!firebaseReady&&(
-          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:T.navy}}>
             ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable registration.
           </div>
         )}
@@ -2047,7 +2047,7 @@ const GAMES = [
   },
 ];
 function Pill({children,variant="blue",style={}}){
-  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:"#92400E",border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
+  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:T.navy,border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
   return <span style={{fontSize:12,fontWeight:700,padding:"5px 12px",borderRadius:50,display:"inline-flex",alignItems:"center",gap:5,...v,...style}}>{children}</span>;
 }
 
@@ -2315,13 +2315,13 @@ function FocusSessionWidget({onNavigate}){
           {phase==="done"&&"Great session! Start another or continue your lessons."}
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {phase==="idle"&&<button onClick={start} style={{padding:"10px 20px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Start</button>}
+          {phase==="idle"&&<button onClick={start} style={{padding:"10px 20px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Start</button>}
           {(phase==="focus"||phase==="break")&&<>
             <button onClick={toggle} style={{padding:"10px 18px",background:running?"rgba(255,255,255,0.15)":T.mint,color:"#fff",border:"1px solid rgba(255,255,255,0.2)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>{running?"⏸ Pause":"▶ Resume"}</button>
             <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
           </>}
           {phase==="done"&&<>
-            <button onClick={start} style={{padding:"10px 18px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Again</button>
+            <button onClick={start} style={{padding:"10px 18px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Again</button>
             <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
           </>}
           <button onClick={()=>onNavigate("hub")} style={{padding:"10px 18px",background:T.surface,color:T.navy,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>📚 Lessons</button>
@@ -2362,7 +2362,7 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
       </div>
     </div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-      {[{label:"Day Streak",val:`${streak()} days`,icon:"🔥",bg:"#FFF7ED",text:"#C2410C",border:"#FED7AA"},{label:"XP Earned",val:`${xp} XP`,icon:"⭐",bg:"#FEFCE8",text:"#92400E",border:"#FDE68A"},{label:"Lessons Done",val:`${doneL} / ${allL.length}`,icon:"📚",bg:"#EFF6FF",text:"#1D4ED8",border:"#BFDBFE"},{label:"CLB Path",val:level.clbTag,icon:"🎯",bg:"#F0FDF4",text:"#166534",border:"#BBF7D0"}].map((s,i)=>(
+      {[{label:"Day Streak",val:`${streak()} days`,icon:"🔥",bg:"#fff",text:T.navy,border:T.border},{label:"XP Earned",val:`${xp} XP`,icon:"⭐",bg:"#fff",text:T.navy,border:T.border},{label:"Lessons Done",val:`${doneL} / ${allL.length}`,icon:"📚",bg:"#fff",text:T.navy,border:T.border},{label:"CLB Path",val:level.clbTag,icon:"🎯",bg:"#fff",text:T.navy,border:T.border}].map((s,i)=>(
         <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:s.bg,border:`1px solid ${s.border}`,borderRadius:50,flex:"1 1 160px"}}>
           <span style={{fontSize:16}}>{s.icon}</span>
           <div><div style={{fontSize:11,color:s.text,opacity:.7,fontWeight:600}}>{s.label}</div><div style={{fontSize:14,fontWeight:700,color:s.text}}>{s.val}</div></div>
@@ -2900,9 +2900,9 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {answered&&<div style={{padding:"16px 18px",borderRadius:16,background:isOk?"linear-gradient(135deg,#D1FAE5,#ECFDF5)":"linear-gradient(135deg,#FEF3C7,#FFFBEB)",border:`2px solid ${isOk?"#6EE7B7":"#FCD34D"}`,display:"flex",alignItems:"flex-start",gap:12,animation:"slideUp 0.3s ease"}}>
           <span style={{fontSize:24,flexShrink:0}}>{isOk?"✅":"💡"}</span>
           <div style={{flex:1}}>
-            <div style={{fontWeight:700,fontSize:14,color:isOk?"#065F46":"#92400E",marginBottom:5}}>{isOk?"Correct! You're getting it! 🌟":"Good try — here's how it works:"}</div>
+            <div style={{fontWeight:700,fontSize:14,color:isOk?"#065F46":T.navy,marginBottom:5}}>{isOk?"Correct! You're getting it! 🌟":"Good try — here's how it works:"}</div>
             <div style={{fontSize:13,color:isOk?"#065F46":"#78350F",lineHeight:1.65}}>{q.explain}</div>
-            {!isOk&&<div style={{marginTop:8,fontSize:12,color:"#92400E",fontWeight:600}}>Don't worry — mistakes are how the brain learns! 🧠</div>}
+            {!isOk&&<div style={{marginTop:8,fontSize:12,color:T.navy,fontWeight:600}}>Don't worry — mistakes are how the brain learns! 🧠</div>}
           </div>
         </div>}
 
@@ -2952,8 +2952,8 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           {[
             {val:`${correct}/${total}`,lbl:"Correct",icon:"✅",bg:T.mintLight,col:"#065F46"},
             {val:`${Math.round((correct/total)*100)}%`,lbl:"Accuracy",icon:"🎯",bg:T.blueLight,col:T.navy},
-            {val:`+${xp}`,lbl:"XP Earned",icon:"⭐",bg:T.goldLight,col:"#92400E"},
-            {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#FFF7ED",col:"#C2410C"},
+            {val:`+${xp}`,lbl:"XP Earned",icon:"⭐",bg:T.goldLight,col:T.navy},
+            {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#fff",col:T.navy},
           ].map(s=><div key={s.lbl} style={{minWidth:90,textAlign:"center",padding:"16px 18px",borderRadius:16,background:s.bg,border:`1.5px solid ${s.col}20`}}>
             <div style={{fontSize:10,marginBottom:4}}>{s.icon}</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
@@ -2962,7 +2962,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         </div>
 
         {/* Motivational bar */}
-        {correct>=total*0.7&&<div style={{padding:"14px 24px",borderRadius:50,background:"linear-gradient(135deg,#FEF3C7,#FDE68A)",border:"1.5px solid #FCD34D",fontSize:15,fontWeight:700,color:"#92400E"}}>
+        {correct>=total*0.7&&<div style={{padding:"14px 24px",borderRadius:50,background:"linear-gradient(135deg,#FEF3C7,#FDE68A)",border:"1.5px solid #FCD34D",fontSize:15,fontWeight:700,color:T.navy}}>
           ⭐ +{xp} XP — fantastic lesson! You&apos;re building real French skills.
         </div>}
 
@@ -3140,7 +3140,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
         </div>
       </div>
       {feedback.corrections?.length>0&&<div style={{background:"#FEF9C3",borderRadius:10,padding:12,marginBottom:10}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#92400E",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💡 Quick Fixes</div>
+        <div style={{fontSize:12,fontWeight:700,color:T.navy,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💡 Quick Fixes</div>
         {feedback.corrections.map((c,i)=><div key={i} style={{fontSize:13,color:"#78350F",padding:"3px 0",display:"flex",gap:8}}><span>→</span>{c}</div>)}
       </div>}
       {feedback.phonetic_tips?.length>0&&<div style={{background:"#EDE9FE",borderRadius:10,padding:12,marginBottom:12}}>
@@ -3212,8 +3212,8 @@ Is this correct or close enough? Give feedback.`;
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
         <span style={{fontSize:24}}>{result.correct?"✅":"💡"}</span>
         <div>
-          <div style={{fontWeight:700,fontSize:15,color:result.correct?"#065F46":"#92400E"}}>{result.correct?"Correct! Well done! 🌟":"Close! Here's the correction:"}</div>
-          <div style={{fontSize:13,color:result.correct?"#059669":"#92400E",marginTop:2}}>{result.encouragement}</div>
+          <div style={{fontWeight:700,fontSize:15,color:result.correct?"#065F46":T.navy}}>{result.correct?"Correct! Well done! 🌟":"Close! Here's the correction:"}</div>
+          <div style={{fontSize:13,color:result.correct?"#059669":T.navy,marginTop:2}}>{result.encouragement}</div>
         </div>
         <div style={{marginLeft:"auto",width:40,height:40,borderRadius:"50%",background:result.correct?T.mint:T.gold,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:13}}>{result.score}</div>
       </div>
@@ -3610,7 +3610,7 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   return <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 20px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
     <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:T.navy,marginRight:4}}>Franco</div>
     <div style={{fontSize:16,marginRight:8}}>🍁</div>
-    {guestMode&&<span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D"}}>Guest</span>}
+    {guestMode&&<span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#FEF3C7",color:T.navy,border:"1px solid #FCD34D"}}>Guest</span>}
     <div style={{flex:1}}/>
     <div style={{display:"flex",gap:4}}>
       {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 14px",borderRadius:10,border:"none",background:screen===n.id?T.blueLight:"transparent",color:screen===n.id?T.blue:T.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
