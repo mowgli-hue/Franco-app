@@ -2380,9 +2380,9 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
           <div style={{padding:"14px 22px",display:"flex",alignItems:"center",gap:12}}>
             <div style={{flex:1}}>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textSoft,marginBottom:5}}><span>Overall progress</span><span style={{fontWeight:700,color:T.navy}}>{pct}%</span></div>
-              <div style={{height:5,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:nextLevel?.color||T.blue,borderRadius:99,transition:"width 1s"}}/></div>
+              <div style={{height:5,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:T.navy,borderRadius:99,transition:"width 1s",opacity:.6}}/></div>
             </div>
-            <button onClick={()=>onNavigate("hub")} style={{background:nextLevel?.color||T.blue,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>{nextLesson?"Start →":"Review →"}</button>
+            <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>{nextLesson?"Start →":"Review →"}</button>
           </div>
         </div>
         <FocusSessionWidget onNavigate={onNavigate}/>
@@ -2420,11 +2420,11 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
             </div>
           ))}
         </div>
-        <div style={{background:`${level.color}12`,border:`1px solid ${level.color}30`,borderRadius:16,padding:"16px 20px"}}>
-          <div style={{fontSize:11,fontWeight:700,color:level.color,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Your CLB Path</div>
+        <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:16,padding:"16px 20px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Your CLB Path</div>
           <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:4}}>{level.label}</div>
           <div style={{fontSize:12,color:T.textMid,lineHeight:1.6,marginBottom:12}}>{level.desc}</div>
-          <div style={{display:"flex",gap:8}}><span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:50,background:level.color,color:"#fff"}}>{level.cefrTag}</span><span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:50,background:"#fff",color:level.color,border:`1px solid ${level.color}40`}}>{level.clbTag}</span></div>
+          <div style={{display:"flex",gap:8}}><span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:50,background:T.navy,color:"#fff"}}>{level.cefrTag}</span><span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:50,background:T.surface,color:T.navy,border:`1px solid ${T.border}`}}>{level.clbTag}</span></div>
         </div>
       </div>
     </div>
