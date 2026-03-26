@@ -3099,60 +3099,66 @@ Rules:
   return null;
 }
 
-function ProfileScreen({companion,progress,startLevel,onReset}){
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
+function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onAuthNav}){
+  const{logout}=useAuth();
   const c=companion||COMPANIONS[0];
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
   const done=allL.filter(l=>progress[l.id]);
   const xp=done.length*25;
-  const achievements=[
-    {emoji:"🌱",name:"First Step",desc:"Complete your first lesson",unlocked:done.length>=1},
-    {emoji:"🔥",name:"Week Streak",desc:"Study 7 days in a row",unlocked:true},
-    {emoji:"📖",name:"A1 Explorer",desc:"Complete 5 A1 lessons",unlocked:done.filter(l=>l.id.startsWith("a1")).length>=5},
-    {emoji:"🎓",name:"CLB Ready",desc:"Complete a CLB prep lesson",unlocked:done.some(l=>l.id.startsWith("clb"))},
-    {emoji:"✍",name:"Writer",desc:"Complete a writing lesson",unlocked:done.some(l=>l.skill==="writing")},
-    {emoji:"🏆",name:"Halfway There",desc:"Complete 50% of the curriculum",unlocked:done.length>=Math.floor(allL.length/2)},
-  ];
-  return <div style={{padding:"28px 32px",maxWidth:900,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy}}>My Profile 👤</div>
-    <Card style={{display:"flex",alignItems:"center",gap:24,padding:"28px 28px",flexWrap:"wrap"}}>
-      <Avatar companion={c} size={80}/>
-      <div style={{flex:1}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:4}}>French Learner</div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:14}}>Learning with {c.name} · {level.label}</div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Pill variant="gold">🔥 7 day streak</Pill><Pill variant="blue">⭐ {xp} XP total</Pill><Pill variant="mint">✓ {done.length} lessons done</Pill></div>
+  const isPremium=isPremiumUnlocked();
+  const handleLogout=async()=>{ await logout(); window.location.reload(); };
+
+  const Row=({emoji,label,onClick})=>(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}
+      onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+      onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+      <span style={{fontSize:18,width:24,textAlign:"center"}}>{emoji}</span>
+      <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>{label}</span>
+      <span style={{color:T.textSoft,fontSize:13}}>›</span>
+    </div>
+  );
+
+  return <div style={{maxWidth:520,margin:"0 auto",padding:"28px 24px",display:"flex",flexDirection:"column",gap:0}}>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <span style={{fontSize:20}}>🍁</span>
+        <span style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:700,color:T.navy,letterSpacing:1}}>FRANCO</span>
       </div>
-    </Card>
-    <Card>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Progress by Level</div>
-      {Object.values(SYLLABUS).map(lev=>{
-        const lLessons=lev.modules.flatMap(m=>m.lessons);
-        const lDone=lLessons.filter(l=>progress[l.id]).length;
-        const pct=Math.round((lDone/lLessons.length)*100);
-        return <div key={lev.id} style={{marginBottom:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{lev.emoji}</span><span style={{fontSize:14,fontWeight:600}}>{lev.label}</span></div>
-            <span style={{fontSize:14,fontWeight:700,color:lev.color}}>{lDone}/{lLessons.length}</span>
-          </div>
-          <ProgressBar value={pct} color={lev.color}/>
-        </div>;
-      })}
-    </Card>
-    <Card>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Achievements 🏅</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        {achievements.map(a=><div key={a.name} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:a.unlocked?T.goldLight:T.surface,border:`1.5px solid ${a.unlocked?"#FCD34D":T.border}`,opacity:a.unlocked?1:0.55}}>
-          <span style={{fontSize:28}}>{a.emoji}</span>
-          <div><div style={{fontSize:14,fontWeight:700,color:T.navy}}>{a.name}</div><div style={{fontSize:12,color:T.textSoft,marginTop:2}}>{a.desc}</div></div>
-          {a.unlocked&&<span style={{marginLeft:"auto",color:T.gold,fontWeight:700}}>✓</span>}
-        </div>)}
+    </div>
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"20px",marginBottom:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:16}}>Profile</div>
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Guest mode":user?.email||"—"}</div>
       </div>
-    </Card>
-    <Btn variant="secondary" onClick={onReset} style={{alignSelf:"flex-start",color:T.red,borderColor:T.red}}>🔄 Reset All Progress</Btn>
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
+      </div>
+      <div>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:6}}>Subscription</div>
+        <span style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:50,background:isPremium?"#D1FAE5":"#F1F5F9",color:isPremium?"#065F46":T.textMid,border:`1px solid ${isPremium?"#6EE7B7":T.border}`}}>
+          {isPremium?"Premium ✓":"Free Plan"}
+        </span>
+      </div>
+    </div>
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px"}}>More</div>
+      <Row emoji="📈" label="Subscription" onClick={()=>window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank")}/>
+      <Row emoji="🍁" label="Immigration Services" onClick={()=>window.open("mailto:admin@junglelabsworld.com?subject=Immigration Services","_blank")}/>
+      <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:support@clbfrenchtrainer.app","_blank")}/>
+      <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset?"))onReset();}}/>
+      <Row emoji="🔒" label="Privacy Policy" onClick={()=>window.open("https://franco.app/privacy","_blank")}/>
+    </div>
+    {guestMode
+      ? <button onClick={()=>onAuthNav("landing")} style={{width:"100%",padding:"15px",background:T.navy,color:"#fff",border:"none",borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>Create Account / Login</button>
+      : <button onClick={handleLogout} style={{width:"100%",padding:"15px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>Sign Out</button>
+    }
+    <div style={{textAlign:"center",fontSize:12,color:T.textSoft}}>Powered by Jungle Labs</div>
   </div>;
 }
+
 
 function TopBar({screen,onNavigate,companion,progress}){
   const xp=Object.keys(progress).length*25;
