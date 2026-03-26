@@ -68,11 +68,7 @@ function AuthProvider({children}){
       if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured.")  ,{code:"auth/no-config"});
       const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
       await reload(cred.user);
-      if(!cred.user.emailVerified){
-        try{ await sendEmailVerification(cred.user); }catch{}
-        await signOut(_firebaseAuth);
-        throw Object.assign(new Error("Email not verified"), {code:"auth/email-not-verified"});
-      }
+      // Email verification not required
     },
 
     async register(name, email, password){
@@ -2245,78 +2241,55 @@ function DashboardScreen({companion,startLevel,progress,onNavigate}){
   const doneL=Object.keys(progress).length;
   const pct=Math.round((doneL/allL.length)*100);
   const xp=doneL*25;
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return xp;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
-  const skills=[{name:"Listening 🎧",pct:74,color:T.blue},{name:"Speaking 🗣",pct:58,color:T.mint},{name:"Writing ✍",pct:65,color:T.gold},{name:"Reading 📖",pct:81,color:T.purple}];
-  return <div style={{padding:"28px 32px",maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
+  const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
+  const c=companion||COMPANIONS[0];
+  const hour=new Date().getHours();
+  const greeting=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
+  const nextLesson=allL.find(l=>!progress[l.id]);
+  const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
+  return <div style={{padding:"24px 28px",maxWidth:860,margin:"0 auto",display:"flex",flexDirection:"column",gap:16}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:4}}>Good morning 👋</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy}}>Your French Journey</div>
+        <div style={{fontSize:13,color:T.textSoft,marginBottom:2}}>{greeting} 👋</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:T.navy}}>Welcome back, {c.name} is ready!</div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <Pill variant="gold">🔥 7 days</Pill>
-        <Pill variant="blue">⭐ {xp} XP</Pill>
-        <div style={{width:40,height:40,borderRadius:"50%",background:T.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
+      <div style={{display:"flex",gap:8}}><Pill variant="gold">🔥 {streak()} days</Pill><Pill variant="blue">⭐ {xp} XP</Pill></div>
+    </div>
+    <div style={{background:`linear-gradient(135deg,${T.navy},#1A3280)`,borderRadius:20,padding:"22px 24px",color:"#fff"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:"rgba(255,255,255,0.55)",textTransform:"uppercase",marginBottom:8}}>Next Up</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,marginBottom:4}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
+      <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:16}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:"You have completed all lessons!"}</div>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:T.navy,border:"none",padding:"12px 24px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"📚 Review Lessons"}</button>
+        <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"#fff",border:"1px solid rgba(255,255,255,0.2)",padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
+        <div style={{marginLeft:"auto",textAlign:"right"}}>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.55)",marginBottom:4}}>{pct}% · {doneL}/{allL.length} lessons</div>
+          <div style={{width:120,height:5,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:"#60A5FA",borderRadius:99}}/></div>
+        </div>
       </div>
     </div>
-    {/* Hero */}
-    <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 60%,${T.blue} 100%)`,borderRadius:24,padding:28,color:"#fff",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-40,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:12}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1.2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:8}}>Today's Mission</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:4}}>{level.label} — Continue Your Path</div>
-          <div style={{fontSize:14,color:"rgba(255,255,255,0.65)"}}>{level.desc}</div>
-        </div>
-        <div style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",padding:"8px 14px",borderRadius:12,fontSize:13,fontWeight:600}}>{level.cefrTag} · {level.clbTag}</div>
-      </div>
-      <div style={{marginBottom:20}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,fontSize:13,color:"rgba(255,255,255,0.7)"}}>
-          <span>Overall progress</span><span style={{color:"#fff",fontWeight:700}}>{pct}% · {doneL}/{allL.length} lessons</span>
-        </div>
-        <div style={{height:8,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#60A5FA,#93C5FD)",borderRadius:99,transition:"width 1s"}}/>
-        </div>
-      </div>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        {[{l:"▶️ Continue Learning",s:"hub",p:true},{l:"⚡ Practice",s:"practice"},{l:"📊 Progress",s:"profile"}].map(a=>(
-          <button key={a.s} onClick={()=>onNavigate(a.s)} style={{background:a.p?"#fff":"rgba(255,255,255,0.1)",color:a.p?T.navy:"rgba(255,255,255,0.9)",border:a.p?"none":"1.5px solid rgba(255,255,255,0.2)",padding:"13px 22px",borderRadius:13,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{a.l}</button>
-        ))}
-      </div>
-    </div>
-    {/* Stats */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
-      {[{icon:"📅",label:"Lessons",val:doneL,sub:`of ${allL.length} total`},{icon:"🏆",label:"CLB Target",val:level.clbTag,sub:"current path"},{icon:"⭐",label:"XP Earned",val:totalXP(),sub:"all time"},{icon:"🔥",label:"Day Streak",val:streak(),sub:"keep going!"}].map((s,i)=>(
-        <Card key={i}><div style={{fontSize:28,marginBottom:10}}>{s.icon}</div><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:8}}>{s.label}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:T.navy,marginBottom:4}}>{s.val}</div><div style={{fontSize:13,color:T.textSoft}}>{s.sub}</div></Card>
+    <FocusSessionWidget onNavigate={onNavigate}/>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+      {[{icon:"📚",label:"Lessons Done",val:doneL,sub:`of ${allL.length}`},{icon:"🎯",label:"CLB Target",val:level.clbTag,sub:level.cefrTag},{icon:"⭐",label:"XP Earned",val:xp,sub:"total"},{icon:"🔥",label:"Day Streak",val:streak(),sub:"days"}].map((s,i)=>(
+        <Card key={i} style={{textAlign:"center",padding:"16px 12px"}}>
+          <div style={{fontSize:22,marginBottom:6}}>{s.icon}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:T.navy}}>{s.val}</div>
+          <div style={{fontSize:11,fontWeight:600,color:T.textSoft,marginTop:2}}>{s.label}</div>
+          <div style={{fontSize:11,color:T.textSoft,opacity:0.7}}>{s.sub}</div>
+        </Card>
       ))}
     </div>
-    {/* Skills + AI */}
-    <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16}}>
-      <Card>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Skill Breakdown</div>
-        {skills.map(sk=><div key={sk.name} style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{fontSize:14,fontWeight:600}}>{sk.name}</span>
-            <span style={{fontSize:14,fontWeight:700,color:sk.color}}>{sk.pct}%</span>
-          </div>
-          <ProgressBar value={sk.pct} color={sk.color}/>
-        </div>)}
-      </Card>
-      <Card style={{background:"linear-gradient(135deg,#EFF6FF,#F0FDF4)",border:`1.5px solid #C7D2FE`}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-          <Avatar companion={companion||COMPANIONS[0]} size={52}/>
-          <div>
-            <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{companion?.name||"Sophie"}</div>
-            <div style={{fontSize:12,color:T.mint,fontWeight:600}}>● Active</div>
-          </div>
-        </div>
-        <div style={{fontSize:14,color:T.textMid,lineHeight:1.6,fontStyle:"italic",padding:14,background:"rgba(255,255,255,0.6)",borderRadius:12,borderLeft:`3px solid ${T.blue}`,marginBottom:14}}>"{companion?.messages?.idle||"Ready to learn! Let's tackle your next lesson."}"</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Pill variant="blue">Practice Speaking</Pill><Pill variant="mint">Review Vocab</Pill></div>
-      </Card>
-    </div>
+    <Card style={{display:"flex",alignItems:"center",gap:16,padding:"16px 20px",background:T.blueLight,border:`1.5px solid ${T.border}`}}>
+      <Avatar companion={c} size={48}/>
+      <div style={{flex:1}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:2}}>{c.name}</div>
+        <div style={{fontSize:13,color:T.textMid,fontStyle:"italic"}}>"{c.messages?.idle||"Ready to learn!"}"</div>
+      </div>
+      <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"10px 18px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>{"Let's Go →"}</button>
+    </Card>
   </div>;
 }
+
 
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
@@ -3363,7 +3336,7 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
     <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
       <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px",letterSpacing:0.5}}>More</div>
       <Row emoji="📈" label="Subscription" onClick={()=>window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank")}/>
-      <Row emoji="🍁" label="Immigration Services" onClick={()=>window.open("mailto:admin@junglelabsworld.com?subject=Immigration Services","_blank")}/>
+      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>window.open("https://wa.me/16046355031","_blank")}/>
       <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:support@clbfrenchtrainer.app","_blank")}/>
       <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset your level selection?"))onReset();}}/>
       <div onClick={()=>window.open("https://franco.app/privacy","_blank")} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
