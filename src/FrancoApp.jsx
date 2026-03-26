@@ -2235,6 +2235,88 @@ function OnboardingScreen({onComplete}){
   </div>;
 }
 
+function FocusSessionWidget({onNavigate}){
+  const FOCUS=25*60, BREAK=5*60;
+  const[phase,setPhase]=useState("idle");
+  const[secs,setSecs]=useState(FOCUS);
+  const[running,setRunning]=useState(false);
+  const[sessions,setSessions]=useState(0);
+  const timerRef=useRef();
+  useEffect(()=>{
+    if(running){
+      timerRef.current=setInterval(()=>{
+        setSecs(s=>{
+          if(s<=1){
+            clearInterval(timerRef.current);
+            setRunning(false);
+            if(phase==="focus"){ setSessions(n=>n+1); setPhase("break"); setSecs(BREAK); }
+            else { setPhase("done"); }
+            return 0;
+          }
+          return s-1;
+        });
+      },1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[running,phase]);
+  const fmt=(s)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+  const total=phase==="break"?BREAK:FOCUS;
+  const pct=((total-secs)/total)*100;
+  const circumference=2*Math.PI*76;
+  const start=()=>{setPhase("focus");setSecs(FOCUS);setRunning(true);};
+  const toggle=()=>setRunning(r=>!r);
+  const reset=()=>{setRunning(false);setPhase("idle");setSecs(FOCUS);setSessions(0);};
+  const phaseColor=phase==="break"?T.mint:phase==="done"?T.gold:T.blue;
+  const phaseLabel=phase==="focus"?"Focus 🧠":phase==="break"?"Break ☕":phase==="done"?"Done! 🎉":"Ready";
+  return <Card style={{background:"linear-gradient(135deg,#0D1B3E,#1A3280)",color:"#fff",border:"none"}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
+      <div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:"#fff",marginBottom:2}}>⏱ 25:5 Focus Session</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.55)"}}>25 min focus + 5 min break</div>
+      </div>
+      {sessions>0&&<div style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",padding:"4px 12px",borderRadius:50,fontSize:12,fontWeight:700,color:"#fff"}}>🔥 {sessions} done</div>}
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
+      <div style={{position:"relative",flexShrink:0}}>
+        <svg width="140" height="140" style={{transform:"rotate(-90deg)"}}>
+          <circle cx="70" cy="70" r="60" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8"/>
+          <circle cx="70" cy="70" r="60" fill="none" stroke={phaseColor} strokeWidth="8"
+            strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference*(1-pct/100)}
+            style={{transition:"stroke-dashoffset 0.8s ease,stroke 0.5s"}}/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.55)",marginBottom:1}}>{phaseLabel}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:900,color:"#fff",letterSpacing:2}}>{fmt(secs)}</div>
+        </div>
+      </div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,minWidth:140}}>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.65)",lineHeight:1.6}}>
+          {phase==="idle"&&"25 minutes of focused French study, then a 5-minute break."}
+          {phase==="focus"&&"Stay focused! Work through your lesson now. 🎯"}
+          {phase==="break"&&"Well done! Rest for 5 minutes before the next session. ☕"}
+          {phase==="done"&&"Great session! Start another or continue your lessons."}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {phase==="idle"&&<button onClick={start} style={{padding:"10px 20px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Start</button>}
+          {(phase==="focus"||phase==="break")&&<>
+            <button onClick={toggle} style={{padding:"10px 18px",background:running?"rgba(255,255,255,0.15)":T.mint,color:"#fff",border:"1px solid rgba(255,255,255,0.2)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>{running?"⏸ Pause":"▶ Resume"}</button>
+            <button onClick={reset} style={{padding:"10px 14px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
+          </>}
+          {phase==="done"&&<>
+            <button onClick={start} style={{padding:"10px 18px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Again</button>
+            <button onClick={reset} style={{padding:"10px 14px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
+          </>}
+          <button onClick={()=>onNavigate("hub")} style={{padding:"10px 18px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>📚 Lessons</button>
+        </div>
+        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          {[0,1,2,3].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<sessions?T.mint:"rgba(255,255,255,0.15)",transition:"background 0.3s"}}/>)}
+          <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginLeft:4}}>{sessions}/4 today</span>
+        </div>
+      </div>
+    </div>
+  </Card>;
+}
+
 function DashboardScreen({companion,startLevel,progress,onNavigate}){
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
