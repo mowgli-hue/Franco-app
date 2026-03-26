@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -19,29 +18,12 @@ const FIREBASE_CONFIG = {
 const hasFirebaseConfig = Object.values(FIREBASE_CONFIG).every(v=>v.trim().length>0);
 let _firebaseApp = null;
 let _firebaseAuth = null;
-let _firebaseDb = null;
 if(hasFirebaseConfig){
   try{
     _firebaseApp = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
     _firebaseAuth = getAuth(_firebaseApp);
-    _firebaseDb = getFirestore(_firebaseApp);
   }catch(e){ console.error("[firebase] init failed",e); }
 }
-async function saveUserData(uid,data){
-  if(!_firebaseDb||!uid)return;
-  try{await setDoc(doc(_firebaseDb,"users",uid),data,{merge:true});}catch(e){console.warn("save failed",e);}
-}
-async function loadUserData(uid){
-  if(!_firebaseDb||!uid)return null;
-  try{const s=await getDoc(doc(_firebaseDb,"users",uid));return s.exists()?s.data():null;}catch{return null;}
-}
-function calcNextReview(prevInterval,prevEF,quality){
-  const ef=Math.max(1.3,prevEF+0.1-(5-quality)*(0.08+(5-quality)*0.02));
-  let interval=quality<3?1:!prevInterval?1:prevInterval===1?6:Math.round(prevInterval*ef);
-  const next=new Date();next.setDate(next.getDate()+interval);
-  return{interval,ef,nextDate:next.toISOString(),quality};
-}
-function isDueForReview(r){if(!r?.nextDate)return false;return new Date(r.nextDate)<=new Date();}
 
 function mapAuthError(error){
   const code = error?.code || "";
@@ -157,9 +139,9 @@ function AuthLandingScreen({onNavigate, onGuest}){
         </button>
 
         <button onClick={onGuest}
-          style={{marginTop:8,padding:"11px 28px",background:"#fff",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
+          style={{marginTop:8,padding:"11px 28px",background:"#EFF6FF",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
           onMouseEnter={e=>{e.currentTarget.style.background="#E2ECFF";}}
-          onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
+          onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";}}>
           Try as Guest
         </button>
 
@@ -172,7 +154,7 @@ function AuthLandingScreen({onNavigate, onGuest}){
         {features.map(f=>(
           <div key={f.id}
             onMouseEnter={()=>setHovered(f.id)} onMouseLeave={()=>setHovered(null)}
-            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?T.border:"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
+            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?"#BFDBFE":"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
             <span style={{fontSize:20}}>{f.icon}</span>
             <span style={{fontSize:14,fontWeight:600,color:"#0D1B3E"}}>{f.text}</span>
           </div>
@@ -237,7 +219,7 @@ function LoginScreen({onNavigate, prefillEmail="", notice=""}){
         </div>
 
         {!firebaseReady&&(
-          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:T.navy}}>
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
             ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable login. You can still <span onClick={()=>onNavigate("guest")} style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>continue as guest</span>.
           </div>
         )}
@@ -303,7 +285,7 @@ function RegisterScreen({onNavigate}){
         </div>
 
         {!firebaseReady&&(
-          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:T.navy}}>
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
             ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable registration.
           </div>
         )}
@@ -2047,7 +2029,7 @@ const GAMES = [
   },
 ];
 function Pill({children,variant="blue",style={}}){
-  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:T.navy,border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
+  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:"#92400E",border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
   return <span style={{fontSize:12,fontWeight:700,padding:"5px 12px",borderRadius:50,display:"inline-flex",alignItems:"center",gap:5,...v,...style}}>{children}</span>;
 }
 
@@ -2233,7 +2215,6 @@ function OnboardingScreen({onComplete}){
       </Card>)}
     </div>
   </div>;
-}
   return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
@@ -2254,6 +2235,88 @@ function OnboardingScreen({onComplete}){
   </div>;
 }
 
+function FocusSessionWidget({onNavigate}){
+  const FOCUS=25*60, BREAK=5*60;
+  const[phase,setPhase]=useState("idle");
+  const[secs,setSecs]=useState(FOCUS);
+  const[running,setRunning]=useState(false);
+  const[sessions,setSessions]=useState(0);
+  const timerRef=useRef();
+  useEffect(()=>{
+    if(running){
+      timerRef.current=setInterval(()=>{
+        setSecs(s=>{
+          if(s<=1){
+            clearInterval(timerRef.current);
+            setRunning(false);
+            if(phase==="focus"){ setSessions(n=>n+1); setPhase("break"); setSecs(BREAK); }
+            else { setPhase("done"); }
+            return 0;
+          }
+          return s-1;
+        });
+      },1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[running,phase]);
+  const fmt=(s)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+  const total=phase==="break"?BREAK:FOCUS;
+  const pct=((total-secs)/total)*100;
+  const circumference=2*Math.PI*76;
+  const start=()=>{setPhase("focus");setSecs(FOCUS);setRunning(true);};
+  const toggle=()=>setRunning(r=>!r);
+  const reset=()=>{setRunning(false);setPhase("idle");setSecs(FOCUS);setSessions(0);};
+  const phaseColor=phase==="break"?T.mint:phase==="done"?T.gold:T.blue;
+  const phaseLabel=phase==="focus"?"Focus 🧠":phase==="break"?"Break ☕":phase==="done"?"Done! 🎉":"Ready";
+  return <Card style={{background:"#fff",border:`1.5px solid ${T.border}`}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
+      <div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:T.navy,marginBottom:2}}>⏱ 25:5 Focus Session</div>
+        <div style={{fontSize:12,color:T.textSoft}}>25 min focus + 5 min break</div>
+      </div>
+      {sessions>0&&<div style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",padding:"4px 12px",borderRadius:50,fontSize:12,fontWeight:700,color:"#fff"}}>🔥 {sessions} done</div>}
+    </div>
+    <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
+      <div style={{position:"relative",flexShrink:0}}>
+        <svg width="140" height="140" style={{transform:"rotate(-90deg)"}}>
+          <circle cx="70" cy="70" r="60" fill="none" stroke="#E2E8F0" strokeWidth="8"/>
+          <circle cx="70" cy="70" r="60" fill="none" stroke={phaseColor} strokeWidth="8"
+            strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference*(1-pct/100)}
+            style={{transition:"stroke-dashoffset 0.8s ease,stroke 0.5s"}}/>
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <div style={{fontSize:10,color:T.textSoft,marginBottom:1}}>{phaseLabel}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:900,color:T.navy,letterSpacing:2}}>{fmt(secs)}</div>
+        </div>
+      </div>
+      <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,minWidth:140}}>
+        <div style={{fontSize:12,color:T.textMid,lineHeight:1.6}}>
+          {phase==="idle"&&"25 minutes of focused French study, then a 5-minute break."}
+          {phase==="focus"&&"Stay focused! Work through your lesson now. 🎯"}
+          {phase==="break"&&"Well done! Rest for 5 minutes before the next session. ☕"}
+          {phase==="done"&&"Great session! Start another or continue your lessons."}
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {phase==="idle"&&<button onClick={start} style={{padding:"10px 20px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Start</button>}
+          {(phase==="focus"||phase==="break")&&<>
+            <button onClick={toggle} style={{padding:"10px 18px",background:running?"rgba(255,255,255,0.15)":T.mint,color:"#fff",border:"1px solid rgba(255,255,255,0.2)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>{running?"⏸ Pause":"▶ Resume"}</button>
+            <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
+          </>}
+          {phase==="done"&&<>
+            <button onClick={start} style={{padding:"10px 18px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Again</button>
+            <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
+          </>}
+          <button onClick={()=>onNavigate("hub")} style={{padding:"10px 18px",background:T.surface,color:T.navy,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>📚 Lessons</button>
+        </div>
+        <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          {[0,1,2,3].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<sessions?T.mint:T.border,transition:"background 0.3s"}}/>)}
+          <span style={{fontSize:11,color:T.textSoft,marginLeft:4}}>{sessions}/4 today</span>
+        </div>
+      </div>
+    </div>
+  </Card>;
+}
+
 function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
@@ -2269,106 +2332,81 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
   const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
   const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
   const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
-  return <div style={{minHeight:"100vh",background:"#F1F4F9",padding:"32px 28px",maxWidth:1020,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+  return <div style={{minHeight:"100vh",background:"#F8F9FC",padding:"32px 28px",maxWidth:980,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
+    <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
       <div>
-        <div style={{fontSize:13,color:"#64748B",fontWeight:500,marginBottom:4}}>{greeting} {displayName?`— ${displayName}`:""} · {new Date().toLocaleDateString("en-CA",{weekday:"long",month:"long",day:"numeric"})}</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:800,color:"#0F172A",lineHeight:1.15}}>
-          {doneL===0?"Start your French journey 🍁":doneL<10?"Building momentum 💪":doneL<50?"Making great progress 🎯":"You're becoming fluent 🌟"}
-        </div>
+        <div style={{fontSize:13,color:T.textSoft,fontWeight:500,marginBottom:4}}>{greeting} {displayName?`${displayName} —`:""} {new Date().toLocaleDateString("en-CA",{weekday:"long",month:"long",day:"numeric"})}</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:"#0F172A"}}>{doneL===0?"Start your French journey 🍁":doneL<10?"Building momentum 💪":"You're making great progress 🎯"}</div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 18px",background:"#fff",borderRadius:14,border:"2px solid #E2E8F0",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-        <Avatar companion={c} size={36}/>
-        <div><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div><div style={{fontSize:11,color:"#10B981",fontWeight:600}}>● Online & Ready</div></div>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:"#fff",borderRadius:12,border:`1px solid ${T.border}`}}>
+        <Avatar companion={c} size={34}/>
+        <div><div style={{fontSize:12,fontWeight:700,color:T.navy}}>{c.name}</div><div style={{fontSize:11,color:T.mint}}>● Ready</div></div>
       </div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-      {[
-        {label:"Day Streak",val:streak(),unit:"days",icon:"🔥",desc:"Keep it up!"},
-        {label:"XP Earned",val:xp,unit:"XP",icon:"⭐",desc:`${allL.length*25} total possible`},
-        {label:"Lessons Done",val:doneL,unit:`/ ${allL.length}`,icon:"📚",desc:`${pct}% complete`},
-        {label:"CLB Target",val:level.clbTag,unit:"",icon:"🎯",desc:level.cefrTag},
-      ].map((s,i)=>(
-        <div key={i} style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"18px 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
-          <div style={{fontSize:22,marginBottom:10}}>{s.icon}</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1}}>{s.val}<span style={{fontSize:13,fontWeight:600,color:"#64748B",marginLeft:4}}>{s.unit}</span></div>
-          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>{s.label}</div>
-          <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>{s.desc}</div>
+    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+      {[{label:"Day Streak",val:`${streak()} days`,icon:"🔥",bg:"#FFF7ED",text:"#C2410C",border:"#FED7AA"},{label:"XP Earned",val:`${xp} XP`,icon:"⭐",bg:"#FEFCE8",text:"#92400E",border:"#FDE68A"},{label:"Lessons Done",val:`${doneL} / ${allL.length}`,icon:"📚",bg:"#EFF6FF",text:"#1D4ED8",border:"#BFDBFE"},{label:"CLB Path",val:level.clbTag,icon:"🎯",bg:"#F0FDF4",text:"#166534",border:"#BBF7D0"}].map((s,i)=>(
+        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:s.bg,border:`1px solid ${s.border}`,borderRadius:50,flex:"1 1 160px"}}>
+          <span style={{fontSize:16}}>{s.icon}</span>
+          <div><div style={{fontSize:11,color:s.text,opacity:.7,fontWeight:600}}>{s.label}</div><div style={{fontSize:14,fontWeight:700,color:s.text}}>{s.val}</div></div>
         </div>
       ))}
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:16,alignItems:"start"}}>
       <div style={{display:"flex",flexDirection:"column",gap:16}}>
-        <div style={{background:"#0F172A",borderRadius:20,overflow:"hidden",boxShadow:"0 4px 20px rgba(15,23,42,0.2)"}}>
-          <div style={{padding:"24px 26px"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
-              <div style={{width:6,height:6,borderRadius:"50%",background:"#10B981"}}/>
-              <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:1}}>Continue Learning</span>
-            </div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:800,color:"#fff",marginBottom:6,lineHeight:1.3}}>{nextLesson?nextLesson.title:"All lessons complete!"}</div>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginBottom:20}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:""}</div>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:"#0F172A",border:"none",padding:"12px 28px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"Browse Lessons"}</button>
-              <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.8)",border:"1.5px solid rgba(255,255,255,0.2)",padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
-              <div style={{marginLeft:"auto",textAlign:"right"}}><div style={{fontSize:22,fontWeight:800,color:"#fff"}}>{pct}%</div><div style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>overall</div></div>
-            </div>
+        <div style={{background:"#fff",borderRadius:16,border:`1px solid ${T.border}`,overflow:"hidden"}}>
+          <div style={{background:`linear-gradient(90deg,${nextLevel?.color||"#1A56DB"}18,transparent)`,padding:"20px 22px",borderBottom:`1px solid ${T.border}`}}>
+            <div style={{fontSize:11,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Continue Learning</div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:700,color:T.navy,marginBottom:4}}>{nextLesson?nextLesson.title:"All lessons complete!"}</div>
+            <div style={{fontSize:12,color:T.textSoft}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:""}</div>
           </div>
-          <div style={{height:4,background:"rgba(255,255,255,0.08)"}}><div style={{height:"100%",width:`${pct||1}%`,background:"linear-gradient(90deg,#3B82F6,#10B981)",transition:"width 1s"}}/></div>
+          <div style={{padding:"14px 22px",display:"flex",alignItems:"center",gap:12}}>
+            <div style={{flex:1}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:T.textSoft,marginBottom:5}}><span>Overall progress</span><span style={{fontWeight:700,color:T.navy}}>{pct}%</span></div>
+              <div style={{height:5,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:nextLevel?.color||T.blue,borderRadius:99,transition:"width 1s"}}/></div>
+            </div>
+            <button onClick={()=>onNavigate("hub")} style={{background:nextLevel?.color||T.blue,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>{nextLesson?"Start →":"Review →"}</button>
+          </div>
         </div>
         <FocusSessionWidget onNavigate={onNavigate}/>
-        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"22px 24px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:800,color:"#0F172A"}}>Skills Breakdown</div>
-            <span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>Based on completed lessons</span>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"14px 28px"}}>
-            {[{sk:"listening",label:"Listening",icon:"🎧"},{sk:"speaking",label:"Speaking",icon:"🗣️"},{sk:"writing",label:"Writing",icon:"✍️"},{sk:"reading",label:"Reading",icon:"📖"}].map(({sk,label,icon})=>{
+        <div style={{background:"#fff",borderRadius:16,border:`1px solid ${T.border}`,padding:"20px 22px"}}>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:700,color:T.navy,marginBottom:16}}>Skills Breakdown</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 24px"}}>
+            {[{sk:"listening",label:"Listening",icon:"🎧",color:"#3B82F6"},{sk:"speaking",label:"Speaking",icon:"🗣️",color:"#10B981"},{sk:"writing",label:"Writing",icon:"✍️",color:"#F59E0B"},{sk:"reading",label:"Reading",icon:"📖",color:"#8B5CF6"}].map(({sk,label,icon,color})=>{
               const d=skillDone(sk);const t=skillTotal(sk);const p=t>0?Math.round((d/t)*100):0;
               return <div key={sk}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                  <span style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>{icon} {label}</span>
-                  <span style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{p}%</span>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                  <span style={{fontSize:12,fontWeight:600,color:T.navy}}>{icon} {label}</span>
+                  <span style={{fontSize:11,fontWeight:700,color}}>{p}%</span>
                 </div>
-                <div style={{height:6,background:"#F1F5F9",borderRadius:99,overflow:"hidden",border:"1px solid #E2E8F0"}}><div style={{height:"100%",width:`${p||1}%`,background:"#0F172A",borderRadius:99,transition:"width 0.8s"}}/></div>
-                <div style={{fontSize:10,color:"#94A3B8",marginTop:3}}>{d}/{t} lessons</div>
+                <div style={{height:5,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${p}%`,background:color,borderRadius:99,transition:"width 0.8s"}}/></div>
               </div>;
             })}
           </div>
         </div>
       </div>
       <div style={{display:"flex",flexDirection:"column",gap:16}}>
-        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
-          <div style={{background:"#0F172A",padding:"20px",textAlign:"center"}}>
-            <Avatar companion={c} size={64}/>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:800,color:"#fff",marginTop:10}}>{c.name}</div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginTop:2}}>{c.style}</div>
-          </div>
-          <div style={{padding:"16px 18px"}}>
-            <div style={{fontSize:13,color:"#475569",lineHeight:1.65,fontStyle:"italic",padding:"12px 14px",background:"#F8FAFC",borderRadius:10,marginBottom:14,border:"1px solid #E2E8F0"}}>"{c.messages?.idle||"Ready to learn!"}"</div>
-            <button onClick={()=>onNavigate("tutor")} style={{width:"100%",padding:"12px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:8}}>🧑‍🏫 Open Personal Tutor</button>
-            <button onClick={()=>onNavigate("practice")} style={{width:"100%",padding:"10px",background:"#F8FAFC",color:"#0F172A",border:"1.5px solid #E2E8F0",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>💬 Quick Chat</button>
-          </div>
+        <div style={{background:"#fff",borderRadius:16,border:`1px solid ${T.border}`,padding:"20px",textAlign:"center"}}>
+          <Avatar companion={c} size={72}/>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:700,color:T.navy,marginTop:12,marginBottom:4}}>{c.name}</div>
+          <div style={{fontSize:12,color:T.textSoft,marginBottom:14}}>{c.style}</div>
+          <div style={{fontSize:13,color:T.textMid,lineHeight:1.65,fontStyle:"italic",padding:"12px",background:T.surface,borderRadius:10,marginBottom:14,textAlign:"left"}}>"{c.messages?.idle||"Ready to learn!"}"</div>
+          <button onClick={()=>onNavigate("practice")} style={{width:"100%",padding:"11px",background:T.navy,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Chat with {c.name}</button>
         </div>
-        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"18px 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Your CLB Path</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:800,color:"#0F172A",marginBottom:4}}>{level.label}</div>
-          <div style={{fontSize:12,color:"#64748B",lineHeight:1.6,marginBottom:14}}>{level.desc}</div>
-          <div style={{display:"flex",gap:8,marginBottom:14}}>
-            <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"#0F172A",color:"#fff"}}>{level.cefrTag}</span>
-            <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",border:"1.5px solid #E2E8F0"}}>{level.clbTag}</span>
-          </div>
-          <div style={{height:6,background:"#F1F5F9",borderRadius:99,overflow:"hidden",border:"1px solid #E2E8F0"}}><div style={{height:"100%",width:`${pct||1}%`,background:"#0F172A",borderRadius:99}}/></div>
-          <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>{doneL} of {allL.length} lessons complete</div>
-        </div>
-        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"16px 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
-          <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:12}}>Quick Links</div>
-          {[{icon:"📖",label:"All Lessons",sub:"190 structured lessons",screen:"hub"},{icon:"⚡",label:"Practice & Games",sub:"Flashcards, matching & more",screen:"practice"},{icon:"🧑‍🏫",label:"Personal Tutor",sub:"AI tutor knows your progress",screen:"tutor"}].map(l=>(
-            <div key={l.screen} onClick={()=>onNavigate(l.screen)} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid #F1F5F9",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.opacity=".65"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
-              <div style={{width:34,height:34,borderRadius:9,background:"#F8FAFC",border:"1.5px solid #E2E8F0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{l.icon}</div>
-              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{l.label}</div><div style={{fontSize:11,color:"#94A3B8"}}>{l.sub}</div></div>
-              <span style={{color:"#CBD5E0",fontSize:16}}>›</span>
+        <div style={{background:"#fff",borderRadius:16,border:`1px solid ${T.border}`,padding:"16px 20px"}}>
+          <div style={{fontSize:13,fontWeight:700,color:T.navy,marginBottom:12}}>Quick Links</div>
+          {[{icon:"📚",label:"Browse All Lessons",screen:"hub"},{icon:"⚡",label:"Practice and Games",screen:"practice"},{icon:"👤",label:"My Profile",screen:"profile"}].map(l=>(
+            <div key={l.screen} onClick={()=>onNavigate(l.screen)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 0",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.opacity=".7"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+              <span style={{fontSize:16,width:22,textAlign:"center"}}>{l.icon}</span>
+              <span style={{fontSize:13,color:T.navy,fontWeight:500,flex:1}}>{l.label}</span>
+              <span style={{color:T.textSoft}}>›</span>
             </div>
           ))}
+        </div>
+        <div style={{background:`${level.color}12`,border:`1px solid ${level.color}30`,borderRadius:16,padding:"16px 20px"}}>
+          <div style={{fontSize:11,fontWeight:700,color:level.color,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>Your CLB Path</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:4}}>{level.label}</div>
+          <div style={{fontSize:12,color:T.textMid,lineHeight:1.6,marginBottom:12}}>{level.desc}</div>
+          <div style={{display:"flex",gap:8}}><span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:50,background:level.color,color:"#fff"}}>{level.cefrTag}</span><span style={{fontSize:11,fontWeight:700,padding:"4px 10px",borderRadius:50,background:"#fff",color:level.color,border:`1px solid ${level.color}40`}}>{level.clbTag}</span></div>
         </div>
       </div>
     </div>
@@ -2379,8 +2417,6 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
   const[search,setSearch]=useState("");
-  const allLessons2=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
-  const dueReviews=allLessons2.filter(l=>progress[l.id]&&isDueForReview(null));
   const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
   const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
   const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
@@ -2844,9 +2880,9 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {answered&&<div style={{padding:"16px 18px",borderRadius:16,background:isOk?"linear-gradient(135deg,#D1FAE5,#ECFDF5)":"linear-gradient(135deg,#FEF3C7,#FFFBEB)",border:`2px solid ${isOk?"#6EE7B7":"#FCD34D"}`,display:"flex",alignItems:"flex-start",gap:12,animation:"slideUp 0.3s ease"}}>
           <span style={{fontSize:24,flexShrink:0}}>{isOk?"✅":"💡"}</span>
           <div style={{flex:1}}>
-            <div style={{fontWeight:700,fontSize:14,color:isOk?"#065F46":T.navy,marginBottom:5}}>{isOk?"Correct! You're getting it! 🌟":"Good try — here's how it works:"}</div>
+            <div style={{fontWeight:700,fontSize:14,color:isOk?"#065F46":"#92400E",marginBottom:5}}>{isOk?"Correct! You're getting it! 🌟":"Good try — here's how it works:"}</div>
             <div style={{fontSize:13,color:isOk?"#065F46":"#78350F",lineHeight:1.65}}>{q.explain}</div>
-            {!isOk&&<div style={{marginTop:8,fontSize:12,color:T.navy,fontWeight:600}}>Don't worry — mistakes are how the brain learns! 🧠</div>}
+            {!isOk&&<div style={{marginTop:8,fontSize:12,color:"#92400E",fontWeight:600}}>Don't worry — mistakes are how the brain learns! 🧠</div>}
           </div>
         </div>}
 
@@ -2896,8 +2932,8 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           {[
             {val:`${correct}/${total}`,lbl:"Correct",icon:"✅",bg:T.mintLight,col:"#065F46"},
             {val:`${Math.round((correct/total)*100)}%`,lbl:"Accuracy",icon:"🎯",bg:T.blueLight,col:T.navy},
-            {val:`+${xp}`,lbl:"XP Earned",icon:"⭐",bg:T.goldLight,col:T.navy},
-            {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#fff",col:T.navy},
+            {val:`+${xp}`,lbl:"XP Earned",icon:"⭐",bg:T.goldLight,col:"#92400E"},
+            {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#FFF7ED",col:"#C2410C"},
           ].map(s=><div key={s.lbl} style={{minWidth:90,textAlign:"center",padding:"16px 18px",borderRadius:16,background:s.bg,border:`1.5px solid ${s.col}20`}}>
             <div style={{fontSize:10,marginBottom:4}}>{s.icon}</div>
             <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
@@ -2906,7 +2942,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         </div>
 
         {/* Motivational bar */}
-        {correct>=total*0.7&&<div style={{padding:"14px 24px",borderRadius:50,background:"linear-gradient(135deg,#FEF3C7,#FDE68A)",border:"1.5px solid #FCD34D",fontSize:15,fontWeight:700,color:T.navy}}>
+        {correct>=total*0.7&&<div style={{padding:"14px 24px",borderRadius:50,background:"linear-gradient(135deg,#FEF3C7,#FDE68A)",border:"1.5px solid #FCD34D",fontSize:15,fontWeight:700,color:"#92400E"}}>
           ⭐ +{xp} XP — fantastic lesson! You&apos;re building real French skills.
         </div>}
 
@@ -3084,7 +3120,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
         </div>
       </div>
       {feedback.corrections?.length>0&&<div style={{background:"#FEF9C3",borderRadius:10,padding:12,marginBottom:10}}>
-        <div style={{fontSize:12,fontWeight:700,color:T.navy,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💡 Quick Fixes</div>
+        <div style={{fontSize:12,fontWeight:700,color:"#92400E",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💡 Quick Fixes</div>
         {feedback.corrections.map((c,i)=><div key={i} style={{fontSize:13,color:"#78350F",padding:"3px 0",display:"flex",gap:8}}><span>→</span>{c}</div>)}
       </div>}
       {feedback.phonetic_tips?.length>0&&<div style={{background:"#EDE9FE",borderRadius:10,padding:12,marginBottom:12}}>
@@ -3156,8 +3192,8 @@ Is this correct or close enough? Give feedback.`;
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
         <span style={{fontSize:24}}>{result.correct?"✅":"💡"}</span>
         <div>
-          <div style={{fontWeight:700,fontSize:15,color:result.correct?"#065F46":T.navy}}>{result.correct?"Correct! Well done! 🌟":"Close! Here's the correction:"}</div>
-          <div style={{fontSize:13,color:result.correct?"#059669":T.navy,marginTop:2}}>{result.encouragement}</div>
+          <div style={{fontWeight:700,fontSize:15,color:result.correct?"#065F46":"#92400E"}}>{result.correct?"Correct! Well done! 🌟":"Close! Here's the correction:"}</div>
+          <div style={{fontSize:13,color:result.correct?"#059669":"#92400E",marginTop:2}}>{result.encouragement}</div>
         </div>
         <div style={{marginLeft:"auto",width:40,height:40,borderRadius:"50%",background:result.correct?T.mint:T.gold,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:13}}>{result.score}</div>
       </div>
@@ -3367,101 +3403,6 @@ Rules:
   return null;
 }
 
-function PersonalTutorScreen({companion,progress,startLevel,onNavigate}){
-  const c=companion||COMPANIONS[0];
-  const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
-  const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
-  const done=allL.filter(l=>progress[l.id]);
-  const notDone=allL.filter(l=>!progress[l.id]);
-  const[msgs,setMsgs]=useState([]);
-  const[input,setInput]=useState("");
-  const[loading,setLoading]=useState(false);
-  const bottomRef=useRef();
-
-  const ctx=`You are ${c.name}, a personal French tutor for Canadian immigrants learning French for CLB/TEF exams.
-LEARNER: Level ${level.label} (${level.cefrTag}), ${done.length}/${allL.length} lessons done. Next: ${notDone[0]?.title||"all done"}.
-Skills: Listening ${allL.filter(l=>l.skill==="listening"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="listening").length}, Speaking ${allL.filter(l=>l.skill==="speaking"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="speaking").length}, Writing ${allL.filter(l=>l.skill==="writing"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="writing").length}, Reading ${allL.filter(l=>l.skill==="reading"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="reading").length}.
-YOUR ROLE: Be their dedicated personal tutor. Give specific advice based on their actual progress. Correct French mistakes kindly. Mix French practice into conversation. Help them reach CLB 5. Be warm, encouraging, Canadian-context focused. Max 4-5 sentences per response.`;
-
-  const send=async(text)=>{
-    if(!text.trim()||loading)return;
-    const newMsgs=[...msgs,{role:"user",text}];
-    setMsgs(newMsgs);setInput("");setLoading(true);
-    const history=newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("\n");
-    const reply=await callClaude(ctx,history,400);
-    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
-    setLoading(false);
-    setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
-  };
-
-  useEffect(()=>{
-    const greet=async()=>{
-      setLoading(true);
-      const p=done.length===0
-        ?"Greet this new learner warmly. They have not started yet. Ask what brings them to learn French in Canada. Be warm and short."
-        :`Greet this learner. They completed ${done.length} lessons. Their next lesson is ${notDone[0]?.title||"all done"}. Ask what they want to work on today. Keep it short and personal.`;
-      const r=await callClaude(ctx,p,200);
-      setMsgs([{role:"assistant",text:r}]);
-      setLoading(false);
-    };
-    greet();
-  },[]);
-
-  const prompts=["What should I focus on today?","Quiz me on what I have learned","Make me a study plan for this week","Explain the passe compose","Practice a job interview in French","Give me CLB speaking tips"];
-
-  return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:800,margin:"0 auto"}}>
-    <div style={{padding:"14px 20px",background:"#fff",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-      <Avatar companion={c} size={40} speaking={loading}/>
-      <div style={{flex:1}}>
-        <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
-        <div style={{fontSize:11,color:T.mint,fontWeight:600}}>Personalized for your CLB journey · {done.length} lessons tracked</div>
-      </div>
-    </div>
-    <div style={{background:T.surface,padding:"8px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-      <span style={{fontSize:11,color:T.textSoft,fontWeight:600}}>Your progress:</span>
-      <div style={{flex:1,height:4,background:T.border,borderRadius:99,overflow:"hidden"}}>
-        <div style={{height:"100%",width:`${Math.round((done.length/allL.length)*100)}%`,background:`linear-gradient(90deg,${T.blue},${T.mint})`,borderRadius:99}}/>
-      </div>
-      <span style={{fontSize:11,fontWeight:700,color:T.navy}}>{done.length}/{allL.length}</span>
-      <Pill variant="blue">{level.cefrTag}</Pill>
-    </div>
-    <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
-      {msgs.map((m,i)=>(
-        <div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
-          {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
-          <div style={{maxWidth:"78%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.7,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
-            {m.text}
-          </div>
-        </div>
-      ))}
-      {loading&&<div style={{display:"flex",gap:10,marginBottom:16}}>
-        <Avatar companion={c} size={36}/>
-        <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"14px 18px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:5}}>
-          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.blue,animation:`typeDot 1.2s infinite ${i*0.2}s`}}/>)}
-        </div>
-      </div>}
-      <div ref={bottomRef}/>
-    </div>
-    {msgs.length<=2&&!loading&&<div style={{padding:"0 20px 12px",display:"flex",gap:8,flexWrap:"wrap"}}>
-      {prompts.map(p=>(
-        <button key={p} onClick={()=>send(p)} style={{padding:"7px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:50,fontSize:12,fontWeight:600,color:T.navy,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{p}</button>
-      ))}
-    </div>}
-    <div style={{padding:"14px 20px",background:"#fff",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"flex-end"}}>
-      <textarea value={input} onChange={e=>setInput(e.target.value)}
-        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send(input);}}}
-        placeholder={`Ask ${c.name} anything...`}
-        style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
-        rows={1}/>
-      <button onClick={()=>send(input)} disabled={!input.trim()||loading}
-        style={{background:input.trim()&&!loading?T.blue:"#CBD5E0",color:"#fff",border:"none",padding:"12px 20px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>
-        {loading?"...":"Send →"}
-      </button>
-    </div>
-  </div>;
-}
-
-
 function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onAuthNav}){
   const{logout}=useAuth();
   const c=companion||COMPANIONS[0];
@@ -3548,13 +3489,13 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
 function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav}){
   const{logout}=useAuth();
   const xp=Object.keys(progress).length*25;
-  const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"tutor",label:"Tutor",emoji:"🧑‍🏫"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
+  const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
   const displayName=user?.displayName||user?.email?.split("@")[0]||null;
   return <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 20px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
     <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:T.navy,marginRight:4}}>Franco</div>
     <div style={{fontSize:16,marginRight:8}}>🍁</div>
-    {guestMode&&<span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#FEF3C7",color:T.navy,border:"1px solid #FCD34D"}}>Guest</span>}
+    {guestMode&&<span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#FEF3C7",color:"#92400E",border:"1px solid #FCD34D"}}>Guest</span>}
     <div style={{flex:1}}/>
     <div style={{display:"flex",gap:4}}>
       {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 14px",borderRadius:10,border:"none",background:screen===n.id?T.blueLight:"transparent",color:screen===n.id?T.blue:T.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
@@ -3652,7 +3593,6 @@ function AppInner(){
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
     {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
-    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
