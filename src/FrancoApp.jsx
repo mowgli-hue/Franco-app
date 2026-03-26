@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -18,12 +19,29 @@ const FIREBASE_CONFIG = {
 const hasFirebaseConfig = Object.values(FIREBASE_CONFIG).every(v=>v.trim().length>0);
 let _firebaseApp = null;
 let _firebaseAuth = null;
+let _firebaseDb = null;
 if(hasFirebaseConfig){
   try{
     _firebaseApp = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
     _firebaseAuth = getAuth(_firebaseApp);
+    _firebaseDb = getFirestore(_firebaseApp);
   }catch(e){ console.error("[firebase] init failed",e); }
 }
+async function saveUserData(uid,data){
+  if(!_firebaseDb||!uid)return;
+  try{await setDoc(doc(_firebaseDb,"users",uid),data,{merge:true});}catch(e){console.warn("save failed",e);}
+}
+async function loadUserData(uid){
+  if(!_firebaseDb||!uid)return null;
+  try{const s=await getDoc(doc(_firebaseDb,"users",uid));return s.exists()?s.data():null;}catch{return null;}
+}
+function calcNextReview(prevInterval,prevEF,quality){
+  const ef=Math.max(1.3,prevEF+0.1-(5-quality)*(0.08+(5-quality)*0.02));
+  let interval=quality<3?1:!prevInterval?1:prevInterval===1?6:Math.round(prevInterval*ef);
+  const next=new Date();next.setDate(next.getDate()+interval);
+  return{interval,ef,nextDate:next.toISOString(),quality};
+}
+function isDueForReview(r){if(!r?.nextDate)return false;return new Date(r.nextDate)<=new Date();}
 
 function mapAuthError(error){
   const code = error?.code || "";
@@ -2417,6 +2435,8 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
   const[search,setSearch]=useState("");
+  const allLessons2=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const dueReviews=allLessons2.filter(l=>progress[l.id]&&isDueForReview(null));
   const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
   const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
   const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
@@ -3403,6 +3423,101 @@ Rules:
   return null;
 }
 
+function PersonalTutorScreen({companion,progress,startLevel,onNavigate}){
+  const c=companion||COMPANIONS[0];
+  const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
+  const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const done=allL.filter(l=>progress[l.id]);
+  const notDone=allL.filter(l=>!progress[l.id]);
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState("");
+  const[loading,setLoading]=useState(false);
+  const bottomRef=useRef();
+
+  const ctx=`You are ${c.name}, a personal French tutor for Canadian immigrants learning French for CLB/TEF exams.
+LEARNER: Level ${level.label} (${level.cefrTag}), ${done.length}/${allL.length} lessons done. Next: ${notDone[0]?.title||"all done"}.
+Skills: Listening ${allL.filter(l=>l.skill==="listening"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="listening").length}, Speaking ${allL.filter(l=>l.skill==="speaking"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="speaking").length}, Writing ${allL.filter(l=>l.skill==="writing"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="writing").length}, Reading ${allL.filter(l=>l.skill==="reading"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="reading").length}.
+YOUR ROLE: Be their dedicated personal tutor. Give specific advice based on their actual progress. Correct French mistakes kindly. Mix French practice into conversation. Help them reach CLB 5. Be warm, encouraging, Canadian-context focused. Max 4-5 sentences per response.`;
+
+  const send=async(text)=>{
+    if(!text.trim()||loading)return;
+    const newMsgs=[...msgs,{role:"user",text}];
+    setMsgs(newMsgs);setInput("");setLoading(true);
+    const history=newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("\n");
+    const reply=await callClaude(ctx,history,400);
+    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    setLoading(false);
+    setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+  };
+
+  useEffect(()=>{
+    const greet=async()=>{
+      setLoading(true);
+      const p=done.length===0
+        ?"Greet this new learner warmly. They have not started yet. Ask what brings them to learn French in Canada. Be warm and short."
+        :`Greet this learner. They completed ${done.length} lessons. Their next lesson is ${notDone[0]?.title||"all done"}. Ask what they want to work on today. Keep it short and personal.`;
+      const r=await callClaude(ctx,p,200);
+      setMsgs([{role:"assistant",text:r}]);
+      setLoading(false);
+    };
+    greet();
+  },[]);
+
+  const prompts=["What should I focus on today?","Quiz me on what I have learned","Make me a study plan for this week","Explain the passe compose","Practice a job interview in French","Give me CLB speaking tips"];
+
+  return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:800,margin:"0 auto"}}>
+    <div style={{padding:"14px 20px",background:"#fff",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+      <Avatar companion={c} size={40} speaking={loading}/>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
+        <div style={{fontSize:11,color:T.mint,fontWeight:600}}>Personalized for your CLB journey · {done.length} lessons tracked</div>
+      </div>
+    </div>
+    <div style={{background:T.surface,padding:"8px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+      <span style={{fontSize:11,color:T.textSoft,fontWeight:600}}>Your progress:</span>
+      <div style={{flex:1,height:4,background:T.border,borderRadius:99,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${Math.round((done.length/allL.length)*100)}%`,background:`linear-gradient(90deg,${T.blue},${T.mint})`,borderRadius:99}}/>
+      </div>
+      <span style={{fontSize:11,fontWeight:700,color:T.navy}}>{done.length}/{allL.length}</span>
+      <Pill variant="blue">{level.cefrTag}</Pill>
+    </div>
+    <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
+      {msgs.map((m,i)=>(
+        <div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
+          {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
+          <div style={{maxWidth:"78%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.7,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
+            {m.text}
+          </div>
+        </div>
+      ))}
+      {loading&&<div style={{display:"flex",gap:10,marginBottom:16}}>
+        <Avatar companion={c} size={36}/>
+        <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"14px 18px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:5}}>
+          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.blue,animation:`typeDot 1.2s infinite ${i*0.2}s`}}/>)}
+        </div>
+      </div>}
+      <div ref={bottomRef}/>
+    </div>
+    {msgs.length<=2&&!loading&&<div style={{padding:"0 20px 12px",display:"flex",gap:8,flexWrap:"wrap"}}>
+      {prompts.map(p=>(
+        <button key={p} onClick={()=>send(p)} style={{padding:"7px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:50,fontSize:12,fontWeight:600,color:T.navy,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{p}</button>
+      ))}
+    </div>}
+    <div style={{padding:"14px 20px",background:"#fff",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"flex-end"}}>
+      <textarea value={input} onChange={e=>setInput(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send(input);}}}
+        placeholder={`Ask ${c.name} anything...`}
+        style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+        rows={1}/>
+      <button onClick={()=>send(input)} disabled={!input.trim()||loading}
+        style={{background:input.trim()&&!loading?T.blue:"#CBD5E0",color:"#fff",border:"none",padding:"12px 20px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",flexShrink:0}}>
+        {loading?"...":"Send →"}
+      </button>
+    </div>
+  </div>;
+}
+
+
 function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onAuthNav}){
   const{logout}=useAuth();
   const c=companion||COMPANIONS[0];
@@ -3489,7 +3604,7 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
 function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav}){
   const{logout}=useAuth();
   const xp=Object.keys(progress).length*25;
-  const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
+  const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"tutor",label:"Tutor",emoji:"🧑‍🏫"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
   const displayName=user?.displayName||user?.email?.split("@")[0]||null;
   return <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 20px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
@@ -3593,6 +3708,7 @@ function AppInner(){
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
     {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
+    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
