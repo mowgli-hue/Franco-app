@@ -2268,29 +2268,29 @@ function FocusSessionWidget({onNavigate}){
   const reset=()=>{setRunning(false);setPhase("idle");setSecs(FOCUS);setSessions(0);};
   const phaseColor=phase==="break"?T.mint:phase==="done"?T.gold:T.blue;
   const phaseLabel=phase==="focus"?"Focus 🧠":phase==="break"?"Break ☕":phase==="done"?"Done! 🎉":"Ready";
-  return <Card style={{background:"linear-gradient(135deg,#0D1B3E,#1A3280)",color:"#fff",border:"none"}}>
+  return <Card style={{background:"#fff",border:`1.5px solid ${T.border}`}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
       <div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:"#fff",marginBottom:2}}>⏱ 25:5 Focus Session</div>
-        <div style={{fontSize:12,color:"rgba(255,255,255,0.55)"}}>25 min focus + 5 min break</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:T.navy,marginBottom:2}}>⏱ 25:5 Focus Session</div>
+        <div style={{fontSize:12,color:T.textSoft}}>25 min focus + 5 min break</div>
       </div>
       {sessions>0&&<div style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",padding:"4px 12px",borderRadius:50,fontSize:12,fontWeight:700,color:"#fff"}}>🔥 {sessions} done</div>}
     </div>
     <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
       <div style={{position:"relative",flexShrink:0}}>
         <svg width="140" height="140" style={{transform:"rotate(-90deg)"}}>
-          <circle cx="70" cy="70" r="60" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8"/>
+          <circle cx="70" cy="70" r="60" fill="none" stroke="#E2E8F0" strokeWidth="8"/>
           <circle cx="70" cy="70" r="60" fill="none" stroke={phaseColor} strokeWidth="8"
             strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference*(1-pct/100)}
             style={{transition:"stroke-dashoffset 0.8s ease,stroke 0.5s"}}/>
         </svg>
         <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.55)",marginBottom:1}}>{phaseLabel}</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:900,color:"#fff",letterSpacing:2}}>{fmt(secs)}</div>
+          <div style={{fontSize:10,color:T.textSoft,marginBottom:1}}>{phaseLabel}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:900,color:T.navy,letterSpacing:2}}>{fmt(secs)}</div>
         </div>
       </div>
       <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,minWidth:140}}>
-        <div style={{fontSize:12,color:"rgba(255,255,255,0.65)",lineHeight:1.6}}>
+        <div style={{fontSize:12,color:T.textMid,lineHeight:1.6}}>
           {phase==="idle"&&"25 minutes of focused French study, then a 5-minute break."}
           {phase==="focus"&&"Stay focused! Work through your lesson now. 🎯"}
           {phase==="break"&&"Well done! Rest for 5 minutes before the next session. ☕"}
@@ -2300,17 +2300,17 @@ function FocusSessionWidget({onNavigate}){
           {phase==="idle"&&<button onClick={start} style={{padding:"10px 20px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Start</button>}
           {(phase==="focus"||phase==="break")&&<>
             <button onClick={toggle} style={{padding:"10px 18px",background:running?"rgba(255,255,255,0.15)":T.mint,color:"#fff",border:"1px solid rgba(255,255,255,0.2)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>{running?"⏸ Pause":"▶ Resume"}</button>
-            <button onClick={reset} style={{padding:"10px 14px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
+            <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
           </>}
           {phase==="done"&&<>
             <button onClick={start} style={{padding:"10px 18px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Again</button>
-            <button onClick={reset} style={{padding:"10px 14px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.7)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
+            <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
           </>}
-          <button onClick={()=>onNavigate("hub")} style={{padding:"10px 18px",background:"rgba(255,255,255,0.08)",color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>📚 Lessons</button>
+          <button onClick={()=>onNavigate("hub")} style={{padding:"10px 18px",background:T.surface,color:T.navy,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>📚 Lessons</button>
         </div>
         <div style={{display:"flex",gap:5,alignItems:"center"}}>
-          {[0,1,2,3].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<sessions?T.mint:"rgba(255,255,255,0.15)",transition:"background 0.3s"}}/>)}
-          <span style={{fontSize:11,color:"rgba(255,255,255,0.4)",marginLeft:4}}>{sessions}/4 today</span>
+          {[0,1,2,3].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<sessions?T.mint:T.border,transition:"background 0.3s"}}/>)}
+          <span style={{fontSize:11,color:T.textSoft,marginLeft:4}}>{sessions}/4 today</span>
         </div>
       </div>
     </div>
@@ -2337,16 +2337,16 @@ function DashboardScreen({companion,startLevel,progress,onNavigate}){
       </div>
       <div style={{display:"flex",gap:8}}><Pill variant="gold">🔥 {streak()} days</Pill><Pill variant="blue">⭐ {xp} XP</Pill></div>
     </div>
-    <div style={{background:`linear-gradient(135deg,${T.navy},#1A3280)`,borderRadius:20,padding:"22px 24px",color:"#fff"}}>
-      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:"rgba(255,255,255,0.55)",textTransform:"uppercase",marginBottom:8}}>Next Up</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,marginBottom:4}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
-      <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:16}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:"You have completed all lessons!"}</div>
+    <div style={{background:"#fff",borderRadius:20,padding:"22px 24px",border:`1.5px solid ${T.border}`,boxShadow:"0 2px 12px rgba(13,27,62,0.06)"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:T.textSoft,textTransform:"uppercase",marginBottom:8}}>Next Up</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:4}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
+      <div style={{fontSize:13,color:T.textMid,marginBottom:16}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:"You have completed all lessons!"}</div>
       <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:T.navy,border:"none",padding:"12px 24px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"📚 Review Lessons"}</button>
-        <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"#fff",border:"1px solid rgba(255,255,255,0.2)",padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
+        <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"📚 Review Lessons"}</button>
+        <button onClick={()=>onNavigate("practice")} style={{background:T.surface,color:T.navy,border:`1px solid ${T.border}`,padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
         <div style={{marginLeft:"auto",textAlign:"right"}}>
-          <div style={{fontSize:12,color:"rgba(255,255,255,0.55)",marginBottom:4}}>{pct}% · {doneL}/{allL.length} lessons</div>
-          <div style={{width:120,height:5,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:"#60A5FA",borderRadius:99}}/></div>
+          <div style={{fontSize:12,color:T.textSoft,marginBottom:4}}>{pct}% · {doneL}/{allL.length} lessons</div>
+          <div style={{width:120,height:5,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:T.blue,borderRadius:99}}/></div>
         </div>
       </div>
     </div>
