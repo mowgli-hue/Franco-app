@@ -2355,6 +2355,129 @@ function OnboardingScreen({onComplete}){
 }
 
 
+function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
+  const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
+  const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const doneL=Object.keys(progress).length;
+  const pct=Math.round((doneL/allL.length)*100);
+  const xp=doneL*25;
+  const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
+  const c=companion||COMPANIONS[0];
+  const hour=new Date().getHours();
+  const greeting=hour<12?"Bonjour":hour<17?"Bon apres-midi":"Bonsoir";
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
+  const nextLesson=allL.find(l=>!progress[l.id]);
+  const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
+  const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
+  const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
+
+  return <div style={{minHeight:"100vh",background:"#F1F4F9",padding:"32px 28px",maxWidth:1020,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
+      <div>
+        <div style={{fontSize:13,color:"#64748B",fontWeight:500,marginBottom:4}}>{greeting} {displayName?`— ${displayName}`:""} · {new Date().toLocaleDateString("en-CA",{weekday:"long",month:"long",day:"numeric"})}</div>
+        <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:800,color:"#0F172A",lineHeight:1.15}}>
+          {doneL===0?"Start your French journey 🍁":doneL<10?"Building momentum 💪":doneL<50?"Making great progress 🎯":"You're becoming fluent 🌟"}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"12px 18px",background:"#fff",borderRadius:14,border:"2px solid #E2E8F0",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        <Avatar companion={c} size={36}/>
+        <div><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div><div style={{fontSize:11,color:"#10B981",fontWeight:600}}>● Online & Ready</div></div>
+      </div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+      {[
+        {label:"Day Streak",val:streak(),unit:"days",icon:"🔥",desc:"Keep it up!"},
+        {label:"XP Earned",val:xp,unit:"XP",icon:"⭐",desc:`${allL.length*25} total possible`},
+        {label:"Lessons Done",val:doneL,unit:`/ ${allL.length}`,icon:"📚",desc:`${pct}% complete`},
+        {label:"CLB Target",val:level.clbTag,unit:"",icon:"🎯",desc:level.cefrTag},
+      ].map((s,i)=>(
+        <div key={i} style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"18px 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <div style={{fontSize:22,marginBottom:10}}>{s.icon}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:800,color:"#0F172A",lineHeight:1}}>{s.val}<span style={{fontSize:13,fontWeight:600,color:"#64748B",marginLeft:4}}>{s.unit}</span></div>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",marginTop:4,textTransform:"uppercase",letterSpacing:.5}}>{s.label}</div>
+          <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>{s.desc}</div>
+        </div>
+      ))}
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:16,alignItems:"start"}}>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{background:"#0F172A",borderRadius:20,overflow:"hidden",boxShadow:"0 4px 20px rgba(15,23,42,0.2)"}}>
+          <div style={{padding:"24px 26px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:"#10B981"}}/>
+              <span style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:1}}>Continue Learning</span>
+            </div>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:800,color:"#fff",marginBottom:6,lineHeight:1.3}}>{nextLesson?nextLesson.title:"All lessons complete!"}</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginBottom:20}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:""}</div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:"#0F172A",border:"none",padding:"12px 28px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"Browse Lessons"}</button>
+              <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.8)",border:"1.5px solid rgba(255,255,255,0.2)",padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
+              <div style={{marginLeft:"auto",textAlign:"right"}}><div style={{fontSize:22,fontWeight:800,color:"#fff"}}>{pct}%</div><div style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>overall</div></div>
+            </div>
+          </div>
+          <div style={{height:4,background:"rgba(255,255,255,0.08)"}}><div style={{height:"100%",width:`${pct||1}%`,background:"linear-gradient(90deg,#3B82F6,#10B981)",transition:"width 1s"}}/></div>
+        </div>
+        <FocusSessionWidget onNavigate={onNavigate}/>
+        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"22px 24px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20}}>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:800,color:"#0F172A"}}>Skills Breakdown</div>
+            <span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>Based on completed lessons</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"14px 28px"}}>
+            {[{sk:"listening",label:"Listening",icon:"🎧"},{sk:"speaking",label:"Speaking",icon:"🗣️"},{sk:"writing",label:"Writing",icon:"✍️"},{sk:"reading",label:"Reading",icon:"📖"}].map(({sk,label,icon})=>{
+              const d=skillDone(sk);const t=skillTotal(sk);const p=t>0?Math.round((d/t)*100):0;
+              return <div key={sk}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+                  <span style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>{icon} {label}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{p}%</span>
+                </div>
+                <div style={{height:6,background:"#F1F5F9",borderRadius:99,overflow:"hidden",border:"1px solid #E2E8F0"}}><div style={{height:"100%",width:`${p||1}%`,background:"#0F172A",borderRadius:99,transition:"width 0.8s"}}/></div>
+                <div style={{fontSize:10,color:"#94A3B8",marginTop:3}}>{d}/{t} lessons</div>
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:16}}>
+        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",overflow:"hidden",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <div style={{background:"#0F172A",padding:"20px",textAlign:"center"}}>
+            <Avatar companion={c} size={64}/>
+            <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:800,color:"#fff",marginTop:10}}>{c.name}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginTop:2}}>{c.style}</div>
+          </div>
+          <div style={{padding:"16px 18px"}}>
+            <div style={{fontSize:13,color:"#475569",lineHeight:1.65,fontStyle:"italic",padding:"12px 14px",background:"#F8FAFC",borderRadius:10,marginBottom:14,border:"1px solid #E2E8F0"}}>"{c.messages?.idle||"Ready to learn!"}"</div>
+            <button onClick={()=>onNavigate("tutor")} style={{width:"100%",padding:"12px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginBottom:8}}>🧑‍🏫 Open Personal Tutor</button>
+            <button onClick={()=>onNavigate("practice")} style={{width:"100%",padding:"10px",background:"#F8FAFC",color:"#0F172A",border:"1.5px solid #E2E8F0",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>💬 Quick Chat</button>
+          </div>
+        </div>
+        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"18px 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Your CLB Path</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:19,fontWeight:800,color:"#0F172A",marginBottom:4}}>{level.label}</div>
+          <div style={{fontSize:12,color:"#64748B",lineHeight:1.6,marginBottom:14}}>{level.desc}</div>
+          <div style={{display:"flex",gap:8,marginBottom:14}}>
+            <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"#0F172A",color:"#fff"}}>{level.cefrTag}</span>
+            <span style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",border:"1.5px solid #E2E8F0"}}>{level.clbTag}</span>
+          </div>
+          <div style={{height:6,background:"#F1F5F9",borderRadius:99,overflow:"hidden",border:"1px solid #E2E8F0"}}><div style={{height:"100%",width:`${pct||1}%`,background:"#0F172A",borderRadius:99}}/></div>
+          <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>{doneL} of {allL.length} lessons complete</div>
+        </div>
+        <div style={{background:"#fff",borderRadius:16,border:"2px solid #E2E8F0",padding:"16px 20px",boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:12}}>Quick Links</div>
+          {[{icon:"📖",label:"All Lessons",sub:"190 structured lessons",screen:"hub"},{icon:"⚡",label:"Practice & Games",sub:"Flashcards, matching & more",screen:"practice"},{icon:"🧑‍🏫",label:"Personal Tutor",sub:"AI tutor knows your progress",screen:"tutor"}].map(l=>(
+            <div key={l.screen} onClick={()=>onNavigate(l.screen)} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid #F1F5F9",cursor:"pointer"}} onMouseEnter={e=>e.currentTarget.style.opacity=".65"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+              <div style={{width:34,height:34,borderRadius:9,background:"#F8FAFC",border:"1.5px solid #E2E8F0",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{l.icon}</div>
+              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{l.label}</div><div style={{fontSize:11,color:"#94A3B8"}}>{l.sub}</div></div>
+              <span style={{color:"#CBD5E0",fontSize:16}}>›</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>;
+}
+
+
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
   const[search,setSearch]=useState("");
