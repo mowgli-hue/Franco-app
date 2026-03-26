@@ -2233,6 +2233,27 @@ function OnboardingScreen({onComplete}){
       </Card>)}
     </div>
   </div>;
+}
+  return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
+      <div style={{fontSize:15,color:T.textMid}}>Be honest — Franco personalises your path.</div>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:520,width:"100%"}}>
+      {levels.map(l=><Card key={l.id} onClick={()=>setLevel(l.id)} style={{display:"flex",alignItems:"center",gap:16,border:`2px solid ${level===l.id?T.blue:T.border}`,background:level===l.id?T.blueLight:T.card}}>
+        <div style={{fontSize:28}}>{l.emoji}</div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{l.label}</div>
+          <div style={{fontSize:13,color:T.textSoft,marginTop:2}}>{l.hint}</div>
+        </div>
+        {level===l.id&&<div style={{color:T.blue,fontSize:20}}>✓</div>}
+      </Card>)}
+    </div>
+    <Btn onClick={()=>onComplete(companion,level)} disabled={!level} style={{padding:"15px 40px",fontSize:16}}>Start Learning →</Btn>
+  </div>;
+}
+
 function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
