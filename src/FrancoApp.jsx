@@ -2248,22 +2248,6 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
   const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
   const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
   const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
-
-function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
-  const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
-  const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
-  const doneL=Object.keys(progress).length;
-  const pct=Math.round((doneL/allL.length)*100);
-  const xp=doneL*25;
-  const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
-  const c=companion||COMPANIONS[0];
-  const hour=new Date().getHours();
-  const greeting=hour<12?"Bonjour":hour<17?"Bon apres-midi":"Bonsoir";
-  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
-  const nextLesson=allL.find(l=>!progress[l.id]);
-  const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
-  const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
-  const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
   return <div style={{minHeight:"100vh",background:"#F1F4F9",padding:"32px 28px",maxWidth:1020,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
       <div>
