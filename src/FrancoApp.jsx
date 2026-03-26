@@ -2317,7 +2317,7 @@ function FocusSessionWidget({onNavigate}){
   </Card>;
 }
 
-function DashboardScreen({companion,startLevel,progress,onNavigate}){
+function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
   const doneL=Object.keys(progress).length;
@@ -2326,49 +2326,81 @@ function DashboardScreen({companion,startLevel,progress,onNavigate}){
   const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
   const c=companion||COMPANIONS[0];
   const hour=new Date().getHours();
-  const greeting=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
+  const greeting=hour<12?"Bonjour":hour<17?"Bon apres-midi":"Bonsoir";
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
   const nextLesson=allL.find(l=>!progress[l.id]);
   const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
-  return <div style={{padding:"24px 28px",maxWidth:860,margin:"0 auto",display:"flex",flexDirection:"column",gap:16}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-      <div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:2}}>{greeting} 👋</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:T.navy}}>Welcome back, {c.name} is ready!</div>
-      </div>
-      <div style={{display:"flex",gap:8}}><Pill variant="gold">🔥 {streak()} days</Pill><Pill variant="blue">⭐ {xp} XP</Pill></div>
+  const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
+  const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
+  const skills=[{name:"listening",label:"Listening",icon:"🎧",color:"#3B82F6"},{name:"speaking",label:"Speaking",icon:"🗣️",color:"#10B981"},{name:"writing",label:"Writing",icon:"✍️",color:"#F59E0B"},{name:"reading",label:"Reading",icon:"📖",color:"#8B5CF6"}];
+  const QA=({icon,label,sub,onClick})=>(
+    <div onClick={onClick} style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"16px",cursor:"pointer",transition:"border-color 0.15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor="#94A3B8"} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+      <div style={{fontSize:24,marginBottom:8}}>{icon}</div>
+      <div style={{fontSize:13,fontWeight:700,color:T.navy,marginBottom:2}}>{label}</div>
+      <div style={{fontSize:11,color:T.textSoft}}>{sub}</div>
     </div>
-    <div style={{background:"#fff",borderRadius:20,padding:"22px 24px",border:`1.5px solid ${T.border}`,boxShadow:"0 2px 12px rgba(13,27,62,0.06)"}}>
-      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:T.textSoft,textTransform:"uppercase",marginBottom:8}}>Next Up</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:4}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
-      <div style={{fontSize:13,color:T.textMid,marginBottom:16}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:"You have completed all lessons!"}</div>
-      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-        <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"📚 Review Lessons"}</button>
-        <button onClick={()=>onNavigate("practice")} style={{background:T.surface,color:T.navy,border:`1px solid ${T.border}`,padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
-        <div style={{marginLeft:"auto",textAlign:"right"}}>
-          <div style={{fontSize:12,color:T.textSoft,marginBottom:4}}>{pct}% · {doneL}/{allL.length} lessons</div>
-          <div style={{width:120,height:5,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:T.blue,borderRadius:99}}/></div>
+  );
+  return <div style={{padding:"28px 32px",maxWidth:960,margin:"0 auto",display:"flex",flexDirection:"column",gap:24}}>
+    <div>
+      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:4}}>{greeting}{displayName?`, ${displayName}`:""}! 👋</div>
+      <div style={{fontSize:14,color:T.textSoft}}>{streak()>0?`🔥 ${streak()} day streak — keep it going!`:"Ready for today's French lesson?"}</div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+      {[{icon:"🔥",val:streak(),label:"Day Streak",color:"#F97316"},{icon:"⭐",val:xp,label:"XP Points",color:"#F59E0B"},{icon:"📚",val:doneL,label:"Lessons Done",color:"#3B82F6"},{icon:"🎯",val:`${pct}%`,label:"Progress",color:"#10B981"}].map((s,i)=>(
+        <div key={i} style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"18px 16px"}}>
+          <div style={{fontSize:22,color:s.color,marginBottom:8}}>{s.icon}</div>
+          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color:T.navy,marginBottom:2}}>{s.val}</div>
+          <div style={{fontSize:12,color:T.textSoft,fontWeight:500}}>{s.label}</div>
         </div>
+      ))}
+    </div>
+    <div>
+      <div style={{fontSize:15,fontWeight:700,color:T.navy,marginBottom:12}}>Quick Actions</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+        <QA icon="🗣️" label="AI Conversation" sub="Chat in French" onClick={()=>onNavigate("practice")}/>
+        <QA icon="⚡" label="Practice Games" sub="Flashcards and more" onClick={()=>onNavigate("practice")}/>
+        <QA icon="📖" label="All Lessons" sub="Browse curriculum" onClick={()=>onNavigate("hub")}/>
+        <QA icon="🎤" label="Speaking Coach" sub="AI pronunciation" onClick={()=>onNavigate("practice")}/>
+      </div>
+    </div>
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.navy}}>Start Learning</div>
+        <span onClick={()=>onNavigate("hub")} style={{fontSize:13,color:T.blue,cursor:"pointer",fontWeight:600}}>View All →</span>
+      </div>
+      <div onClick={()=>onNavigate("hub")} style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:16,cursor:"pointer",transition:"border-color 0.15s"}} onMouseEnter={e=>e.currentTarget.style.borderColor="#94A3B8"} onMouseLeave={e=>e.currentTarget.style.borderColor=T.border}>
+        <div style={{width:44,height:44,borderRadius:12,background:nextLevel?.color||T.blue,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{fontSize:20,color:"#fff"}}>▶</span></div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:2}}>{nextLesson?nextLesson.title:"All lessons complete!"}</div>
+          <div style={{fontSize:12,color:T.textSoft,marginBottom:6}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:`${doneL} lessons completed`}</div>
+          <div style={{height:3,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:nextLevel?.color||T.blue,borderRadius:99}}/></div>
+        </div>
+        <span style={{fontSize:18,color:T.textSoft}}>›</span>
       </div>
     </div>
     <FocusSessionWidget onNavigate={onNavigate}/>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-      {[{icon:"📚",label:"Lessons Done",val:doneL,sub:`of ${allL.length}`},{icon:"🎯",label:"CLB Target",val:level.clbTag,sub:level.cefrTag},{icon:"⭐",label:"XP Earned",val:xp,sub:"total"},{icon:"🔥",label:"Day Streak",val:streak(),sub:"days"}].map((s,i)=>(
-        <Card key={i} style={{textAlign:"center",padding:"16px 12px"}}>
-          <div style={{fontSize:22,marginBottom:6}}>{s.icon}</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:T.navy}}>{s.val}</div>
-          <div style={{fontSize:11,fontWeight:600,color:T.textSoft,marginTop:2}}>{s.label}</div>
-          <div style={{fontSize:11,color:T.textSoft,opacity:0.7}}>{s.sub}</div>
-        </Card>
-      ))}
-    </div>
-    <Card style={{display:"flex",alignItems:"center",gap:16,padding:"16px 20px",background:T.blueLight,border:`1.5px solid ${T.border}`}}>
-      <Avatar companion={c} size={48}/>
-      <div style={{flex:1}}>
-        <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:2}}>{c.name}</div>
-        <div style={{fontSize:13,color:T.textMid,fontStyle:"italic"}}>"{c.messages?.idle||"Ready to learn!"}"</div>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+      <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"20px"}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.navy,marginBottom:16}}>Skill Progress</div>
+        {skills.map(sk=>{const d=skillDone(sk.name);const t=skillTotal(sk.name);const p=t>0?Math.round((d/t)*100):0;return <div key={sk.name} style={{marginBottom:14}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+            <div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:14}}>{sk.icon}</span><span style={{fontSize:13,fontWeight:600,color:T.navy}}>{sk.label}</span></div>
+            <span style={{fontSize:12,fontWeight:700,color:sk.color}}>{p}%</span>
+          </div>
+          <div style={{height:6,background:T.border,borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${p}%`,background:sk.color,borderRadius:99,transition:"width 0.8s"}}/></div>
+        </div>;})}
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:8,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+          <span style={{fontSize:12,color:T.textSoft}}>Overall Level</span>
+          <span style={{fontSize:12,fontWeight:700,color:T.navy}}>{pct}%</span>
+        </div>
       </div>
-      <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"10px 18px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>{"Let's Go →"}</button>
-    </Card>
+      <div style={{background:"#fff",border:`1px solid ${T.border}`,borderRadius:14,padding:"20px",display:"flex",flexDirection:"column",gap:14}}>
+        <div style={{fontSize:15,fontWeight:700,color:T.navy}}>Your AI Teacher</div>
+        <div style={{display:"flex",alignItems:"center",gap:12}}><Avatar companion={c} size={52}/><div><div style={{fontSize:14,fontWeight:700,color:T.navy}}>{c.name}</div><div style={{fontSize:12,color:T.mint,fontWeight:600}}>Online</div></div></div>
+        <div style={{fontSize:13,color:T.textMid,lineHeight:1.6,fontStyle:"italic",padding:"10px 12px",background:T.surface,borderRadius:10,borderLeft:`3px solid ${T.blue}`}}>"{c.messages?.idle||"Ready to learn!"}"</div>
+        <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"11px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",marginTop:"auto"}}>Start a Lesson →</button>
+      </div>
+    </div>
   </div>;
 }
 
