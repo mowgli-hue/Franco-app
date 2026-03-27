@@ -1,10 +1,473 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
+import { Home, BookOpen, Zap, User, ChevronDown, ChevronRight, Search, X, Play, RotateCcw, Check, Lock, Star, Flame, Target, Volume2, ArrowLeft, MessageCircle, Clock } from "lucide-react";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIREBASE AUTH SETUP
+// ─────────────────────────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            (import.meta.env.VITE_FIREBASE_API_KEY            || "").trim(),
+  authDomain:        (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        || "").trim(),
+  projectId:         (import.meta.env.VITE_FIREBASE_PROJECT_ID         || "").trim(),
+  storageBucket:     (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     || "").trim(),
+  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID|| "").trim(),
+  appId:             (import.meta.env.VITE_FIREBASE_APP_ID             || "").trim(),
+};
+
+const hasFirebaseConfig = Object.values(FIREBASE_CONFIG).every(v=>v.trim().length>0);
+let _firebaseApp = null;
+let _firebaseAuth = null;
+let _firebaseDb = null;
+if(hasFirebaseConfig){
+  try{
+    _firebaseApp = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
+    _firebaseAuth = getAuth(_firebaseApp);
+    _firebaseDb = getFirestore(_firebaseApp);
+  }catch(e){ console.error("[firebase] init failed",e); }
+}
+
+// ─── FIRESTORE USER DATA ──────────────────────────────────────────────────────
+async function saveUserData(userId, data){
+  if(!_firebaseDb||!userId) return;
+  try{
+    await setDoc(doc(_firebaseDb,"users",userId), data, {merge:true});
+  }catch(e){ console.warn("Firestore save failed",e); }
+}
+
+async function loadUserData(userId){
+  if(!_firebaseDb||!userId) return null;
+  try{
+    const snap = await getDoc(doc(_firebaseDb,"users",userId));
+    return snap.exists()?snap.data():null;
+  }catch(e){ console.warn("Firestore load failed",e); return null; }
+}
+
+// ─── SPACED REPETITION ENGINE ─────────────────────────────────────────────────
+// SM-2 algorithm: calculates next review date based on performance
+function calcNextReview(prevInterval, prevEF, quality){
+  // quality: 0-5 (0=blackout, 5=perfect)
+  const ef = Math.max(1.3, prevEF + 0.1 - (5-quality)*(0.08+(5-quality)*0.02));
+  let interval;
+  if(quality<3){ interval=1; }
+  else if(!prevInterval){ interval=1; }
+  else if(prevInterval===1){ interval=6; }
+  else{ interval=Math.round(prevInterval*ef); }
+  const nextDate = new Date();
+  nextDate.setDate(nextDate.getDate()+interval);
+  return {interval, ef, nextDate:nextDate.toISOString(), quality};
+}
+
+function isDueForReview(reviewData){
+  if(!reviewData?.nextDate) return false;
+  return new Date(reviewData.nextDate) <= new Date();
+}
+
+function mapAuthError(error){
+  const code = error?.code || "";
+  switch(code){
+    case "auth/invalid-email":          return "Please enter a valid email address.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":         return "Invalid email or password.";
+    case "auth/user-not-found":         return "No account found with this email.";
+    case "auth/email-not-verified":     return "Please verify your email before logging in. A new verification email has been sent.";
+    case "auth/email-already-verified": return "Email is already verified. You can login now.";
+    case "auth/email-already-in-use":   return "This email is already registered.";
+    case "auth/weak-password":          return "Password must be at least 6 characters.";
+    case "auth/too-many-requests":      return "Too many attempts. Please try again later.";
+    case "auth/network-request-failed": return "Network error. Check your connection.";
+    case "auth/operation-not-allowed":  return "Email/password sign-in is disabled. Check Firebase console.";
+    case "auth/unauthorized-domain":    return "This domain is not authorized in Firebase Auth. Add it in Firebase Console → Authentication → Settings → Authorized domains.";
+    default:
+      if(error?.message) return `Authentication failed: ${error.message}`;
+      return "Authentication failed. Check your Firebase configuration.";
+  }
+}
+
+// ─── AUTH CONTEXT ─────────────────────────────────────────────────────────────
+const AuthContext = createContext(null);
+
+function AuthProvider({children}){
+  const[user,setUser]=useState(undefined);
+  const[initializing,setInitializing]=useState(true);
+  const[cloudProgress,setCloudProgress]=useState(null);
+  const[cloudStreak,setCloudStreak]=useState(0);
+  const[cloudXP,setCloudXP]=useState(0);
+  const[reviewSchedule,setReviewSchedule]=useState({});
+
+  useEffect(()=>{
+    if(!_firebaseAuth){ setInitializing(false); return; }
+    const unsub = onAuthStateChanged(_firebaseAuth, async u=>{
+      setUser(u);
+      setInitializing(false);
+      if(u && _firebaseDb){
+        // Load cloud data on login
+        const data = await loadUserData(u.uid);
+        if(data){
+          if(data.progress) setCloudProgress(data.progress);
+          if(data.streak) setCloudStreak(data.streak);
+          if(data.xp) setCloudXP(data.xp);
+          if(data.reviewSchedule) setReviewSchedule(data.reviewSchedule);
+        }
+      }
+    });
+    return unsub;
+  },[]);
+
+  const value = useMemo(()=>({
+    user,
+    initializing,
+    firebaseReady: !!_firebaseAuth,
+    cloudProgress, cloudStreak, cloudXP, reviewSchedule,
+    async saveProgress(progress, xp, streak, reviews){
+      if(!user||!_firebaseDb) return;
+      const today=new Date().toISOString().split("T")[0];
+      await saveUserData(user.uid,{
+        progress, xp, streak,
+        reviewSchedule:reviews||{},
+        lastActive:today,
+        updatedAt:new Date().toISOString()
+      });
+      setCloudProgress(progress);
+      setCloudXP(xp);
+      setCloudStreak(streak);
+      if(reviews) setReviewSchedule(reviews);
+    },
+    async updateReview(lessonId, quality){
+      if(!user||!_firebaseDb) return;
+      const prev=reviewSchedule[lessonId]||{};
+      const next=calcNextReview(prev.interval||0, prev.ef||2.5, quality);
+      const updated={...reviewSchedule,[lessonId]:next};
+      setReviewSchedule(updated);
+      await saveUserData(user.uid,{reviewSchedule:updated});
+      return next;
+    },
+
+    async login(email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured.")  ,{code:"auth/no-config"});
+      const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
+      await reload(cred.user);
+      if(!cred.user.emailVerified){
+        try{ await sendEmailVerification(cred.user); }catch{}
+        await signOut(_firebaseAuth);
+        throw Object.assign(new Error("Email not verified"), {code:"auth/email-not-verified"});
+      }
+    },
+
+    async register(name, email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const cred = await createUserWithEmailAndPassword(_firebaseAuth, email, password);
+      if(name.trim()) await updateProfile(cred.user,{displayName:name.trim()});
+      try{ await sendEmailVerification(cred.user); }catch{}
+      await signOut(_firebaseAuth);
+    },
+
+    async resendVerification(email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
+      await reload(cred.user);
+      if(cred.user.emailVerified){
+        await signOut(_firebaseAuth);
+        throw Object.assign(new Error("Already verified"),{code:"auth/email-already-verified"});
+      }
+      await sendEmailVerification(cred.user);
+      await signOut(_firebaseAuth);
+    },
+
+    async logout(){
+      if(_firebaseAuth) await signOut(_firebaseAuth);
+    }
+  }),[user, initializing]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function useAuth(){
+  const ctx = useContext(AuthContext);
+  if(!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
+}
+
+// ─── AUTH LANDING SCREEN ─────────────────────────────────────────────────────
+function AuthLandingScreen({onNavigate, onGuest}){
+  const[hovered,setHovered]=useState(null);
+  const features=[
+    {id:"speaking", icon:"🗣️", text:"AI speaking practice"},
+    {id:"clb",      icon:"🎯", text:"CLB + TEF aligned sessions"},
+    {id:"canada",   icon:"🍁", text:"Canadian context scenarios"},
+    {id:"ai",       icon:"🤖", text:"Adaptive feedback and coaching"},
+  ];
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",flexDirection:"column",alignItems:"center",padding:"40px 24px",gap:40,overflowY:"auto"}}>
+      {/* Hero */}
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:560,width:"100%",textAlign:"center",animation:"slideUp 0.5s ease"}}>
+        {/* Avatar */}
+        <div style={{width:102,height:102,borderRadius:"50%",background:"#EAF2FF",border:"1.5px solid #BFDBFE",display:"flex",alignItems:"center",justifyContent:"center",fontSize:46,position:"relative",animation:"float 3s ease-in-out infinite",boxShadow:"0 8px 32px rgba(26,86,219,0.12)"}}>
+          👩‍🏫
+          <span style={{position:"absolute",top:-10,right:-8,fontSize:22,animation:"float 2.5s ease-in-out infinite 0.5s"}}>👋</span>
+        </div>
+        {/* Speech bubble */}
+        <div style={{border:"1.5px solid #BFDBFE",borderRadius:14,background:"#fff",padding:"10px 18px",maxWidth:400,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <span style={{fontSize:13,color:"#0D1B3E",fontStyle:"italic"}}>Bonjour! I'm your AI coach for Canadian French training.</span>
+        </div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:"#0B1220",lineHeight:1.2,marginTop:8}}>French Training for Canada</div>
+        <div style={{fontSize:15,color:"#475569",lineHeight:1.65}}>Structured daily sessions to improve CLB performance for immigration goals.</div>
+
+        {/* CTA buttons */}
+        <button onClick={()=>onNavigate("login")}
+          style={{marginTop:16,width:"100%",maxWidth:340,padding:"15px 32px",background:"#1A56DB",color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 4px 20px rgba(26,86,219,0.3)",transition:"all 0.2s"}}
+          onMouseEnter={e=>e.currentTarget.style.background="#1547c0"}
+          onMouseLeave={e=>e.currentTarget.style.background="#1A56DB"}>
+          Start Training
+        </button>
+
+        <button onClick={onGuest}
+          style={{marginTop:8,padding:"11px 28px",background:"#EFF6FF",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.background="#E2ECFF";}}
+          onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";}}>
+          Try as Guest
+        </button>
+
+        <span onClick={()=>onNavigate("login")} style={{fontSize:13,color:"#64748B",cursor:"pointer",marginTop:4,textDecoration:"underline"}}>Already registered? Sign in</span>
+        <span style={{fontSize:12,color:"#94A3B8",marginTop:4}}>Used by learners preparing for Canadian immigration pathways</span>
+      </div>
+
+      {/* Feature cards */}
+      <div style={{width:"100%",maxWidth:560}}>
+        {features.map(f=>(
+          <div key={f.id}
+            onMouseEnter={()=>setHovered(f.id)} onMouseLeave={()=>setHovered(null)}
+            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?"#BFDBFE":"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
+            <span style={{fontSize:20}}>{f.icon}</span>
+            <span style={{fontSize:14,fontWeight:600,color:"#0D1B3E"}}>{f.text}</span>
+          </div>
+        ))}
+        <div style={{textAlign:"center",marginTop:20}}>
+          <div style={{fontSize:13,fontWeight:600,color:"#475569"}}>🇨🇦 Powered by Newton Immigration</div>
+          <div style={{fontSize:12,color:"#94A3B8",marginTop:4}}>Built by licensed Canadian immigration professionals.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen({onNavigate, prefillEmail="", notice=""}){
+  const{login,resendVerification,firebaseReady}=useAuth();
+  const[email,setEmail]=useState(prefillEmail);
+  const[password,setPassword]=useState("");
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+  const[resending,setResending]=useState(false);
+  const[infoMsg,setInfoMsg]=useState(notice||"");
+
+  const canSubmit = email.trim()&&password.trim()&&!loading;
+
+  const validate=()=>{
+    const e={};
+    if(!email.trim()) e.email="Email is required";
+    else if(!/^\S+@\S+\.\S+$/.test(email.trim())) e.email="Enter a valid email address";
+    if(!password.trim()) e.password="Password is required";
+    setErrors(e);
+    return Object.keys(e).length===0;
+  };
+
+  const handleLogin=async()=>{
+    if(!validate()) return;
+    try{
+      setLoading(true); setInfoMsg("");
+      await login(email.trim(), password);
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setLoading(false); }
+  };
+
+  const handleResend=async()=>{
+    if(!validate()) return;
+    try{
+      setResending(true); setInfoMsg("");
+      await resendVerification(email.trim(), password);
+      setInfoMsg("Verification email sent! Please check inbox/spam, then login.");
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setResending(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Welcome back</div>
+          <div style={{fontSize:14,color:"#475569",marginTop:6}}>Sign in to continue your structured French training.</div>
+        </div>
+
+        {!firebaseReady&&(
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+            ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable login. You can still <span onClick={()=>onNavigate("guest")} style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>continue as guest</span>.
+          </div>
+        )}
+
+        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+          <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
+          <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Enter password" error={errors.password}/>
+
+          {infoMsg&&<div style={{fontSize:13,color:"#059669",background:"#D1FAE5",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{infoMsg}</div>}
+          {errors.submit&&<div style={{fontSize:13,color:"#991B1B",background:"#FEE2E2",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{errors.submit}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <AuthBtn label="Login" onClick={handleLogin} disabled={!canSubmit} loading={loading} primary/>
+            <AuthBtn label="Register" onClick={()=>onNavigate("register")} variant="outline" disabled={loading}/>
+            <AuthBtn label="Resend Verification Email" onClick={handleResend} variant="text" disabled={loading||resending} loading={resending}/>
+            <AuthBtn label="← Back" onClick={()=>onNavigate("landing")} variant="text" disabled={loading}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REGISTER SCREEN ──────────────────────────────────────────────────────────
+function RegisterScreen({onNavigate}){
+  const{register,firebaseReady}=useAuth();
+  const[name,setName]=useState("");
+  const[email,setEmail]=useState("");
+  const[password,setPassword]=useState("");
+  const[confirm,setConfirm]=useState("");
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+
+  const canSubmit = name.trim()&&email.trim()&&password.trim()&&confirm.trim()&&!loading;
+
+  const handleRegister=async()=>{
+    const e={};
+    if(!name.trim()) e.name="Full name is required";
+    if(!email.trim()) e.email="Email is required";
+    else if(!/^\S+@\S+\.\S+$/.test(email.trim())) e.email="Enter a valid email address";
+    if(!password.trim()) e.password="Password is required";
+    else if(password.length<6) e.password="Password must be at least 6 characters";
+    if(!confirm.trim()) e.confirm="Please confirm your password";
+    else if(confirm!==password) e.confirm="Passwords do not match";
+    setErrors(e);
+    if(Object.keys(e).length>0) return;
+
+    try{
+      setLoading(true);
+      await register(name, email.trim(), password);
+      onNavigate("login", {prefillEmail:email.trim(), notice:"Verification email sent! Please verify your email, then login."});
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setLoading(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Create your account</div>
+          <div style={{fontSize:14,color:"#475569",marginTop:6}}>Start your AI-guided French training for Canada.</div>
+        </div>
+
+        {!firebaseReady&&(
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+            ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable registration.
+          </div>
+        )}
+
+        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+          <AuthInput label="Full name" value={name} onChange={v=>{setName(v);setErrors(p=>({...p,name:undefined,submit:undefined}));}} placeholder="Your full name" error={errors.name}/>
+          <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
+          <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Create a password (min. 6 chars)" error={errors.password}/>
+          <AuthInput label="Confirm password" type="password" value={confirm} onChange={v=>{setConfirm(v);setErrors(p=>({...p,confirm:undefined,submit:undefined}));}} placeholder="Re-enter your password" error={errors.confirm}/>
+
+          {errors.submit&&<div style={{fontSize:13,color:"#991B1B",background:"#FEE2E2",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{errors.submit}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <AuthBtn label="Create Account" onClick={handleRegister} disabled={!canSubmit} loading={loading} primary/>
+            <AuthBtn label="Already have an account? Login" onClick={()=>onNavigate("login")} variant="outline" disabled={loading}/>
+            <AuthBtn label="← Back" onClick={()=>onNavigate("landing")} variant="text" disabled={loading}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH SHARED COMPONENTS ───────────────────────────────────────────────────
+function AuthInput({label,type="text",value,onChange,placeholder,error}){
+  const[show,setShow]=useState(false);
+  const isPass=type==="password";
+  return(
+    <div style={{marginBottom:16}}>
+      <label style={{display:"block",fontSize:13,fontWeight:700,color:"#0D1B3E",marginBottom:6}}>{label}</label>
+      <div style={{position:"relative"}}>
+        <input type={isPass&&show?"text":type} value={value}
+          onChange={e=>onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{width:"100%",padding:"12px 14px",paddingRight:isPass?44:14,borderRadius:10,border:`1.5px solid ${error?"#EF4444":"#E2E8F0"}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:"#0D1B3E",outline:"none",background:"#fff",boxSizing:"border-box",transition:"border-color 0.2s"}}
+          onFocus={e=>e.target.style.borderColor="#1A56DB"}
+          onBlur={e=>e.target.style.borderColor=error?"#EF4444":"#E2E8F0"}
+        />
+        {isPass&&<button type="button" onClick={()=>setShow(s=>!s)}
+          style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94A3B8",padding:0}}>
+          {show?"🙈":"👁️"}
+        </button>}
+      </div>
+      {error&&<div style={{fontSize:12,color:"#EF4444",marginTop:4}}>{error}</div>}
+    </div>
+  );
+}
+
+function AuthBtn({label,onClick,disabled,loading,primary,variant="primary"}){
+  const styles={
+    primary:{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"},
+    outline:{background:"transparent",color:"#1A56DB",border:"1.5px solid #BFDBFE"},
+    text:{background:"transparent",color:"#64748B",border:"none"},
+  }[variant]||{};
+  if(primary) Object.assign(styles,{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"});
+  return(
+    <button onClick={onClick} disabled={disabled||loading}
+      style={{padding:"12px 20px",borderRadius:12,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled||loading?"not-allowed":"pointer",opacity:disabled&&!loading?0.6:1,transition:"all 0.2s",...styles}}>
+      {loading?"Loading...":label}
+    </button>
+  );
+}
+
+// Mobile detection hook
+function useIsMobile(){
+  const[m,setM]=useState(typeof window!=="undefined"&&window.innerWidth<640);
+  useEffect(()=>{
+    const h=()=>setM(window.innerWidth<640);
+    window.addEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
+  },[]);
+  return m;
+}
+
+// Persists state to localStorage so progress survives page refresh
+function useLocalState(key, defaultVal){
+  const[state,setState]=useState(()=>{
+    try{
+      const stored=localStorage.getItem(key);
+      return stored!==null?JSON.parse(stored):defaultVal;
+    }catch{return defaultVal;}
+  });
+  const setter=(val)=>{
+    setState(prev=>{
+      const next=typeof val==="function"?val(prev):val;
+      try{localStorage.setItem(key,JSON.stringify(next));}catch{}
+      return next;
+    });
+  };
+  return[state,setter];
+}
 
 const T = {
-  navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
-  mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
-  gold:"#F59E0B",goldLight:"#FEF3C7",purple:"#8B5CF6",purpleLight:"#EDE9FE",
-  surface:"#F0F4FF",card:"#FFFFFF",text:"#0D1B3E",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
+  navy:"#0F172A",blue:"#2563EB",blueMid:"#3B82F6",blueLight:"#EFF6FF",
+  mint:"#059669",mintLight:"#ECFDF5",red:"#DC2626",redLight:"#FEF2F2",
+  gold:"#D97706",goldLight:"#FFFBEB",purple:"#7C3AED",purpleLight:"#F5F3FF",
+  surface:"#F8FAFC",card:"#FFFFFF",text:"#0F172A",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
 };
 // ─────────────────────────────────────────────────────────────────────────────
 // FRANCO — FULL CURRICULUM: 190 LESSONS, BEGINNER → CLB 5 / B1
@@ -771,8 +1234,8 @@ const A2_LESSONS = [
     [mcq("'Si j'avais su, je n'aurais pas signé ce bail.' This sentence expresses:",["a future plan","a present habit","a past regret (conditional perfect + pluperfect)","a description of the past"],2,"Si + plus-que-parfait (j'avais su) + conditionnel passé (je n'aurais pas signé) = Type 3 conditional — expressing regret about the PAST. 'If I had known, I wouldn't have signed that lease.' This structure shows advanced A2/B1 level!"),
      mcq("The CORRECT sentence is:",["Je suis allé à la pharmacie hier et j'ai achetais des médicaments","Hier, je suis allé à la pharmacie et j'ai acheté des médicaments","Je allais à la pharmacie et j'ai acheté des médicaments","Hier, j'ai allé à la pharmacie et j'achetais des médicaments"],1,"Je suis allé (être verb = aller) + j'ai acheté (avoir verb = acheter) — both passé composé for specific past events. The others mix up tenses or use wrong auxiliary!"),
      wr("Write 3 sentences showing your A2 level: past, future, and opinion",["j'ai","je vais","à mon avis","je voudrais","selon moi","je pense que"],"J'ai commencé à apprendre le français il y a un an. L'année prochaine, je passerai le TEF Canada. À mon avis, parler français ouvre beaucoup de portes au Canada. — Three tenses + opinion = A2 showcase! Félicitations — vous passez maintenant au niveau B1!")])
-
 ];
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // B1 — 40 LESSONS
@@ -1512,5 +1975,1931 @@ const SYLLABUS = {
 // type: "order" = drag words into correct order
 // type: "write" = free-text write (intermediate)
 // type: "speak" = speaking challenge prompt (advanced)
-// difficulty: 1=very easy, 2=easy, 3=medium, 4=hard, 5=CLB test-level
+
+const COMPANIONS = [
+  {
+    id:"sophie", name:"Sophie", emoji:"👩‍🏫", color:"#1A56DB", level:"All levels",
+    messages:{
+      idle:"Prêt à apprendre? Let's go! 🇨🇦",
+      correct:"Parfait! Excellent work! 🌟",
+      wrong:"Pas de problème! Let's try again 💪",
+      complete:"Félicitations! Lesson complete! 🎉",
+    }
+  },
+  {
+    id:"marc", name:"Marc", emoji:"👨‍🎓", color:"#059669", level:"All levels",
+    messages:{
+      idle:"Bonjour! Ready to practice? 📚",
+      correct:"Très bien! Keep it up! ✨",
+      wrong:"Presque! Almost there 🔥",
+      complete:"Bravo! You crushed it! 🏆",
+    }
+  },
+  {
+    id:"amelie", name:"Amélie", emoji:"👩‍💼", color:"#8B5CF6", level:"All levels",
+    messages:{
+      idle:"Allons-y! Let's make progress! 🚀",
+      correct:"Magnifique! You're on fire! 🔥",
+      wrong:"Courage! Mistakes help us learn 🧠",
+      complete:"Incroyable! You did it! 🌟",
+    }
+  },
+];
+
+const GAMES = [
+  {
+    id:"speed", emoji:"⚡", name:"Speed Recall",
+    desc:"60 seconds. Translate French → English as fast as you can. Beat your high score!",
+    color:T.blue, tag:"60 sec",
+    questions:[
+      {fr:"Bonjour",en:"Hello / Good day"},{fr:"Merci beaucoup",en:"Thank you very much"},
+      {fr:"Je voudrais...",en:"I would like..."},{fr:"Où est...?",en:"Where is...?"},
+      {fr:"Au revoir",en:"Goodbye"},{fr:"S'il vous plaît",en:"Please"},
+      {fr:"Je ne comprends pas",en:"I don't understand"},{fr:"C'est combien?",en:"How much?"},
+      {fr:"Mon rendez-vous",en:"My appointment"},{fr:"Je prends le bus",en:"I take the bus"},
+      {fr:"J'habite à...",en:"I live in..."},{fr:"J'ai besoin de",en:"I need"},
+      {fr:"Excusez-moi",en:"Excuse me"},{fr:"De rien",en:"You're welcome"},
+      {fr:"Il fait froid",en:"It's cold"},{fr:"Je me lève",en:"I get up"},
+      {fr:"À quelle heure?",en:"At what time?"},{fr:"À bientôt",en:"See you soon"},
+      {fr:"J'ai faim",en:"I'm hungry"},{fr:"Bonne journée!",en:"Have a good day!"},
+      {fr:"Je travaille",en:"I work"},{fr:"Je cherche",en:"I'm looking for"},
+      {fr:"C'est urgent",en:"It's urgent"},{fr:"Pouvez-vous répéter?",en:"Can you repeat?"},
+      {fr:"La pharmacie",en:"The pharmacy"},{fr:"Mon médecin",en:"My doctor"},
+    ]
+  },
+  {
+    id:"errors", emoji:"🧩", name:"Error Hunter",
+    desc:"Find the correct sentence. Spot the grammar mistake before it catches you in real life!",
+    color:T.mint, tag:"Grammar",
+    questions:[
+      {prompt:"Age in French — which is correct?",answer:"J'ai 28 ans ✓",wrong:"Je suis 28 ans ✗",explain:"French uses AVOIR for age! J'ai (I have) 28 ans. Never 'Je suis 28 ans' — one of the most common errors!"},
+      {prompt:"After negation — which is correct?",answer:"Je n'ai pas de voiture ✓",wrong:"Je n'ai pas une voiture ✗",explain:"After ne...pas: un/une/des → DE. Je n'ai pas DE voiture. Always!"},
+      {prompt:"Female speaker, passé composé — which is correct?",answer:"Je suis allée au marché ✓",wrong:"Je suis allé au marché ✗",explain:"With être, past participle agrees with subject! Female → allée (add E). Male → allé."},
+      {prompt:"Polite request — which is more appropriate?",answer:"Je voudrais un café, s'il vous plaît ✓",wrong:"Je veux un café ✗",explain:"'Voudrais' (conditional) = polite request. 'Veux' sounds too direct in service situations!"},
+      {prompt:"Email opening — which is correct?",answer:"Bonjour Madame Tremblay, ✓",wrong:"Salut Madame Tremblay, ✗",explain:"'Salut' is informal — friends only! Formal emails always use 'Bonjour + title + name'. Never Salut with professionals!"},
+      {prompt:"Auxiliary verb — which is correct?",answer:"Je suis arrivé hier ✓",wrong:"J'ai arrivé hier ✗",explain:"Arriver uses ÊTRE! Movement verbs (Dr Mrs VANDERTRAMP) always use être in passé composé. Never avoir!"},
+      {prompt:"Adjective agreement — which is correct?",answer:"Les femmes sont contentes ✓",wrong:"Les femmes sont contents ✗",explain:"Adjective agrees with noun — femmes is feminine plural → contentes (add ES)!"},
+      {prompt:"Elision rule — which is correct?",answer:"J'habite à Montréal ✓",wrong:"Je habite à Montréal ✗",explain:"Before a vowel sound, 'je' becomes 'j''. J'habite, j'aime, j'ai, j'étudie — always elision!"},
+    ]
+  },
+  {
+    id:"match", emoji:"🎯", name:"Word Match",
+    desc:"Tap a French word then its English meaning. Match all pairs to win!",
+    color:T.purple, tag:"Vocabulary",
+    pairs:[
+      {fr:"le rendez-vous",en:"appointment"},{fr:"le courriel",en:"email (Quebec)"},
+      {fr:"la pharmacie",en:"pharmacy"},{fr:"le médecin",en:"doctor"},
+      {fr:"le loyer",en:"rent"},{fr:"les enfants",en:"children"},
+      {fr:"la citoyenneté",en:"citizenship"},{fr:"le formulaire",en:"form"},
+      {fr:"la garderie",en:"daycare"},{fr:"le guichet",en:"service counter"},
+      {fr:"l'employeur",en:"employer"},{fr:"la formation",en:"training"},
+    ]
+  },
+  {
+    id:"fill", emoji:"✏️", name:"Fill the Gap",
+    desc:"Complete each sentence with the right word. Build grammar muscle memory!",
+    color:T.gold, tag:"Grammar",
+    questions:[
+      {before:"Je",after:"au travail à 9h.",options:["vais","aller","allé","vas"],correct:0,explain:"Je vais = I go (aller with je). Je VAIS au travail — near future or habitual action!"},
+      {before:"Il",after:"un café, s'il vous plaît.",options:["voudrait","veut","voudrais","vouloir"],correct:0,explain:"Il voudrait = he would like (conditional, polite). Voudrait for il/elle — more polite than veut!"},
+      {before:"Nous habitons au Canada",after:"5 ans.",options:["depuis","il y a","pendant","pour"],correct:0,explain:"Depuis + present = ongoing! 'Nous habitons depuis 5 ans' = We've been living here for 5 years (still living here now)!"},
+      {before:"",after:"est mon rendez-vous?",options:["Quand","Où","Comment","Pourquoi"],correct:0,explain:"Quand = when. Quand est mon rendez-vous? = When is my appointment? Essential for Canadian healthcare!"},
+      {before:"Je",after:"comprends pas — pouvez-vous répéter?",options:["ne","n'","pas","non"],correct:0,explain:"Ne...pas = negation. Je NE comprends pas. In spoken French, 'ne' is often dropped but always write both!"},
+      {before:"Elle est",after:"hier soir.",options:["arrivée","arrivé","arriver","arrive"],correct:0,explain:"Arriver uses être → arrivée (feminine agreement!). She arrived = elle EST arrivée. Note the extra E!"},
+      {before:"J'",after:"un rendez-vous demain.",options:["ai","suis","vais","fais"],correct:0,explain:"J'ai un rendez-vous = I have an appointment. Avoir for possession! J'ai = I have (from avoir)."},
+      {before:"",after:"est la pharmacie?",options:["Où","Quand","Comment","Combien"],correct:0,explain:"Où est...? = Where is...? The most useful direction question! Où est la pharmacie / le bus / l'hôpital?"},
+    ]
+  },
+  {
+    id:"sentence", emoji:"🔀", name:"Build a Sentence",
+    desc:"Arrange the words into a correct French sentence. Train your word-order instincts!",
+    color:"#EC4899", tag:"Structure",
+    questions:[
+      {words:["Je","m'appelle","Marie","et","j'habite","à","Montréal."],correct:["Je","m'appelle","Marie","et","j'habite","à","Montréal."],explain:"Je m'appelle Marie et j'habite à Montréal — perfect self-intro! Subject + verb + name + connector + subject + verb + location."},
+      {words:["Il","est","trois","heures","et","demie."],correct:["Il","est","trois","heures","et","demie."],explain:"Il est trois heures et demie = It's 3:30. Time pattern: Il est + number + heures + et demie/quart!"},
+      {words:["Je","ne","comprends","pas","ce","formulaire."],correct:["Je","ne","comprends","pas","ce","formulaire."],explain:"Je ne comprends pas ce formulaire = I don't understand this form. Ne...pas sandwich around the verb!"},
+      {words:["Excusez-moi,","où","est","la","pharmacie","s'il","vous","plaît?"],correct:["Excusez-moi,","où","est","la","pharmacie","s'il","vous","plaît?"],explain:"Excusez-moi, où est la pharmacie, s'il vous plaît? — The perfect street question! Polite, clear, complete."},
+      {words:["J'habite","au","Canada","depuis","trois","ans."],correct:["J'habite","au","Canada","depuis","trois","ans."],explain:"J'habite au Canada depuis trois ans — I've lived in Canada for 3 years (ongoing). Depuis + present tense = still happening!"},
+      {words:["Je","voudrais","prendre","un","rendez-vous,","s'il","vous","plaît."],correct:["Je","voudrais","prendre","un","rendez-vous,","s'il","vous","plaît."],explain:"Je voudrais prendre un rendez-vous, s'il vous plaît — I'd like to make an appointment, please. Perfect clinic/office phrase!"},
+    ]
+  },
+  {
+    id:"speaking", emoji:"🎤", name:"Speaking Challenge",
+    desc:"Real French speaking prompts. Record yourself or say it out loud — fluency comes from practice!",
+    color:"#F97316", tag:"Speaking",
+    questions:[
+      {prompt:"Introduce yourself completely in French (name, age, origin, city, profession, one hobby)",sample:"Bonjour! Je m'appelle [name]. J'ai [X] ans. Je viens de [country] et j'habite à [city]. Je travaille comme [job] / Je suis étudiant(e). J'aime [hobby].",tips:["Take your time — no rush","One sentence at a time","Even 3 sentences is a win!","Record yourself and replay it"],time:60},
+      {prompt:"Describe your daily morning routine using at least 5 steps",sample:"Le matin, je me réveille à 7h. Ensuite, je me lève et je me douche. Je m'habille, puis je prends le petit déjeuner. Finalement, je prends le bus et j'arrive au travail à 9h.",tips:["Use: d'abord, ensuite, puis, après, finalement","Add times (à 7h, à 8h...)","Use reflexive verbs (me lève, me douche)","At least 5 actions!"],time:90},
+      {prompt:"You're at a pharmacy. You have a sore throat and a fever. Ask for help.",sample:"Bonjour! J'ai mal à la gorge et j'ai de la fièvre depuis hier. Avez-vous un médicament pour ça, s'il vous plaît? C'est combien?",tips:["Start with Bonjour!","J'ai mal à la gorge = sore throat","J'ai de la fièvre = fever","Depuis hier = since yesterday","Ask for price at the end"],time:45},
+      {prompt:"Describe your family: how many people, who they are, where they live",sample:"Dans ma famille, il y a quatre personnes. J'ai un mari/une femme et deux enfants. Mon fils a 8 ans et ma fille a 12 ans. Ma mère vit au Maroc mais mon frère habite à Montréal aussi.",tips:["Il y a = there are","Use family vocab you know","Add ages with j'ai...ans","Include locations with habite à"],time:60},
+      {prompt:"Why are you learning French? What are your goals in Canada?",sample:"J'apprends le français parce que je veux m'intégrer au Canada. Je voudrais travailler dans un hôpital et parler avec mes collègues. À mon avis, le français est essentiel pour réussir au Québec.",tips:["Parce que = because","Je voudrais = I would like","À mon avis = in my opinion","This is real CLB-level speaking!"],time:60},
+      {prompt:"You need to cancel and reschedule a doctor's appointment. Make the call.",sample:"Bonjour, je m'appelle [name]. J'ai un rendez-vous avec le docteur Martin le 15 mars à 14h. Malheureusement, je dois annuler. Est-ce que je peux avoir un autre rendez-vous la semaine prochaine?",tips:["Give your name first","State the appointment you have","Annuler = to cancel","Ask for a new date!","Très bien means very good in French"],time:45},
+    ]
+  },
+  {
+    id:"flashcard", emoji:"🃏", name:"Flashcard Blitz",
+    desc:"Flip through French↔English cards. Tap to reveal — say it aloud before you flip! Great for vocab.",
+    color:"#8B5CF6", tag:"Vocabulary",
+    cards:[
+      {fr:"Bonjour",en:"Hello"},{fr:"Merci beaucoup",en:"Thank you very much"},{fr:"S'il vous plaît",en:"Please"},
+      {fr:"Excusez-moi",en:"Excuse me"},{fr:"Je comprends",en:"I understand"},{fr:"Je ne comprends pas",en:"I don't understand"},
+      {fr:"Où est...?",en:"Where is...?"},{fr:"C'est combien?",en:"How much is it?"},
+      {fr:"J'ai besoin d'aide",en:"I need help"},{fr:"Un rendez-vous",en:"An appointment"},
+      {fr:"Je m'appelle...",en:"My name is..."},{fr:"J'habite à...",en:"I live in..."},
+      {fr:"Je travaille comme...",en:"I work as..."},{fr:"L'ordonnance",en:"The prescription"},
+      {fr:"La carte-santé",en:"The health card"},{fr:"Le bail",en:"The lease"},
+      {fr:"Le loyer",en:"The rent"},{fr:"Le propriétaire",en:"The landlord"},
+      {fr:"L'urgence",en:"The emergency"},{fr:"Le NAS",en:"The SIN (Social Insurance Number)"},
+    ]
+  },
+  {
+    id:"quickmatch", emoji:"⚡", name:"Lightning Match",
+    desc:"Match 8 French words to their English meanings as fast as you can. Pure speed and recognition!",
+    color:"#F59E0B", tag:"Speed",
+    pairs:[
+      {fr:"Bonjour",en:"Hello"},{fr:"Au revoir",en:"Goodbye"},
+      {fr:"Merci",en:"Thank you"},{fr:"De rien",en:"You're welcome"},
+      {fr:"S'il vous plaît",en:"Please"},{fr:"Pardon",en:"Sorry"},
+      {fr:"Bien sûr",en:"Of course"},{fr:"Peut-être",en:"Maybe"},
+    ]
+  },
+];
+function Pill({children,variant="blue",style={}}){
+  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:"#92400E",border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
+  return <span style={{fontSize:12,fontWeight:700,padding:"5px 12px",borderRadius:50,display:"inline-flex",alignItems:"center",gap:5,...v,...style}}>{children}</span>;
+}
+
+function Btn({children,onClick,variant="primary",disabled,style={}}){
+  const base={primary:{background:T.navy,color:"#fff",border:"none"},secondary:{background:T.card,color:T.navy,border:`2px solid ${T.border}`},ghost:{background:"transparent",color:T.blue,border:"none"}}[variant]||{};
+  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
+}
+
+function Card({children,style={},onClick}){
+  const[h,setH]=useState(false);
+  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:"#fff",borderRadius:14,padding:"14px 16px",border:"1px solid #E2E8F0",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",transition:"all 0.15s",...(h&&onClick?{boxShadow:"0 2px 12px rgba(0,0,0,0.08)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
+}
+
+function ProgressBar({value,color=T.blue,style={}}){
+  return <div style={{height:8,background:T.border,borderRadius:99,overflow:"hidden",...style}}><div style={{height:"100%",width:`${Math.min(100,Math.max(0,value))}%`,background:color,borderRadius:99,transition:"width 0.8s cubic-bezier(.34,1.56,.64,1)"}} /></div>;
+}
+
+function Avatar({companion,speaking,size=100,showWaves}){
+  const c=companion||COMPANIONS[0];
+  const[b,setB]=useState(false);
+  useEffect(()=>{if(!speaking)return;const t=setInterval(()=>setB(x=>!x),400);return()=>clearInterval(t);},[speaking]);
+  return <div style={{position:"relative",width:size,height:size,flexShrink:0}}>
+    <div style={{position:"absolute",inset:-10,borderRadius:"50%",border:`2px solid ${c.color}30`,animation:"ring 2.5s ease-in-out infinite"}}/>
+    <div style={{position:"absolute",inset:-18,borderRadius:"50%",border:`1.5px solid ${c.color}15`,animation:"ring 2.5s ease-in-out infinite 0.6s"}}/>
+    <div style={{width:size,height:size,borderRadius:"50%",background:`linear-gradient(135deg,${c.color}20,${c.color}08)`,border:`2px solid ${c.color}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:size*0.44,boxShadow:`0 8px 32px ${c.color}30`,transform:b&&speaking?"scale(1.05)":"scale(1)",transition:"transform 0.2s",animation:"float 3s ease-in-out infinite"}}>{c.emoji}</div>
+    {showWaves&&speaking&&<div style={{position:"absolute",right:-22,top:"50%",transform:"translateY(-50%)",display:"flex",flexDirection:"column",gap:3}}>{[8,14,20,14,8].map((h,i)=><div key={i} style={{width:3,height:h,background:c.color,borderRadius:2,opacity:0.7,animation:`wave 0.6s ${i*0.12}s ease-in-out infinite`}}/>)}</div>}
+  </div>;
+}
+
+function SpeechBubble({text,companion,typing}){
+  const c=companion||COMPANIONS[0];
+  return <div style={{background:`${c.color}12`,border:`1.5px solid ${c.color}30`,borderRadius:18,borderTopLeftRadius:4,padding:"14px 16px",color:T.navy,fontSize:14,lineHeight:1.65,fontStyle:"italic",flex:1}}>
+    {typing?<span style={{display:"inline-flex",gap:4}}>{[0,1,2].map(i=><span key={i} style={{width:6,height:6,borderRadius:"50%",background:c.color,opacity:0.7,display:"inline-block",animation:`typeDot 1.2s ${i*0.2}s ease-in-out infinite`}}/>)}</span>:(text||`${c.name} is thinking...`)}
+  </div>;
+}
+
+// ─── PAYWALL CONFIG ───────────────────────────────────────────────────────────
+const STRIPE_PUBLISHABLE_KEY = "pk_live_51TAGxlLohI268vGqWybDPJOq3kRWcjIQkvcqs7Xe1B0HBqSRCQZmzrsUsTQJXDQdqC0qv2e98NPWzCUeZKkRuBfT000nkN1Cmi";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00"; // ← paste your buy.stripe.com link here
+const PRICE_DISPLAY = "$49/month";
+const FREE_LESSON_IDS = new Set(["f-01","f-02","f-03","f1l1","f1l2","f2l1"]); // first 3 Foundation lessons free
+
+function isLessonFree(lessonId){
+  return FREE_LESSON_IDS.has(lessonId);
+}
+
+function isPremiumUnlocked(){
+  try{
+    const val=localStorage.getItem("franco_premium");
+    if(!val) return false;
+    const {token,exp}=JSON.parse(val);
+    return token==="unlocked" && Date.now()<exp;
+  }catch{return false;}
+}
+
+// Call this after successful Stripe redirect (add ?success=1 to your Stripe redirect URL)
+function checkStripeSuccess(){
+  if(typeof window==="undefined") return;
+  const params=new URLSearchParams(window.location.search);
+  if(params.get("success")==="1"){
+    // Grant 31-day access
+    const exp=Date.now()+(31*24*60*60*1000);
+    try{localStorage.setItem("franco_premium",JSON.stringify({token:"unlocked",exp}));}catch{}
+    window.history.replaceState({},"",window.location.pathname);
+  }
+}
+
+function PaywallModal({onClose, lessonTitle}){
+  const handleUpgrade=()=>{
+    // Append success redirect param to payment link
+    const link=STRIPE_PAYMENT_LINK.includes("?")
+      ? STRIPE_PAYMENT_LINK+"&client_reference_id=franco&success_url="+encodeURIComponent(window.location.href+"?success=1")
+      : STRIPE_PAYMENT_LINK;
+    window.open(link,"_blank");
+  };
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(13,27,62,0.75)",backdropFilter:"blur(6px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:24,maxWidth:400,width:"100%",overflow:"hidden",boxShadow:"0 24px 80px rgba(13,27,62,0.3)",animation:"popIn 0.3s ease"}}>
+      {/* Header */}
+      <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"28px 28px 20px",textAlign:"center",position:"relative"}}>
+        <button onClick={onClose} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        <div style={{fontSize:44,marginBottom:8}}>🔓</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
+        <div style={{color:"rgba(255,255,255,0.75)",fontSize:13,marginTop:6}}>"{lessonTitle}" is a premium lesson</div>
+      </div>
+
+      {/* Price */}
+      <div style={{padding:"20px 28px 0",textAlign:"center"}}>
+        <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
+          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
+          <span style={{color:T.textMid,fontSize:16}}>/month</span>
+        </div>
+        <div style={{color:T.textSoft,fontSize:12,marginTop:2}}>Cancel anytime · Secure payment via Stripe</div>
+      </div>
+
+      {/* Features */}
+      <div style={{padding:"16px 28px"}}>
+        {[
+          ["🎓","190 lessons","Foundation → B2/CLB 7"],
+          ["🃏","8 practice games","Flashcard, Match, Speed & more"],
+          ["🍁","Made for Canada","CLB + TEF exam prep included"],
+          ["📈","Track progress","XP, streaks, lesson history"],
+        ].map(([icon,title,sub])=>
+          <div key={title} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
+            <span style={{fontSize:22,width:32,textAlign:"center"}}>{icon}</span>
+            <div>
+              <div style={{fontWeight:700,fontSize:14,color:T.text}}>{title}</div>
+              <div style={{fontSize:12,color:T.textSoft}}>{sub}</div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* CTA */}
+      <div style={{padding:"16px 28px 24px"}}>
+        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+          🚀 Start Premium — {PRICE_DISPLAY}
+        </button>
+        <div style={{textAlign:"center",marginTop:10}}>
+          <span style={{fontSize:12,color:T.textSoft}}>3 free lessons included · No credit card for free tier</span>
+        </div>
+        <button onClick={onClose} style={{width:"100%",marginTop:8,padding:"10px",background:"transparent",border:"none",color:T.textSoft,fontSize:13,cursor:"pointer"}}>
+          Continue with free lessons
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+function WelcomeScreen({onNext}){
+  const[step,setStep]=useState(0);
+  const steps=[
+    {emoji:"🍁",title:"Welcome to Franco",sub:"Learn French the way Canada needs it — structured, practical, and CLB-aligned."},
+    {emoji:"🎯",title:"Reach Your CLB Goals",sub:"Whether you need CLB 4 for citizenship or CLB 7 for professional work, Franco builds the right skills."},
+    {emoji:"🧑‍🏫",title:"Your AI Teacher is Ready",sub:"A personalized AI companion guides every lesson — giving real-time feedback, encouragement, and explanations."},
+  ];
+  const s=steps[step];
+  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,flexDirection:"column",padding:32,gap:32,position:"relative",overflow:"hidden"}}>
+    <div style={{position:"absolute",top:-80,left:-80,width:300,height:300,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
+    <div style={{position:"absolute",bottom:60,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,maxWidth:520,textAlign:"center",zIndex:1}}>
+      <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:"drop-shadow(0 0 30px rgba(255,255,255,0.15))"}}>{s.emoji}</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
+      <div style={{fontSize:16,color:"rgba(255,255,255,0.8)",lineHeight:1.7}}>{s.sub}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+        {["✅ Try Free","🍁 Made for Canada","190 Lessons","🎤 AI Coach","🔒 Premium Access"].map(tag=>
+          <span key={tag} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"rgba(16,185,129,0.25)",color:"#6EE7B7",border:"1px solid rgba(110,231,183,0.3)"}}>{tag}</span>
+        )}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        {steps.map((_,i)=><div key={i} onClick={()=>setStep(i)} style={{width:i===step?28:8,height:8,borderRadius:4,background:i===step?"#fff":"rgba(255,255,255,0.3)",cursor:"pointer",transition:"all 0.3s"}}/>)}
+      </div>
+      {step<steps.length-1
+        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
+        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — Try Free! 🚀</button>}
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · 3 free lessons · Unlock all 190 with Premium</div>
+    </div>
+  </div>;
+}
+
+function OnboardingScreen({onComplete}){
+  const[phase,setPhase]=useState("companion");
+  const[companion,setCompanion]=useState(null);
+  const[level,setLevel]=useState(null);
+  const levels=[
+    {id:"foundation",label:"Complete Beginner",hint:"I know almost no French",emoji:"🌱"},
+    {id:"a1",label:"A1 — Basic",hint:"I know a few words and greetings",emoji:"🔤"},
+    {id:"a2",label:"A2 — Elementary",hint:"I can handle simple conversations",emoji:"📖"},
+    {id:"b1",label:"B1 — Intermediate",hint:"I can express opinions on familiar topics",emoji:"💬"},
+    {id:"clb",label:"CLB Test Prep",hint:"I need focused Canadian benchmark prep",emoji:"🎓"},
+  ];
+  if(phase==="companion") return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 1 of 2</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
+      <div style={{fontSize:15,color:T.textMid}}>Your companion guides every lesson with personalised feedback.</div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16,maxWidth:700,width:"100%"}}>
+      {COMPANIONS.map(c=><Card key={c.id} onClick={()=>{setCompanion(c);setPhase("level");}} style={{textAlign:"center",border:`2px solid ${companion?.id===c.id?c.color:T.border}`,padding:"28px 20px"}}>
+        <div style={{fontSize:52,marginBottom:12,animation:"float 3s ease-in-out infinite"}}>{c.emoji}</div>
+        <div style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:6}}>{c.name}</div>
+        <div style={{fontSize:13,color:T.textSoft}}>{c.style}</div>
+      </Card>)}
+    </div>
+  </div>;
+  return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
+      <div style={{fontSize:15,color:T.textMid}}>Be honest — Franco personalises your path.</div>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:520,width:"100%"}}>
+      {levels.map(l=><Card key={l.id} onClick={()=>setLevel(l.id)} style={{display:"flex",alignItems:"center",gap:16,border:`2px solid ${level===l.id?T.blue:T.border}`,background:level===l.id?T.blueLight:T.card}}>
+        <div style={{fontSize:28}}>{l.emoji}</div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{l.label}</div>
+          <div style={{fontSize:13,color:T.textSoft,marginTop:2}}>{l.hint}</div>
+        </div>
+        {level===l.id&&<div style={{color:T.blue,fontSize:20}}>✓</div>}
+      </Card>)}
+    </div>
+    <Btn onClick={()=>onComplete(companion,level)} disabled={!level} style={{padding:"15px 40px",fontSize:16}}>Start Learning →</Btn>
+  </div>;
+}
+
+function FocusSessionWidget({onNavigate}){
+  const FOCUS=25*60, BREAK=5*60;
+  const[phase,setPhase]=useState("idle");
+  const[secs,setSecs]=useState(FOCUS);
+  const[running,setRunning]=useState(false);
+  const[sessions,setSessions]=useState(0);
+  const timerRef=useRef();
+  const[started,setStarted]=useState(false);
+
+  useEffect(()=>{
+    if(running){
+      timerRef.current=setInterval(()=>{
+        setSecs(s=>{
+          if(s<=1){
+            clearInterval(timerRef.current);
+            setRunning(false);
+            if(phase==="focus"){ setSessions(n=>n+1); setPhase("break"); setSecs(BREAK); }
+            else { setPhase("done"); }
+            return 0;
+          }
+          return s-1;
+        });
+      },1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[running,phase]);
+
+  const fmt=(s)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+  const total=phase==="break"?BREAK:FOCUS;
+  const pct=((total-secs)/total)*100;
+
+  const start=()=>{ setPhase("focus"); setSecs(FOCUS); setRunning(true); setStarted(true); };
+  const toggle=()=>setRunning(r=>!r);
+  const reset=()=>{ setRunning(false); setPhase("idle"); setSecs(FOCUS); setSessions(0); setStarted(false); };
+
+  const label=phase==="focus"?"Focus":phase==="break"?"Break":phase==="done"?"Done":"";
+  const barColor=phase==="break"?"#10B981":phase==="done"?"#F59E0B":"#0F172A";
+
+  if(!started){
+    return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontSize:16}}>⏱️</div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>25:5 Focus Session</div>
+        <div style={{fontSize:11,color:"#94A3B8"}}>Study for 25 min, break for 5 min</div>
+      </div>
+      <button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui,sans-serif"}}>Start</button>
+    </div>;
+  }
+
+  return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,overflow:"hidden"}}>
+    <div style={{height:3,background:"#F1F5F9"}}><div style={{height:"100%",width:`${pct}%`,background:barColor,transition:"width 0.5s"}}/></div>
+    <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontSize:16}}>⏱️</div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label} · {sessions>0?`${sessions} done today`:""}</div>
+        <div style={{fontFamily:"system-ui,monospace",fontSize:20,fontWeight:800,color:"#0F172A",letterSpacing:1}}>{fmt(secs)}</div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        {phase!=="done"&&<button onClick={toggle} style={{background:"#F1F5F9",color:"#0F172A",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>{running?"⏸":"▶"}</button>}
+        {phase==="done"&&<button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>Again</button>}
+        <button onClick={reset} style={{background:"#F1F5F9",color:"#64748B",border:"none",padding:"6px 10px",borderRadius:7,fontSize:12,cursor:"pointer"}}><RotateCcw size={14}/></button>
+      </div>
+    </div>
+  </div>;
+}
+
+
+function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
+  const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
+  const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const doneL=Object.keys(progress).length;
+  const pct=Math.round((doneL/allL.length)*100);
+  const xp=doneL*25;
+  const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
+  const c=companion||COMPANIONS[0];
+  const hour=new Date().getHours();
+  const greeting=hour<12?"Bonjour":hour<17?"Bon après-midi":"Bonsoir";
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
+  const nextLesson=allL.find(l=>!progress[l.id]);
+  const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
+  const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
+  const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
+  const isMobile=useIsMobile();
+
+  return <div style={{minHeight:"100vh",background:"#F1F4F9",padding:isMobile?"12px 12px 80px":"32px 28px",maxWidth:1020,margin:"0 auto",display:"flex",flexDirection:"column",gap:isMobile?10:20}}>
+
+    {/* HEADER */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:isMobile?11:13,color:"#64748B",fontWeight:500,marginBottom:2}}>{greeting}{displayName?` — ${displayName}`:""}</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?18:28,fontWeight:800,color:"#0F172A",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          {doneL===0?"Start your journey 🍁":doneL<10?"Building momentum 💪":"Great progress 🎯"}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:isMobile?"8px 10px":"12px 16px",background:"#fff",borderRadius:12,border:"1.5px solid #E2E8F0",flexShrink:0}}>
+        <Avatar companion={c} size={isMobile?28:36}/>
+        {!isMobile&&<div><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div><div style={{fontSize:11,color:"#10B981",fontWeight:600}}>● Ready</div></div>}
+        {isMobile&&<div style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{c.name}</div>}
+      </div>
+    </div>
+
+    {/* STAT PILLS — 2x2 on mobile, 4 across on desktop */}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:isMobile?8:12}}>
+      {[
+        {label:"Streak",val:`${streak()}d`,icon:"🔥"},
+        {label:"XP",val:xp,icon:"⭐"},
+        {label:"Lessons",val:`${doneL}/${allL.length}`,icon:"📚"},
+        {label:"CLB",val:level.clbTag,icon:"🎯"},
+      ].map((s,i)=>(
+        <div key={i} style={{background:"#fff",borderRadius:12,border:"1.5px solid #E2E8F0",padding:isMobile?"10px 12px":"16px 18px",display:"flex",alignItems:"center",gap:isMobile?8:10}}>
+          <span style={{fontSize:isMobile?18:22}}>{s.icon}</span>
+          <div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:22,fontWeight:800,color:"#0F172A",lineHeight:1}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.3,marginTop:2}}>{s.label}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+
+    {/* NEXT LESSON — always full width */}
+    <div style={{background:"#0F172A",borderRadius:16,overflow:"hidden",boxShadow:"0 4px 16px rgba(15,23,42,0.18)"}}>
+      <div style={{padding:isMobile?"16px 16px 14px":"22px 24px 18px"}}>
+        <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.45)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Continue Learning</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?17:21,fontWeight:800,color:"#fff",marginBottom:4,lineHeight:1.25}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",marginBottom:14}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:""}</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:"#0F172A",border:"none",padding:isMobile?"10px 20px":"11px 24px",borderRadius:10,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>
+            {nextLesson?"▶ Start":"Browse"}
+          </button>
+          <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.2)",padding:isMobile?"10px 14px":"11px 18px",borderRadius:10,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+            ⚡ Practice
+          </button>
+          <div style={{marginLeft:"auto",textAlign:"right"}}>
+            <div style={{fontSize:isMobile?16:20,fontWeight:800,color:"#fff"}}>{pct}%</div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>done</div>
+          </div>
+        </div>
+      </div>
+      <div style={{height:3,background:"rgba(255,255,255,0.08)"}}><div style={{height:"100%",width:`${pct||1}%`,background:"linear-gradient(90deg,#3B82F6,#10B981)",transition:"width 1s"}}/></div>
+    </div>
+
+    {/* FOCUS TIMER */}
+    <FocusSessionWidget onNavigate={onNavigate}/>
+
+    {/* BOTTOM GRID — side by side on desktop, stacked on mobile */}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?10:14}}>
+
+      {/* Skills */}
+      <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"14px":"18px 20px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:12}}>Skills Breakdown</div>
+        {[{sk:"listening",label:"Listening",icon:"🎧"},{sk:"speaking",label:"Speaking",icon:"🗣️"},{sk:"writing",label:"Writing",icon:"✍️"},{sk:"reading",label:"Reading",icon:"📖"}].map(({sk,label,icon})=>{
+          const d=skillDone(sk);const t=skillTotal(sk);const p=t>0?Math.round((d/t)*100):0;
+          return <div key={sk} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <span style={{fontSize:12,fontWeight:600,color:"#0F172A"}}>{icon} {label}</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#64748B"}}>{p}%</span>
+            </div>
+            <div style={{height:5,background:"#F1F5F9",borderRadius:99,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${p||1}%`,background:"#0F172A",borderRadius:99,transition:"width 0.8s",opacity:.75}}/>
+            </div>
+          </div>;
+        })}
+      </div>
+
+      {/* Quick actions */}
+      <div style={{display:"flex",flexDirection:"column",gap:isMobile?8:10}}>
+        {/* Companion */}
+        <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+          <Avatar companion={c} size={isMobile?40:48}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div>
+            <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.messages?.idle||"Ready to learn!"}</div>
+          </div>
+          <button onClick={()=>onNavigate("tutor")} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 14px",borderRadius:9,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>Chat</button>
+        </div>
+
+        {/* CLB Path */}
+        <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Your CLB Path</div>
+          <div style={{fontSize:isMobile?14:16,fontWeight:800,color:"#0F172A",marginBottom:2}}>{level.label}</div>
+          <div style={{fontSize:11,color:"#64748B",marginBottom:8,lineHeight:1.5}}>{level.desc}</div>
+          <div style={{display:"flex",gap:6}}>
+            <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#0F172A",color:"#fff"}}>{level.cefrTag}</span>
+            <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",border:"1px solid #E2E8F0"}}>{level.clbTag}</span>
+          </div>
+        </div>
+
+        {/* Quick Links */}
+        <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px"}}>
+          {[{icon:"📖",label:"All Lessons",screen:"hub"},{icon:"⚡",label:"Practice & Games",screen:"practice"},{icon:"🧑‍🏫",label:"Personal Tutor",screen:"tutor"}].map(l=>(
+            <div key={l.screen} onClick={()=>onNavigate(l.screen)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid #F8FAFC",cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.opacity=".7"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+              <span style={{fontSize:15,width:20,textAlign:"center"}}>{l.icon}</span>
+              <span style={{fontSize:13,fontWeight:600,color:"#0F172A",flex:1}}>{l.label}</span>
+              <span style={{color:"#CBD5E0"}}>›</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+  </div>;
+}
+
+function HubScreen({progress,onStartLesson}){
+  const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
+  const[search,setSearch]=useState("");
+  const isMobile=useIsMobile();
+  const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
+  const doneLessons=allLessons.filter(l=>progress[l.id]);
+  const nextLesson=allLessons.find(l=>!progress[l.id]);
+  const nextLevel=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>!progress[l.id]));
+  const pct=Math.round((doneLessons.length/allLessons.length)*100);
+
+  return <div style={{padding:isMobile?"10px":"20px 28px",maxWidth:760,margin:"0 auto"}}>
+
+    {/* Compact header */}
+    <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:12}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginBottom:2}}>{doneLessons.length}/{allLessons.length} lessons · {pct}% done</div>
+        <div style={{fontSize:14,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nextLesson?`Next: ${nextLesson.title}`:"All lessons complete! 🎉"}</div>
+      </div>
+      {nextLesson&&nextLevel&&<button onClick={()=>onStartLesson(nextLesson,nextLevel)}
+        style={{background:"#fff",color:"#0F172A",border:"none",padding:"8px 16px",borderRadius:9,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>
+        Start →
+      </button>}
+    </div>
+
+    {/* Search */}
+    <div style={{position:"relative",marginBottom:12}}>
+      <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",display:"flex",alignItems:"center",color:"#94A3B8"}}><Search size={15}/></span>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search lessons..."
+        style={{width:"100%",padding:"10px 12px 10px 36px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:13,color:"#0F172A",background:"#fff",outline:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#94A3B8",display:"flex",alignItems:"center"}}><X size={14}/></button>}
+    </div>
+
+    {/* Search results */}
+    {search.length>1&&<div style={{marginBottom:12}}>
+      {(()=>{
+        const q=search.toLowerCase();
+        const results=allLessons.filter(l=>l.title.toLowerCase().includes(q));
+        const lv=(l)=>Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(x=>x.id===l.id));
+        return results.length?results.slice(0,6).map(l=>{
+          const lvl=lv(l); const done=!!progress[l.id];
+          return <div key={l.id} onClick={()=>onStartLesson(l,lvl)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,border:"1px solid #E2E8F0",background:"#fff",cursor:"pointer",marginBottom:6}}>
+            <div style={{width:28,height:28,borderRadius:7,background:done?"#10B981":"#0F172A",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>{done?"✓":"▶"}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l.title}</div>
+              <div style={{fontSize:11,color:"#94A3B8"}}>{lvl?.label} · {l.skill} · {l.mins}min</div>
+            </div>
+            <span style={{fontSize:11,color:done?"#10B981":"#64748B",fontWeight:600,flexShrink:0}}>{done?"Done":"Go →"}</span>
+          </div>;
+        }):<div style={{textAlign:"center",padding:"16px",color:"#94A3B8",fontSize:13}}>No results for "{search}"</div>;
+      })()}
+    </div>}
+
+    {/* Level accordion — compact */}
+    {Object.values(SYLLABUS).map(level=>{
+      const lLessons=level.modules.flatMap(m=>m.lessons);
+      const donePct=Math.round((lLessons.filter(l=>progress[l.id]).length/lLessons.length)*100);
+      const doneCount=lLessons.filter(l=>progress[l.id]).length;
+      const isOpen=expanded===level.id;
+      return <div key={level.id} style={{marginBottom:8,background:"#fff",borderRadius:12,border:isOpen?`1.5px solid #0F172A`:"1.5px solid #E2E8F0",overflow:"hidden"}}>
+        {/* Level header */}
+        <div onClick={()=>setExpanded(isOpen?null:level.id)}
+          style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer"}}>
+          <span style={{fontSize:20,flexShrink:0}}>{level.emoji}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{level.label}</div>
+            <div style={{fontSize:11,color:"#94A3B8"}}>{doneCount}/{lLessons.length} lessons · {level.cefrTag}</div>
+          </div>
+          <div style={{fontSize:12,fontWeight:700,color:donePct>0?"#10B981":"#94A3B8",marginRight:4}}>{donePct}%</div>
+          <ChevronDown size={16} color="#94A3B8" style={{transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s",flexShrink:0}}/>
+        </div>
+        {/* Progress bar */}
+        {isOpen&&<div style={{height:2,background:"#F1F5F9",margin:"0 14px"}}><div style={{height:"100%",width:`${donePct||1}%`,background:"#0F172A",transition:"width 0.5s"}}/></div>}
+        {/* Lessons list */}
+        {isOpen&&<div style={{padding:"8px 10px"}}>
+          {level.modules.map(mod=><div key={mod.id} style={{marginBottom:8}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,padding:"4px 4px 6px"}}>{mod.title}</div>
+            {mod.lessons.map((lesson,li)=>{
+              const done=!!progress[lesson.id];
+              const isNext=!done&&mod.lessons.slice(0,li).every(l=>progress[l.id]);
+              const locked=!isLessonFree(lesson.id)&&!isPremiumUnlocked();
+              const icon={listening:"🎧",speaking:"🗣️",reading:"📖",writing:"✍️"}[lesson.skill]||"📚";
+              return <div key={lesson.id} onClick={()=>onStartLesson(lesson,level)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:9,cursor:"pointer",marginBottom:4,background:done?"#F0FDF4":isNext&&!locked?"#F8FAFC":"transparent",border:isNext&&!locked?"1px solid #E2E8F0":"1px solid transparent"}}>
+                <div style={{width:28,height:28,borderRadius:7,background:locked?"#F1F5F9":done?"#10B981":isNext?"#0F172A":"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:locked?"#94A3B8":done||isNext?"#fff":"#64748B",fontWeight:700,flexShrink:0}}>
+                  {locked?"🔒":done?"✓":icon}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:locked?"#94A3B8":"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+                  <div style={{fontSize:10,color:"#94A3B8"}}>{lesson.mins}min · {lesson.questions.length}q</div>
+                </div>
+                <span style={{fontSize:11,fontWeight:700,color:done?"#10B981":isNext?"#0F172A":locked?"#F59E0B":"#94A3B8",flexShrink:0}}>
+                  {done?"✓":locked?"⭐":isNext?"Start":"→"}
+                </span>
+              </div>;
+            })}
+          </div>)}
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+// Vocab flip cards — extracted so hooks aren't called inside .map()
+// ─── FRENCH TTS — uses browser Web Speech API ────────────────────────────────
+function speakFrench(text){
+  if(!('speechSynthesis' in window)) return;
+  // Strip anything in parens (English translations) before speaking
+  const cleaned = text.replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(cleaned);
+  utt.lang = "fr-CA";
+  utt.rate = 0.88;
+  utt.pitch = 1;
+  // Prefer a French voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const frVoice = voices.find(v=>v.lang.startsWith("fr-CA"))
+    || voices.find(v=>v.lang.startsWith("fr-FR"))
+    || voices.find(v=>v.lang.startsWith("fr"));
+  if(frVoice) utt.voice = frVoice;
+  window.speechSynthesis.speak(utt);
+}
+
+function SpeakBtn({text, size=14, style={}}){
+  const[speaking,setSpeaking]=useState(false);
+  const handle=(e)=>{
+    e.stopPropagation();
+    setSpeaking(true);
+    speakFrench(text);
+    setTimeout(()=>setSpeaking(false), Math.max(800, text.length*60));
+  };
+  return(
+    <button onClick={handle} title="Listen in French"
+      style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",
+        fontSize:size,lineHeight:1,borderRadius:6,transition:"transform 0.15s",
+        transform:speaking?"scale(1.3)":"scale(1)",opacity:speaking?1:0.65,...style}}>
+      {speaking?"🔊":"🔈"}
+    </button>
+  );
+}
+
+function VocabFlipList({vocab}){
+  const[flipped,setFlipped]=useState(()=>vocab.map(()=>false));
+  const toggle=(i)=>setFlipped(f=>{const n=[...f];n[i]=!n[i];return n;});
+  return <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+    {vocab.map((v,i)=>{
+      const parts=v.split(/[()]/);
+      const hasTrans=parts.length>1;
+      const isFlipped=flipped[i];
+      const frWord = parts[0].trim();
+      return <div key={i} style={{display:"flex",alignItems:"center",gap:4,
+          fontSize:13,fontWeight:600,padding:"6px 10px 6px 14px",borderRadius:50,
+          background:isFlipped?T.navy:T.blueLight,color:isFlipped?"#fff":T.navy,
+          fontStyle:"italic",transition:"all 0.25s",border:`1.5px solid ${isFlipped?T.navy:"transparent"}`}}>
+        <span onClick={()=>hasTrans&&toggle(i)} style={{cursor:hasTrans?"pointer":"default"}}>
+          {isFlipped&&hasTrans?<><span style={{fontSize:10,marginRight:4}}>🔄</span>{parts[1]?.trim()||v}</>:<>{v}{hasTrans&&<span style={{fontSize:10,marginLeft:4,opacity:0.5}}>tap</span>}</>}
+        </span>
+        <SpeakBtn text={frWord} size={13} style={{color:isFlipped?"rgba(255,255,255,0.8)":T.navy}}/>
+      </div>;
+    })}
+  </div>;
+}
+
+function LessonScreen({lesson,level,companion,onComplete,onBack}){
+  const c=companion||COMPANIONS[0];
+  const[phase,setPhase]=useState("teach");
+  const[qIdx,setQIdx]=useState(0);
+  const[selected,setSelected]=useState(null);
+  const[writeVal,setWriteVal]=useState("");
+  const[answered,setAnswered]=useState(false);
+  const[correct,setCorrect]=useState(0);
+  const[xp,setXp]=useState(0);
+  const[showConfetti,setShowConfetti]=useState(false);
+  const[streak,setStreak]=useState(()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}});
+  const[avatarText,setAvatarText]=useState(null);
+  const[typing,setTyping]=useState(false);
+  const[speaking,setSpeaking]=useState(false);
+  const[orderPlaced,setOrderPlaced]=useState([]);
+  const[orderBank,setOrderBank]=useState([]);
+  const[speakDone,setSpeakDone]=useState(false);
+
+  // Questions sorted easy-first to build confidence
+  const sortedQuestions = [...lesson.questions].sort((a,b)=>(a.diff||2)-(b.diff||2));
+  const q=sortedQuestions[qIdx];
+  const total=sortedQuestions.length;
+
+  const speak=(text)=>{
+    setTyping(true);setSpeaking(true);
+    setTimeout(()=>{setTyping(false);setAvatarText(text);},800);
+    setTimeout(()=>setSpeaking(false),Math.min(text.length*40+800,4000));
+  };
+
+  useEffect(()=>{
+    const isFoundation = lesson.id.startsWith('f-');
+    const greet = isFoundation
+      ? `Bienvenue! 🎉 I'm ${c.name} — your AI French coach. We start SUPER easy so you feel confident right away. You've got this!`
+      : `${c.messages.idle} Questions go from easy → harder, so you always start with a win! 💪`;
+    setTimeout(()=>speak(greet),300);
+  },[]);
+
+  useEffect(()=>{
+    if(q?.type==="order"){
+      const shuffled=[...q.words].sort(()=>Math.random()-.5);
+      setOrderBank(shuffled);setOrderPlaced([]);
+    }
+  },[qIdx,q?.type]);
+
+  const handleTeachDone=()=>{
+    setPhase("questions");
+    speak(`Great! Let's practice! ${total} question${total>1?"s":""} — starting easy! 💪`);
+  };
+
+  const diffLabel=(d)=>d<=1?"⭐ Very Easy":d===2?"⭐⭐ Easy":d===3?"⭐⭐⭐ Medium":d===4?"⭐⭐⭐⭐ Hard":"⭐⭐⭐⭐⭐ CLB Level";
+  const diffColor=(d)=>d<=1?T.mint:d===2?"#22C55E":d===3?T.gold:d===4?"#F97316":T.red;
+
+  const checkAnswer=()=>{
+    if(answered)return;
+    let ok=false;
+    if(q.type==="tap"||q.type==="mcq"){ok=selected===q.correct;}
+    else if(q.type==="fill"){ok=selected===q.correct;}
+    else if(q.type==="order"){ok=orderPlaced.join(" ")===q.correct.join(" ");}
+    else if(q.type==="write"){
+      const v=writeVal.trim().toLowerCase().replace(/['']/g,"'");
+      ok=q.accepted.some(a=>v.includes(a.toLowerCase())||a.toLowerCase().split(" ").every(w=>v.includes(w)));
+    }
+    else if(q.type==="speak"){ok=speakDone;}
+    setAnswered(true);
+    if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
+    speak(ok?`${c.messages.correct} ${q.explain}`:
+            `${c.messages.wrong} ${q.explain}`);
+  };
+
+  const nextQ=()=>{
+    if(qIdx<total-1){
+      setQIdx(i=>i+1);setSelected(null);setWriteVal("");setAnswered(false);
+      setSpeakDone(false);setOrderPlaced([]);
+      const msgs = [
+        "Great! Next one ✨","You're on a roll! 🔥","Keep it up! 💪",
+        "Looking good! 🌟","Nice work! →","Almost there! 🏁"
+      ];
+      const encouragements = qIdx===0 ? "Perfect start! Here comes the next one 🎯" :
+        qIdx+1===total-1 ? "Last question — you've nearly done it! 🏁" :
+        msgs[qIdx % msgs.length];
+      setTimeout(()=>speak(encouragements),400);
+    } else {setPhase("done");speak(correct>=total*0.7?c.messages.complete:"Good effort! Every question you do is progress. Review the explanations and try again! 📚");}
+  };
+
+  const isOk=answered&&(
+    q?.type==="tap"||q?.type==="mcq"||q?.type==="fill"?selected===q?.correct:
+    q?.type==="order"?orderPlaced.join(" ")===q?.correct?.join(" "):
+    q?.type==="write"?q?.accepted?.some(a=>writeVal.trim().toLowerCase().includes(a.toLowerCase())):
+    speakDone
+  );
+
+  const placeWord=(word,idx)=>{if(answered)return;setOrderPlaced(p=>[...p,word]);setOrderBank(b=>{const n=[...b];n.splice(idx,1,"__used__");return n;});};
+  const removeWord=(idx)=>{if(answered)return;const word=orderPlaced[idx];setOrderPlaced(p=>{const n=[...p];n.splice(idx,1);return n;});setOrderBank(b=>b.map(w=>w==="__used__"&&orderBank.indexOf("__used__")>-1?word:w));};
+
+  return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
+    {/* Top bar with back + progress */}
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"10px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:52,zIndex:50}}>
+      <button onClick={()=>{if(window.confirm("Leave lesson? Progress won't be saved."))onBack();}}
+        style={{background:"none",border:"1px solid #E2E8F0",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>
+        ← Back
+      </button>
+      <div style={{flex:1}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#0F172A",marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+        <div style={{height:4,background:"#F1F5F9",borderRadius:99,overflow:"hidden"}}>
+          <div style={{height:"100%",width:phase==="teach"?"10%":`${((qIdx+(answered?1:0))/total)*100}%`,background:"#0F172A",borderRadius:99,transition:"width 0.5s"}}/>
+        </div>
+      </div>
+      {phase==="questions"&&<div style={{fontSize:12,fontWeight:700,color:"#64748B",flexShrink:0}}>{qIdx+1}/{total}</div>}
+    </div>
+    {/* Companion hint — collapsible floating bubble */}
+    {avatarText&&<div style={{margin:"12px 16px 0",padding:"10px 14px",background:"#0F172A",borderRadius:12,display:"flex",alignItems:"flex-start",gap:10}}>
+      <Avatar companion={c} size={28} speaking={speaking}/>
+      <div style={{fontSize:13,color:"rgba(255,255,255,0.9)",lineHeight:1.5,fontStyle:"italic",flex:1}}>{typing?"...":(avatarText||"")}</div>
+    </div>}
+    {/* fake div to replace old avatar panel close */}
+    <div>
+    </div>
+    {/* Content */}
+    <div style={{padding:"12px 14px 60px",display:"flex",flexDirection:"column",gap:12,maxWidth:640,margin:"0 auto"}}>
+      {/* TEACH PHASE */}
+      {phase==="teach"&&<>
+        {/* Lesson title block */}
+        <div style={{marginBottom:4}}>
+          <div style={{fontSize:10,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{level.cefrTag} · {lesson.skill} · {lesson.mins} min</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A",lineHeight:1.3}}>{lesson.title}</div>
+        </div>
+
+        {/* Explanation card — clean, readable */}
+        <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"16px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>What you'll learn</div>
+          <div style={{fontSize:14,color:"#334155",lineHeight:1.75,marginBottom:14}}>{lesson.teach}
+            <button onClick={()=>speakFrench(lesson.teach)} style={{marginLeft:6,background:"none",border:"none",cursor:"pointer",fontSize:14,opacity:0.5,verticalAlign:"middle"}}>🔈</button>
+          </div>
+          <div style={{height:1,background:"#F1F5F9",marginBottom:14}}/>
+          <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>Key vocabulary — tap to translate</div>
+          <VocabFlipList vocab={lesson.vocab}/>
+        </div>
+
+        {/* What's next */}
+        <div style={{background:"#F8FAFC",borderRadius:12,border:"1px solid #E2E8F0",padding:"12px 14px",display:"flex",alignItems:"center",gap:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:12,fontWeight:600,color:"#0F172A",marginBottom:2}}>{total} practice questions</div>
+            <div style={{fontSize:11,color:"#94A3B8"}}>Starts easy · builds up · AI checks your answers</div>
+          </div>
+          <button onClick={handleTeachDone}
+            style={{background:"#0F172A",color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>
+            Start →
+          </button>
+        </div>
+      </>}
+
+      {/* QUESTION PHASE */}
+      {phase==="questions"&&q&&<>
+        {/* Question header */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+          <span style={{fontSize:11,fontWeight:700,color:"#94A3B8"}}>Q{qIdx+1}/{total}</span>
+          <div style={{flex:1,height:1,background:"#F1F5F9"}}/>
+          <span style={{fontSize:11,fontWeight:700,color:diffColor(q.diff||2)}}>{diffLabel(q.diff||2)}</span>
+        </div>
+
+        {/* TAP type — easiest, just tap the translation */}
+        {q.type==="tap"&&<>
+          <Card>
+            <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 6px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
+              {q.fr}
+              <SpeakBtn text={q.fr} size={22}/>
+            </div>
+            <div style={{textAlign:"center",fontSize:13,color:T.textSoft,marginBottom:20}}>What does this mean in English?</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {q.opts.map((opt,i)=>{
+                const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"16px 14px",borderRadius:16,border:`2.5px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontSize:15,fontWeight:600,color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s",boxShadow:isC?"0 0 0 3px rgba(16,185,129,0.15)":isSel?"0 0 0 3px rgba(26,86,219,0.15)":"none"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
+              })}
+            </div>
+          </Card>
+        </>}
+
+        {/* MCQ type */}
+        {q.type==="mcq"&&<>
+          <Card>
+            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:8}}>
+            <span style={{flex:1}}>{q.prompt}</span>
+            <SpeakBtn text={q.prompt} size={18}/>
+          </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {q.options.map((opt,i)=>{
+                const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"14px 16px",borderRadius:14,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10,fontSize:14,fontWeight:500,color:T.text,transition:"all 0.2s"}}>
+                  <span style={{width:26,height:26,borderRadius:8,background:isC?T.mint:isW?T.red:isSel?T.blue:T.surface,color:(isSel||isC||isW)?"#fff":T.textMid,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}</button>;
+              })}
+            </div>
+          </Card>
+        </>}
+
+        {/* FILL type */}
+        {q.type==="fill"&&<>
+          <Card>
+            <div style={{fontSize:14,color:T.textSoft,marginBottom:12,fontWeight:600}}>Fill in the blank:</div>
+            <div style={{fontSize:20,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.6}}>
+              {q.before} <span style={{display:"inline-block",minWidth:80,borderBottom:`3px solid ${answered?(isOk?T.mint:T.red):T.blue}`,padding:"2px 8px",color:answered?isOk?T.mint:T.red:T.blue,fontStyle:"italic"}}>{selected!==null?q.options[selected]:"___"}</span> {q.after}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+              {q.options.map((opt,i)=>{
+                const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 16px",borderRadius:12,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,fontWeight:600,fontStyle:"italic",color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
+              })}
+            </div>
+          </Card>
+        </>}
+
+        {/* ORDER type — drag/click to build sentence */}
+        {q.type==="order"&&<>
+          <Card>
+            <div style={{fontSize:13,fontWeight:700,color:T.textSoft,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Arrange the words:</div>
+            <div style={{minHeight:52,padding:"10px 12px",background:T.surface,borderRadius:12,border:`2px dashed ${answered?(isOk?T.mint:T.red):T.border}`,marginBottom:14,display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"}}>
+              {orderPlaced.length===0&&<span style={{color:T.textSoft,fontSize:13,fontStyle:"italic"}}>Click words below to build the sentence...</span>}
+              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>removeWord(i)} style={{padding:"7px 13px",borderRadius:50,background:answered?isOk?T.mint:T.red:T.blue,color:"#fff",border:"none",fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:answered?"default":"pointer",transition:"all 0.2s"}}>{w}</button>)}
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+              {orderBank.map((w,i)=>w==="__used__"?<div key={i} style={{padding:"7px 13px",minWidth:40,height:35}}/>:<button key={i} disabled={answered} onClick={()=>placeWord(w,i)} style={{padding:"7px 13px",borderRadius:50,background:T.card,border:`2px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:14,cursor:"pointer",color:T.text,transition:"all 0.2s"}}>{w}</button>)}
+            </div>
+          </Card>
+        </>}
+
+        {/* WRITE type — AI Writing Checker */}
+        {q.type==="write"&&<>
+          <Card>
+            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:8,lineHeight:1.5}}>{q.prompt}</div>
+            {q.hint&&<div style={{fontSize:13,color:T.textMid,background:T.goldLight,padding:"10px 12px",borderRadius:10,marginBottom:12,border:"1.5px solid #FCD34D"}}>💡 Hint: {q.hint}</div>}
+            <div style={{fontSize:12,fontWeight:600,color:T.textSoft,marginBottom:7}}>Write your answer in French — AI will check it: ✍️🤖</div>
+            {!answered
+              ? <AIWritingChecker
+                  prompt={q.prompt}
+                  accepted={q.accepted}
+                  level={level?.cefrTag||"A1"}
+                  onResult={(isCorrect)=>{
+                    if(!answered){
+                      setAnswered(true);
+                      if(isCorrect){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
+                      speak(isCorrect?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);
+                    }
+                  }}
+                />
+              : <div style={{padding:12,borderRadius:10,background:isOk?T.mintLight:T.redLight,fontSize:14,color:T.text,fontStyle:"italic"}}>✅ Answer submitted</div>
+            }
+          </Card>
+        </>}
+
+        {/* SPEAK type — AI Speaking Coach */}
+        {q.type==="speak"&&<>
+          <Card style={{border:`2px solid #F9731620`,background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)"}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
+            <AISpeakingCoach
+              prompt={q.prompt}
+              sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
+              onDone={(passed)=>{
+                setSpeakDone(true);
+                if(!answered){
+                  setAnswered(true);
+                  if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
+                  speak(passed?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);
+                }
+              }}
+            />
+          </Card>
+        </>}
+
+        {/* Feedback */}
+        {answered&&<div style={{padding:"16px 18px",borderRadius:16,background:isOk?"linear-gradient(135deg,#D1FAE5,#ECFDF5)":"linear-gradient(135deg,#FEF3C7,#FFFBEB)",border:`2px solid ${isOk?"#6EE7B7":"#FCD34D"}`,display:"flex",alignItems:"flex-start",gap:12,animation:"slideUp 0.3s ease"}}>
+          <span style={{fontSize:24,flexShrink:0}}>{isOk?"✅":"💡"}</span>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:14,color:isOk?"#065F46":"#92400E",marginBottom:5}}>{isOk?"Correct! You're getting it! 🌟":"Good try — here's how it works:"}</div>
+            <div style={{fontSize:13,color:isOk?"#065F46":"#78350F",lineHeight:1.65}}>{q.explain}</div>
+            {!isOk&&<div style={{marginTop:8,fontSize:12,color:"#92400E",fontWeight:600}}>Don't worry — mistakes are how the brain learns! 🧠</div>}
+          </div>
+        </div>}
+
+        {/* Action buttons */}
+        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+          {!answered
+            ?<Btn onClick={checkAnswer} disabled={
+                (q.type==="tap"||q.type==="mcq"||q.type==="fill")?selected===null:
+                q.type==="order"?orderPlaced.length===0:
+                q.type==="write"||q.type==="speak"?false:false
+              }>{q.type==="write"||q.type==="speak"?"Checking... ✓":"Check ✓"}</Btn>
+            :<Btn onClick={nextQ}>{qIdx<total-1?"Next →":"See how I did →"}</Btn>}
+          {!answered&&q.type!=="speak"&&q.type!=="write"&&<Btn variant="ghost" onClick={nextQ}>Skip →</Btn>}
+          {!answered&&<AIHintButton question={q} level={level?.cefrTag||"A1"}/>}
+        </div>
+      </>}
+
+      {/* DONE PHASE */}
+      {phase==="done"&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,textAlign:"center",padding:"20px 8px",position:"relative",overflow:"hidden"}}>
+        {/* Confetti */}
+        {showConfetti&&<div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:9999}}>
+          {Array.from({length:50}).map((_,i)=>{
+            const colors=["#10B981","#F59E0B","#3B82F6","#F472B6","#A78BFA","#34D399","#FCD34D"];
+            const x=Math.random()*100;const delay=Math.random()*1.2;const size=5+Math.random()*7;
+            return <div key={i} style={{position:"absolute",left:`${x}%`,top:"-10px",width:size,height:size,borderRadius:Math.random()>0.5?"50%":"2px",background:colors[i%colors.length],animation:`confettiFall ${1.5+Math.random()*2}s ${delay}s ease-in forwards`}}/>;
+          })}
+        </div>}
+
+        {/* Big emoji + title */}
+        <div style={{fontSize:64,animation:"float 2s ease-in-out infinite"}}>
+          {correct>=total*0.8?"🏆":correct>=total*0.6?"🎉":correct>=total*0.4?"💪":"📚"}
+        </div>
+        <div style={{fontSize:22,fontWeight:800,color:"#0F172A",fontFamily:"Georgia,serif"}}>
+          {correct>=total*0.8?"Brilliant! 🌟":correct>=total*0.6?"Great work!":correct>=total*0.4?"Good effort!":"Keep going!"}
+        </div>
+        <div style={{fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:300}}>
+          {correct>=total*0.8?"You're actually thinking in French now. That's the real breakthrough. 🍁":
+           correct>=total*0.6?"Every lesson you do makes French easier. You're building real skills.":
+           correct>=total*0.4?"Your brain is literally rewiring for French. Keep showing up!":
+           "Struggling means you're learning. Every attempt counts. Try again!"}
+        </div>
+
+        {/* Compact stats */}
+        <div style={{display:"flex",gap:10,justifyContent:"center",width:"100%"}}>
+          {[
+            {val:`${correct}/${total}`,lbl:"Correct",icon:"✅"},
+            {val:`+${xp} XP`,lbl:"Earned",icon:"⭐"},
+            {val:`${streak}🔥`,lbl:"Streak",icon:""},
+          ].map(s=><div key={s.lbl} style={{flex:1,textAlign:"center",padding:"12px 8px",borderRadius:12,background:"#fff",border:"1.5px solid #E2E8F0"}}>
+            <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>{s.lbl}</div>
+          </div>)}
+        </div>
+
+        {/* Companion message */}
+        <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",width:"100%",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+          <span style={{fontSize:28,flexShrink:0}}>{c.emoji}</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:2}}>{c.name} says:</div>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.8)",lineHeight:1.5,fontStyle:"italic"}}>
+              {correct>=total*0.8?`Incroyable! You got ${correct} out of ${total} right. French is becoming part of you! 🇨🇦`
+              :correct>=total*0.6?`${correct} out of ${total} — solid work! The more you practice, the faster it comes.`
+              :`Don't worry — every French speaker struggled at first. You're doing great just by showing up!`}
+            </div>
+          </div>
+        </div>
+
+        {/* Key vocab recap */}
+        <div style={{width:"100%",textAlign:"left"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Words from this lesson</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {lesson.vocab.slice(0,8).map(v=><span key={v} style={{fontSize:12,padding:"4px 10px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",fontWeight:600,fontStyle:"italic"}}>{v.split("(")[0].trim()}</span>)}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
+          <Btn onClick={()=>onComplete(lesson.id)} style={{padding:"15px 32px",fontSize:15}}>✓ Complete &amp; Continue</Btn>
+          <Btn variant="secondary" onClick={()=>{setPhase("questions");setQIdx(0);setSelected(null);setWriteVal("");setAnswered(false);setCorrect(0);setXp(0);setSpeakDone(false);setShowConfetti(false);}}>↺ Try Again</Btn>
+        </div>
+      </div>}
+    </div>
+  </div>;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
+// PRACTICE SCREEN — 6 games
+// ─────────────────────────────────────────────────────────────────────────────
+// ─── AI UTILITIES ─────────────────────────────────────────────────────────────
+const ANTHROPIC_KEY = (import.meta.env.VITE_ANTHROPIC_API_KEY || "").trim();
+
+async function callClaude(systemPrompt, userMessage, maxTokens=600){
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true"
+      },
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:maxTokens,
+        system:systemPrompt,
+        messages:[{role:"user",content:userMessage}]
+      })
+    });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || "Je suis désolé, une erreur s'est produite.";
+  }catch(e){
+    console.warn("Claude API error:",e);
+    return "Je suis désolé — l'IA n'est pas disponible pour le moment. Essayez de rafraîchir la page! 🔄";
+  }
+}
+
+// ─── AI SPEAKING COACH ────────────────────────────────────────────────────────
+function AISpeakingCoach({prompt, sampleAnswer, onDone}){
+  const[stage,setStage]=useState("ready"); // ready | recording | processing | feedback
+  const[transcript,setTranscript]=useState("");
+  const[feedback,setFeedback]=useState(null);
+  const[mediaRec,setMediaRec]=useState(null);
+  const recognitionRef=useRef(null);
+
+  const startRecording=()=>{
+    if(!("webkitSpeechRecognition" in window||"SpeechRecognition" in window)){
+      alert("Speech recognition not supported in this browser. Please use Chrome.");
+      return;
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    const rec=new SR();
+    rec.lang="fr-CA";
+    rec.interimResults=true;
+    rec.maxAlternatives=1;
+    recognitionRef.current=rec;
+    let finalText="";
+    rec.onresult=(e)=>{
+      finalText=Array.from(e.results).map(r=>r[0].transcript).join(" ");
+      setTranscript(finalText);
+    };
+    rec.onend=()=>{
+      setStage("processing");
+      analyzeWithAI(finalText);
+    };
+    rec.start();
+    setStage("recording");
+    // Auto-stop after 15s
+    setTimeout(()=>{try{rec.stop();}catch{}},15000);
+  };
+
+  const stopRecording=()=>{
+    try{recognitionRef.current?.stop();}catch{}
+  };
+
+  const analyzeWithAI=async(spokenText)=>{
+    if(!spokenText.trim()){
+      setFeedback({score:0,overall:"I couldn't hear anything. Please try again in a quiet place!",corrections:[],encouragement:"Don't worry — speaking a new language takes courage! Try again 💪"});
+      setStage("feedback");
+      return;
+    }
+    const sys=`You are a warm, encouraging French language coach for Canadian learners. 
+Analyze the student's spoken French response and give brief, kind feedback.
+Respond in JSON format exactly like this:
+{
+  "score": 85,
+  "overall": "Really good effort! Your pronunciation was clear.",
+  "corrections": ["Say 'bonjour' not 'bonzhour'", "Remember the silent 't' in 'est'"],
+  "encouragement": "You're making great progress! Keep practicing!",
+  "phonetic_tips": ["The French 'r' is made in the throat", "Try rounding your lips for 'u'"]
+}
+Keep corrections to max 3. Be encouraging. Score 0-100.`;
+    const msg=`The lesson prompt was: "${prompt}"
+Sample answer: "${sampleAnswer}"
+Student said: "${spokenText}"
+Analyze their French pronunciation and content. Be encouraging.`;
+    try{
+      const raw=await callClaude(sys,msg,400);
+      const cleaned=raw.replace(/```json|```/g,"").trim();
+      const parsed=JSON.parse(cleaned);
+      setFeedback(parsed);
+    }catch{
+      setFeedback({score:75,overall:"Good attempt! Keep practicing your French pronunciation.",corrections:[],encouragement:"Every time you speak French, you improve! 🌟"});
+    }
+    setStage("feedback");
+  };
+
+  return <div style={{background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)",borderRadius:16,padding:20,border:"2px solid #FCD34D"}}>
+    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+      <span style={{fontSize:28}}>🎤</span>
+      <div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
+        <div style={{fontSize:12,color:T.textSoft}}>Powered by Claude AI — speaks French Canadian 🍁</div>
+      </div>
+    </div>
+
+    <div style={{background:"rgba(255,255,255,0.7)",borderRadius:12,padding:14,marginBottom:14}}>
+      <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💬 Say this:</div>
+      <div style={{fontSize:15,fontWeight:600,color:T.navy,lineHeight:1.6,display:"flex",alignItems:"flex-start",gap:8}}>
+        <span style={{flex:1}}>{sampleAnswer}</span>
+        <SpeakBtn text={sampleAnswer} size={18}/>
+      </div>
+    </div>
+
+    {stage==="ready"&&<>
+      {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:13,color:T.textMid,fontStyle:"italic"}}>Last attempt: "{transcript}"</div>}
+      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"system-ui,-apple-system,sans-serif"}}>
+        🎤 Start Speaking
+      </button>
+      <div style={{fontSize:12,color:T.textSoft,marginTop:8}}>Uses your microphone · French Canadian dialect</div>
+    </>}
+
+    {stage==="recording"&&<>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+        <div style={{width:14,height:14,borderRadius:"50%",background:"#EF4444",animation:"ring 1s infinite"}}/>
+        <span style={{fontWeight:700,color:"#EF4444",fontSize:14}}>Recording... speak now!</span>
+      </div>
+      {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:14,color:T.navy,fontStyle:"italic"}}>"{transcript}"</div>}
+      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>
+        ⏹ Done Speaking
+      </button>
+    </>}
+
+    {stage==="processing"&&<div style={{textAlign:"center",padding:"20px 0"}}>
+      <div style={{fontSize:32,animation:"float 1s infinite"}}>🧠</div>
+      <div style={{marginTop:8,fontWeight:700,color:T.navy}}>AI is analyzing your French...</div>
+      <div style={{fontSize:12,color:T.textSoft,marginTop:4}}>Checking pronunciation, grammar & fluency</div>
+    </div>}
+
+    {stage==="feedback"&&feedback&&<>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+        <div style={{width:64,height:64,borderRadius:"50%",background:feedback.score>=80?T.mint:feedback.score>=60?T.gold:"#F97316",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",flexShrink:0}}>
+          <div style={{color:"#fff",fontWeight:900,fontSize:20}}>{feedback.score}</div>
+          <div style={{color:"rgba(255,255,255,0.8)",fontSize:9}}>/ 100</div>
+        </div>
+        <div>
+          <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{feedback.overall}</div>
+          <div style={{fontSize:13,color:T.mint,fontWeight:600,marginTop:3}}>{feedback.encouragement}</div>
+        </div>
+      </div>
+      {feedback.corrections?.length>0&&<div style={{background:"#FEF9C3",borderRadius:10,padding:12,marginBottom:10}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#92400E",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💡 Quick Fixes</div>
+        {feedback.corrections.map((c,i)=><div key={i} style={{fontSize:13,color:"#78350F",padding:"3px 0",display:"flex",gap:8}}><span>→</span>{c}</div>)}
+      </div>}
+      {feedback.phonetic_tips?.length>0&&<div style={{background:"#EDE9FE",borderRadius:10,padding:12,marginBottom:12}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#5B21B6",textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>🗣️ Pronunciation Tips</div>
+        {feedback.phonetic_tips.map((t,i)=><div key={i} style={{fontSize:13,color:"#4C1D95",padding:"3px 0",display:"flex",gap:8}}><span>🔊</span>{t}</div>)}
+      </div>}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",color:T.navy}}>Try Again 🔄</button>
+        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Continue →</button>
+      </div>
+    </>}
+  </div>;
+}
+
+// ─── AI WRITING CHECKER ───────────────────────────────────────────────────────
+function AIWritingChecker({prompt, accepted, level, onResult}){
+  const[val,setVal]=useState("");
+  const[checking,setChecking]=useState(false);
+  const[result,setResult]=useState(null);
+
+  const checkWithAI=async()=>{
+    if(!val.trim()) return;
+    setChecking(true);
+    const sys=`You are a warm French language teacher for Canadian learners at ${level} level.
+Check the student's French writing and respond in JSON:
+{
+  "correct": true,
+  "score": 90,
+  "corrected": "The corrected version of their answer",
+  "explanation": "Brief explanation of what they did right/wrong",
+  "grammar_note": "One specific grammar tip if needed",
+  "encouragement": "Short encouraging message"
+}
+Be kind. If mostly correct, mark correct:true. Accept natural variations.`;
+    const msg=`Prompt: "${prompt}"
+Acceptable answers include: ${accepted.join(", ")}
+Student wrote: "${val}"
+Is this correct or close enough? Give feedback.`;
+    try{
+      const raw=await callClaude(sys,msg,350);
+      const cleaned=raw.replace(/```json|```/g,"").trim();
+      const parsed=JSON.parse(cleaned);
+      setResult(parsed);
+      onResult(parsed.correct);
+    }catch{
+      // Fallback to simple check
+      const v=val.trim().toLowerCase();
+      const ok=accepted.some(a=>v.includes(a.toLowerCase()));
+      setResult({correct:ok,score:ok?85:40,corrected:accepted[0],explanation:ok?"Great answer!":"Check the accepted answer below.",encouragement:ok?"Excellent! 🌟":"Keep practicing! 💪"});
+      onResult(ok);
+    }
+    setChecking(false);
+  };
+
+  return <div>
+    <div style={{position:"relative",marginBottom:10}}>
+      <textarea value={val} onChange={e=>setVal(e.target.value)} disabled={!!result}
+        placeholder="Écrivez votre réponse en français..."
+        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
+      <div style={{position:"absolute",bottom:10,right:12,fontSize:11,color:T.textSoft}}>{val.length} chars · AI-checked 🤖</div>
+    </div>
+
+    {!result&&<button onClick={checkWithAI} disabled={!val.trim()||checking}
+      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",display:"flex",alignItems:"center",gap:8}}>
+      {checking?<><span style={{animation:"float 0.8s infinite"}}>🧠</span> AI Checking...</>:"✍️ Check with AI"}
+    </button>}
+
+    {result&&<div style={{background:result.correct?"linear-gradient(135deg,#D1FAE5,#ECFDF5)":"linear-gradient(135deg,#FEF3C7,#FFFBEB)",borderRadius:12,padding:14,border:`2px solid ${result.correct?"#6EE7B7":"#FCD34D"}`}}>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+        <span style={{fontSize:24}}>{result.correct?"✅":"💡"}</span>
+        <div>
+          <div style={{fontWeight:700,fontSize:15,color:result.correct?"#065F46":"#92400E"}}>{result.correct?"Correct! Well done! 🌟":"Close! Here's the correction:"}</div>
+          <div style={{fontSize:13,color:result.correct?"#059669":"#92400E",marginTop:2}}>{result.encouragement}</div>
+        </div>
+        <div style={{marginLeft:"auto",width:40,height:40,borderRadius:"50%",background:result.correct?T.mint:T.gold,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:900,fontSize:13}}>{result.score}</div>
+      </div>
+      {!result.correct&&result.corrected&&<div style={{background:"rgba(255,255,255,0.7)",borderRadius:8,padding:10,marginBottom:8}}>
+        <div style={{fontSize:11,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>✏️ Corrected:</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy,fontStyle:"italic"}}>{result.corrected}</div>
+      </div>}
+      <div style={{fontSize:13,color:result.correct?"#065F46":"#78350F",lineHeight:1.6}}>{result.explanation}</div>
+      {result.grammar_note&&<div style={{marginTop:8,fontSize:12,color:"#5B21B6",fontWeight:600,background:"#EDE9FE",borderRadius:8,padding:"6px 10px"}}>📚 {result.grammar_note}</div>}
+    </div>}
+  </div>;
+}
+
+// ─── AI HINT BUTTON ───────────────────────────────────────────────────────────
+function AIHintButton({question, level}){
+  const[open,setOpen]=useState(false);
+  const[hint,setHint]=useState("");
+  const[loading,setLoading]=useState(false);
+
+  const getHint=async()=>{
+    if(hint){setOpen(true);return;}
+    setOpen(true);setLoading(true);
+    const sys=`You are a friendly French tutor. Give a SHORT, helpful hint for a ${level} level Canadian French learner. 
+Don't give away the answer — guide them to it. 2-3 sentences max. Use one encouraging emoji.`;
+    const msg=`Question: "${question.prompt}"
+Type: ${question.type}
+${question.type==="write"?"Accepted answers (don't reveal directly): "+question.accepted?.join(", "):"Options: "+question.options?.join(", ")}
+Give a gentle hint that helps without spoiling the answer.`;
+    const h=await callClaude(sys,msg,150);
+    setHint(h);setLoading(false);
+  };
+
+  return <div style={{position:"relative"}}>
+    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",display:"flex",alignItems:"center",gap:6}}>
+      🧠 AI Hint
+    </button>
+    {open&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#fff",borderRadius:14,padding:16,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",border:`2px solid #8B5CF6`,width:280,zIndex:50,animation:"popIn 0.2s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#6D28D9",textTransform:"uppercase",letterSpacing:.8}}>🧠 AI Hint</div>
+        <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:T.textSoft}}>✕</button>
+      </div>
+      {loading?<div style={{textAlign:"center",padding:"10px 0"}}><span style={{animation:"float 0.8s infinite",fontSize:20}}>🧠</span><div style={{fontSize:12,color:T.textSoft,marginTop:6}}>Thinking...</div></div>
+      :<div style={{fontSize:14,color:T.text,lineHeight:1.65}}>{hint}</div>}
+    </div>}
+  </div>;
+}
+
+// ─── AI CONVERSATION PARTNER ──────────────────────────────────────────────────
+function PracticeScreen({companion}){
+  const c=companion||COMPANIONS[0];
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[topic,setTopic]=useState(null);
+  const[gameActive,setGameActive]=useState(null);
+  const[qIdx,setQIdx]=useState(0);
+  const[reveal,setReveal]=useState(false);
+  const[score,setScore]=useState(0);
+  const[timer,setTimer]=useState(60);
+  const[running,setRunning]=useState(false);
+  const[matchSel,setMatchSel]=useState(null);
+  const[matchDone,setMatchDone]=useState([]);
+  const[fillSel,setFillSel]=useState(null);
+  const[shuffled,setShuffled]=useState([]);
+  const timerRef=useRef();
+  const bottomRef=useRef();
+
+  const TOPICS=[
+    {id:"daily",label:"Daily Life 🏠",prompt:"Let's practice everyday French conversation about daily routines, food, and life in Canada!"},
+    {id:"work",label:"Work & Career 💼",prompt:"Let's practice professional French for the Canadian workplace — meetings, emails, and colleagues!"},
+    {id:"health",label:"Health & Medical 🏥",prompt:"Let's practice French for medical appointments and health conversations in Canada!"},
+    {id:"travel",label:"Getting Around 🚌",prompt:"Let's practice French for navigating Canadian cities — transit, directions, and travel!"},
+    {id:"social",label:"Small Talk ☕",prompt:"Let's practice casual French conversation — the kind you'd have at a café or with neighbours!"},
+    {id:"immigration",label:"Immigration & Services 🍁",prompt:"Let's practice French for immigration offices, government services, and official situations in Canada!"},
+  ];
+
+  const startConversation=async(t)=>{
+    setTopic(t);
+    setLoading(true);
+    const sys=`You are ${c.name}, a warm and encouraging French language conversation partner for Canadian learners (${c.level} level).
+Topic: ${t.prompt}
+Rules:
+- Speak MOSTLY in French with English explanations when helpful
+- Keep messages SHORT (2-4 sentences max)
+- Ask ONE question at a time to keep conversation going
+- When the user makes a French error, gently correct it: "Almost! Say: [correction] 🌟"
+- Be encouraging, Canadian-context focused, and patient
+- Use relevant emojis
+- Always end with a question or prompt to keep conversation going`;
+    const opening=await callClaude(sys,`Start our ${t.label} conversation! Greet me warmly in French and ask me an easy opening question.`,200);
+    setMsgs([{role:"assistant",text:opening}]);
+    setLoading(false);
+  };
+
+  const sendMessage=async()=>{
+    if(!input.trim()||loading) return;
+    const userMsg={role:"user",text:input};
+    const newMsgs=[...msgs,userMsg];
+    setMsgs(newMsgs);
+    setInput("");
+    setLoading(true);
+    const sys=`You are ${c.name}, a warm French conversation partner for Canadian learners.
+Topic: ${topic?.prompt}
+Rules:
+- Short responses (2-4 sentences)
+- Gently correct French errors inline: "Presque! On dit: [correction] ✨"  
+- Ask follow-up questions
+- Be encouraging and Canadian-context focused
+- Mix French with English explanations
+- Use emojis`;
+    const history=newMsgs.slice(-6).map(m=>`${m.role==="user"?"Student":"Teacher"}: ${m.text}`).join("\n");
+    const reply=await callClaude(sys,`Conversation so far:\n${history}\n\nContinue naturally. Keep it short and ask a follow-up question.`,200);
+    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    setLoading(false);
+    setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+  };
+
+  // Games section
+  const startGame=(g)=>{
+    setGameActive(g);setQIdx(0);setReveal(false);setScore(0);
+    setMatchSel(null);setMatchDone([]);setFillSel(null);
+    if(g.id==="speed"||g.id==="errors"){setTimer(60);setRunning(true);}
+  };
+
+  useEffect(()=>{
+    if(running){
+      timerRef.current=setInterval(()=>setTimer(t=>{if(t<=1){clearInterval(timerRef.current);setRunning(false);return 0;}return t-1;}),1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[running]);
+
+  if(!topic&&!gameActive){
+    return <div style={{padding:28,maxWidth:760,margin:"0 auto"}}>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
+      <div style={{fontSize:15,color:T.textMid,marginBottom:28}}>Practice real French conversation with your AI tutor — powered by Claude. Pick a topic to start!</div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:36}}>
+        {TOPICS.map(t=><div key={t.id} onClick={()=>startConversation(t)}
+          style={{background:T.card,border:`2px solid ${T.border}`,borderRadius:16,padding:"20px 16px",cursor:"pointer",transition:"all 0.2s",textAlign:"center"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;e.currentTarget.style.transform="translateY(-2px)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.transform="none";}}>
+          <div style={{fontSize:32,marginBottom:8}}>{t.label.split(" ").pop()}</div>
+          <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{t.label.split(" ").slice(0,-1).join(" ")}</div>
+        </div>)}
+      </div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
+      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+        {(typeof GAMES!=="undefined"?GAMES:[]).map(g=><div key={g.id} onClick={()=>startGame(g)}
+          style={{background:T.card,border:`2px solid ${T.border}`,borderRadius:14,padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;}}>
+          <span style={{fontSize:22}}>{g.emoji}</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:13,color:T.navy}}>{g.name}</div>
+            <div style={{fontSize:11,color:T.textSoft}}>{g.desc}</div>
+          </div>
+        </div>)}
+      </div>
+    </div>;
+  }
+
+  // Conversation UI
+  if(topic){
+    return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:760,margin:"0 auto"}}>
+      {/* Header */}
+      <div style={{padding:"14px 20px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif"}}><ArrowLeft size={14}/> Back</button>
+        <Avatar companion={c} size={36}/>
+        <div>
+          <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{c.name} · {topic.label}</div>
+          <div style={{fontSize:11,color:T.mint,fontWeight:600}}>AI Conversation Partner · Claude-powered 🤖</div>
+        </div>
+        <div style={{marginLeft:"auto",fontSize:12,color:T.textSoft}}>{msgs.length} exchanges</div>
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",padding:"20px 20px 0"}}>
+        {msgs.map((m,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row"}}>
+          {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
+          <div style={{maxWidth:"75%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.65,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 12px rgba(0,0,0,0.06)"}}>
+            {m.text}
+          </div>
+        </div>)}
+        {loading&&<div style={{display:"flex",gap:10,marginBottom:16}}>
+          <Avatar companion={c} size={36}/>
+          <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"12px 16px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:6,alignItems:"center"}}>
+            {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:T.blue,animation:`typeDot 1.2s infinite ${i*0.2}s`}}/>)}
+          </div>
+        </div>}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{padding:"14px 20px",background:T.card,borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"flex-end"}}>
+        <textarea value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+          placeholder="Écrivez en français... (or English is fine too!)"
+          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+          rows={1}/>
+        <button onClick={sendMessage} disabled={!input.trim()||loading}
+          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",flexShrink:0,transition:"all 0.2s"}}>
+          {loading?"...":"Send →"}
+        </button>
+      </div>
+    </div>;
+  }
+
+  return null;
+}
+
+// ─── PERSONAL AI TUTOR ────────────────────────────────────────────────────────
+function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
+  const c = companion||COMPANIONS[0];
+  const level = SYLLABUS[startLevel]||SYLLABUS.foundation;
+  const allL = Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const done = allL.filter(l=>progress[l.id]);
+  const notDone = allL.filter(l=>!progress[l.id]);
+  const [msgs,setMsgs] = useState([]);
+  const [input,setInput] = useState("");
+  const [loading,setLoading] = useState(false);
+  const [mode,setMode] = useState("chat"); // chat | assessment | plan
+  const bottomRef = useRef();
+  const authCtx = useAuth();
+
+  // Build rich context about the learner
+  const learnerContext = `
+You are ${c.name}, a personal French tutor for Canadian immigrants learning French for CLB/TEF exams.
+
+LEARNER PROFILE:
+- Current level: ${level.label} (${level.cefrTag}, ${level.clbTag})
+- Lessons completed: ${done.length}/${allL.length}
+- Skills completed: Listening ${allL.filter(l=>l.skill==="listening"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="listening").length}, Speaking ${allL.filter(l=>l.skill==="speaking"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="speaking").length}, Writing ${allL.filter(l=>l.skill==="writing"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="writing").length}, Reading ${allL.filter(l=>l.skill==="reading"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="reading").length}
+- Next lesson: ${notDone[0]?.title||"All complete!"}
+- Recent lessons: ${done.slice(-3).map(l=>l.title).join(", ")||"None yet"}
+
+YOUR ROLE:
+- Be their dedicated personal tutor, not just a chatbot
+- Give specific, actionable advice based on their actual progress
+- Correct French mistakes immediately and kindly
+- Reference their specific completed lessons when relevant
+- Help them prepare for CLB 5 specifically
+- Be warm, encouraging, and Canadian-context focused
+- Mix French practice INTO the conversation naturally
+- Remember: they are immigrants who NEED this for their life in Canada
+
+TUTORING MODES:
+- General chat: answer questions, practice conversation, explain grammar
+- Assessment: quiz them on weak areas based on their progress
+- Study plan: create a personalized daily study plan
+
+Always respond in a mix of English and French appropriate to their level.
+Keep responses focused and practical — max 4-5 sentences unless explaining something complex.`;
+
+  const sendMessage = async(text) => {
+    if(!text.trim()||loading) return;
+    const userMsg = {role:"user", text};
+    const newMsgs = [...msgs, userMsg];
+    setMsgs(newMsgs);
+    setInput("");
+    setLoading(true);
+    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("\n");
+    const reply = await callClaude(learnerContext, `${history}
+
+Learner: ${text}
+
+Tutor:`, 400);
+    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    setLoading(false);
+    setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+  };
+
+  const quickPrompts = [
+    "What should I focus on today?",
+    "Quiz me on what I've learned",
+    "Make me a study plan for this week",
+    "Explain the passé composé simply",
+    "Practice a job interview in French",
+    "Help me with CLB speaking tips",
+  ];
+
+  useEffect(()=>{
+    // Auto-greeting based on progress
+    const greet = async()=>{
+      setLoading(true);
+      const prompt = done.length===0
+        ? `Greet this new learner warmly. They haven't started yet. Introduce yourself as their personal tutor and ask what brings them to learn French in Canada. Be warm and encouraging.`
+        : `Greet this returning learner. They've completed ${done.length} lessons. Reference their progress briefly, note their next lesson is "${notDone[0]?.title||"all done!"}", and ask how their French is going or what they want to work on today. Keep it short and personal.`;
+      const reply = await callClaude(learnerContext, prompt, 200);
+      setMsgs([{role:"assistant",text:reply}]);
+      setLoading(false);
+    };
+    greet();
+  },[]);
+
+  return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:800,margin:"0 auto"}}>
+    {/* Header */}
+    <div style={{padding:"14px 20px",background:"#fff",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+      <Avatar companion={c} size={40} speaking={loading}/>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
+        <div style={{fontSize:11,color:T.mint,fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        {[{id:"chat",label:"💬 Chat"},{id:"assessment",label:"📝 Quiz Me"},{id:"plan",label:"📅 Study Plan"}].map(m=>(
+          <button key={m.id} onClick={()=>{setMode(m.id);sendMessage(m.id==="assessment"?"Quiz me on my weak areas based on my progress":"Make me a personalized study plan for this week");}}
+            style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${mode===m.id?T.blue:T.border}`,background:mode===m.id?T.blueLight:"transparent",color:mode===m.id?T.blue:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* Progress bar */}
+    <div style={{background:T.surface,padding:"8px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+      <span style={{fontSize:11,color:T.textSoft,fontWeight:600}}>Your progress:</span>
+      <div style={{flex:1,height:4,background:T.border,borderRadius:99,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${Math.round((done.length/allL.length)*100)}%`,background:`linear-gradient(90deg,${T.blue},${T.mint})`,borderRadius:99}}/>
+      </div>
+      <span style={{fontSize:11,fontWeight:700,color:T.navy}}>{done.length}/{allL.length} lessons</span>
+      <Pill variant="blue">{level.cefrTag}</Pill>
+    </div>
+
+    {/* Messages */}
+    <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
+      {msgs.map((m,i)=>(
+        <div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
+          {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
+          <div style={{maxWidth:"78%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.7,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
+            {m.text}
+          </div>
+        </div>
+      ))}
+      {loading&&<div style={{display:"flex",gap:10,marginBottom:16,alignItems:"flex-start"}}>
+        <Avatar companion={c} size={36}/>
+        <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"14px 18px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:5}}>
+          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.blue,animation:`typeDot 1.2s infinite ${i*0.2}s`}}/>)}
+        </div>
+      </div>}
+      <div ref={bottomRef}/>
+    </div>
+
+    {/* Quick prompts — show when few messages */}
+    {msgs.length<=2&&!loading&&<div style={{padding:"0 20px 12px",display:"flex",gap:8,flexWrap:"wrap"}}>
+      {quickPrompts.map(p=>(
+        <button key={p} onClick={()=>sendMessage(p)}
+          style={{padding:"7px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:50,fontSize:12,fontWeight:600,color:T.navy,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;e.currentTarget.style.color=T.blue;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.navy;}}>
+          {p}
+        </button>
+      ))}
+    </div>}
+
+    {/* Input */}
+    <div style={{padding:"14px 20px",background:"#fff",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"flex-end"}}>
+      <textarea value={input} onChange={e=>setInput(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(input);}}}
+        placeholder={`Ask ${c.name} anything — grammar, practice, study tips...`}
+        style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+        rows={1}/>
+      <button onClick={()=>sendMessage(input)} disabled={!input.trim()||loading}
+        style={{background:input.trim()&&!loading?T.blue:"#CBD5E0",color:"#fff",border:"none",padding:"12px 20px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",flexShrink:0}}>
+        {loading?"...":"Send →"}
+      </button>
+    </div>
+  </div>;
+}
+
+
+function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onAuthNav}){
+  const{logout}=useAuth();
+  const c=companion||COMPANIONS[0];
+  const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
+  const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const done=allL.filter(l=>progress[l.id]);
+  const xp=done.length*25;
+  const isPremium=isPremiumUnlocked();
+  const handleLogout=async()=>{ await logout(); window.location.reload(); };
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
+
+  const Row=({emoji,label,onClick})=>(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}
+      onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+      onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+      <span style={{fontSize:18,width:24,textAlign:"center"}}>{emoji}</span>
+      <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>{label}</span>
+      <span style={{color:T.textSoft,fontSize:13}}>›</span>
+    </div>
+  );
+
+  return <div style={{maxWidth:520,margin:"0 auto",padding:"28px 24px",display:"flex",flexDirection:"column",gap:0}}>
+    {/* Header logo */}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <span style={{fontSize:20}}>🍁</span>
+        <span style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.navy,letterSpacing:1}}>FRANCO</span>
+      </div>
+    </div>
+
+    {/* Profile card */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"20px",marginBottom:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:16}}>Profile</div>
+
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Guest mode":user?.email||"—"}</div>
+      </div>
+
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
+      </div>
+
+      <div style={{marginBottom:4}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:6}}>Subscription</div>
+        <span style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:50,background:isPremium?"#D1FAE5":"#F1F5F9",color:isPremium?"#065F46":T.textMid,border:`1px solid ${isPremium?"#6EE7B7":T.border}`}}>
+          {isPremium?"Premium ✓":"Free Plan"}
+        </span>
+      </div>
+    </div>
+
+    {/* More section */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px",letterSpacing:0.5}}>More</div>
+      <Row emoji="📈" label="Subscription" onClick={()=>window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank")}/>
+      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>window.open("https://wa.me/16046355031","_blank")}/>
+      <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:admin@junglelabsworld.com","_blank")}/>
+      <Row emoji="📱" label="WhatsApp — +1 604 902 8699" onClick={()=>window.open("https://wa.me/16049028699","_blank")}/>
+      <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset your level selection?"))onReset();}}/>
+      <div onClick={()=>window.open("https://franco.app/privacy","_blank")} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
+        onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+        onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <span style={{fontSize:18,width:24,textAlign:"center"}}>🔒</span>
+        <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>Privacy Policy</span>
+        <span style={{color:T.textSoft,fontSize:13}}>›</span>
+      </div>
+    </div>
+
+    {/* Auth button */}
+    {guestMode
+      ? <button onClick={()=>onAuthNav("landing")} style={{width:"100%",padding:"15px",background:T.navy,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+          Create Account / Login
+        </button>
+      : <button onClick={handleLogout} style={{width:"100%",padding:"15px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+          Sign Out
+        </button>
+    }
+
+    <div style={{textAlign:"center",fontSize:12,color:T.textSoft}}>Powered by Jungle Labs</div>
+  </div>;
+}
+
+
+function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav}){
+  const{logout}=useAuth();
+  const isMobile=useIsMobile();
+  const handleLogout=async()=>{ await logout(); window.location.reload(); };
+  const nav=[
+    {id:"dashboard",label:"Home",icon:<Home size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"hub",label:"Learn",icon:<BookOpen size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"practice",label:"Practice",icon:<Zap size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"profile",label:"Profile",icon:<User size={isMobile?18:16} strokeWidth={2}/>},
+  ];
+  return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+    {/* Logo */}
+    <div style={{marginRight:16,flexShrink:0,display:"flex",alignItems:"center"}}>
+      <svg viewBox="0 0 148 52" width={isMobile?90:110} xmlns="http://www.w3.org/2000/svg">
+        <defs><clipPath id="bc"><ellipse cx="26" cy="24" rx="22" ry="19"/></clipPath></defs>
+        <ellipse cx="26" cy="24" rx="22" ry="19" fill="#1A3A8F"/>
+        <ellipse cx="33" cy="26" rx="18" ry="15" fill="#C8202A" clipPath="url(#bc)"/>
+        <polygon points="14,40 8,50 22,42" fill="#1A3A8F"/>
+        <g transform="translate(26,23) scale(0.16)" fill="white">
+          <path d="M0,-52 L6,-28 L18,-36 L12,-18 L28,-18 L20,0 L36,6 L28,18 L36,28 L18,24 L18,44 L-18,44 L-18,24 L-36,28 L-28,18 L-36,6 L-20,0 L-28,-18 L-12,-18 L-18,-36 L-6,-28 Z"/>
+        </g>
+        <g transform="translate(52,7)"><path d="M0,-4 L1,-1 L4,0 L1,1 L0,4 L-1,1 L-4,0 L-1,-1 Z" fill="#F5C842"/></g>
+        <g transform="translate(59,3)"><path d="M0,-2.5 L0.6,-0.6 L2.5,0 L0.6,0.6 L0,2.5 L-0.6,0.6 L-2.5,0 L-0.6,-0.6 Z" fill="#C8202A"/></g>
+        <text x="58" y="32" fontFamily="system-ui,-apple-system,sans-serif" fontWeight="800" fontSize="17" fill="#1A3A8F" letterSpacing="0.5">FRANCO</text>
+      </svg>
+    </div>
+    {/* Nav */}
+    <div style={{display:"flex",gap:0,flex:1,justifyContent:isMobile?"center":"flex-start"}}>
+      {nav.map(n=>(
+        <button key={n.id} onClick={()=>onNavigate(n.id)}
+          style={{padding:isMobile?"8px 10px":"8px 14px",border:"none",background:"none",color:screen===n.id?"#0F172A":"#94A3B8",fontFamily:"system-ui,sans-serif",fontWeight:screen===n.id?700:500,fontSize:isMobile?11:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,borderBottom:screen===n.id?"2px solid #0F172A":"2px solid transparent",borderRadius:0,transition:"all 0.15s"}}>
+          {isMobile&&<span style={{fontSize:16}}>{n.emoji}</span>}
+          <span>{isMobile?n.label:n.emoji+" "+n.label}</span>
+        </button>
+      ))}
+    </div>
+    {/* Auth */}
+    {!isMobile&&(user
+      ? <button onClick={handleLogout} style={{fontSize:12,fontWeight:600,padding:"6px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"none",color:"#64748B",cursor:"pointer",flexShrink:0}}>Sign out</button>
+      : <button onClick={()=>onAuthNav("landing")} style={{fontSize:12,fontWeight:700,padding:"6px 14px",borderRadius:8,border:"none",background:"#0F172A",color:"#fff",cursor:"pointer",flexShrink:0}}>Sign in</button>
+    )}
+  </div>;
+}
+
+export default function App(){
+  return <AuthProvider><AppInner/></AuthProvider>;
+}
+
+function AppInner(){
+  const authCtx=useAuth();
+  const{user,initializing,cloudProgress,cloudStreak,cloudXP}=authCtx;
+  const[authScreen,setAuthScreen]=useLocalState("franco_auth_screen","landing");
+  const[authParams,setAuthParams]=useState({});
+  const[screen,setScreen]=useLocalState("franco_screen","welcome");
+  const[companion,setCompanion]=useLocalState("franco_companion",null);
+  const[startLevel,setStartLevel]=useLocalState("franco_level","foundation");
+  const[progress,setProgress]=useLocalState("franco_progress",{});
+  // Sync cloud progress when user logs in
+  useEffect(()=>{
+    if(cloudProgress && Object.keys(cloudProgress).length > Object.keys(progress).length){
+      setProgress(cloudProgress);
+    }
+  },[cloudProgress]);
+  const[activeLesson,setActiveLesson]=useState(null);
+  const[paywallLesson,setPaywallLesson]=useState(null);
+  const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
+
+  // Check if returning from Stripe payment
+  useEffect(()=>{checkStripeSuccess();},[]);
+
+  useEffect(()=>{
+    const s=document.createElement("style");
+    s.textContent=`
+      
+      *{box-sizing:border-box;margin:0;padding:0;}
+      body{background:${T.surface};}
+      @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+        @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+        @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+        @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+      @keyframes ring{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.03)}}
+      @keyframes wave{0%,100%{transform:scaleY(.4);opacity:.5}50%{transform:scaleY(1);opacity:1}}
+      @keyframes typeDot{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+      ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
+    `;
+    document.head.appendChild(s);
+    return()=>document.head.removeChild(s);
+  },[]);
+
+  // Navigate between auth screens
+  const goAuth=(screenName, params={})=>{ setAuthScreen(screenName); setAuthParams(params); };
+
+  // If Firebase is ready and user logs in, enter app
+  useEffect(()=>{
+    if(user){ setGuestMode(false); setAuthScreen("app"); }
+  },[user]);
+
+  const handleOnboard=(comp,lev)=>{setCompanion(comp);setStartLevel(lev);setScreen("dashboard");};
+  const handleStartLesson=(lesson,level)=>{
+    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
+    setActiveLesson({lesson,level}); setScreen("lesson");
+  };
+  const handleLessonComplete=(lessonId, score=4)=>{
+    const newProgress={...progress,[lessonId]:true};
+    const today=new Date().toISOString().split("T")[0];
+    // Update streak
+    const lastDay=localStorage.getItem("franco_last_day");
+    const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+    const yStr=yesterday.toISOString().split("T")[0];
+    let newStreak=parseInt(localStorage.getItem("franco_streak")||"0");
+    if(lastDay===today){ /* same day */ }
+    else if(lastDay===yStr){ newStreak+=1; }
+    else{ newStreak=1; }
+    localStorage.setItem("franco_streak",String(newStreak));
+    localStorage.setItem("franco_last_day",today);
+    // Update XP
+    const newXP=(parseInt(localStorage.getItem("franco_xp")||"0"))+25;
+    localStorage.setItem("franco_xp",String(newXP));
+    setProgress(newProgress);
+    // Schedule spaced repetition review
+    const currentReviews=authCtx?.reviewSchedule||{};
+    const prev=currentReviews[lessonId]||{};
+    const nextReview=calcNextReview(prev.interval||0, prev.ef||2.5, score);
+    const newReviews={...currentReviews,[lessonId]:nextReview};
+    // Save everything to Firebase
+    if(authCtx?.user && authCtx?.saveProgress){
+      authCtx.saveProgress(newProgress, newXP, newStreak, newReviews);
+    }
+    setScreen("hub");
+    setActiveLesson(null);
+  };
+
+  // Loading spinner while Firebase initializes
+  if(initializing) return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7FAFF",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:48,animation:"float 1.5s ease-in-out infinite"}}>🍁</div>
+      <div style={{fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:"#475569"}}>Loading Franco...</div>
+    </div>
+  );
+
+  // Auth screens (not logged in and not guest)
+  const isAuthed = !!user || guestMode;
+  if(!isAuthed){
+    if(authScreen==="login") return <LoginScreen onNavigate={goAuth} prefillEmail={authParams.prefillEmail||""} notice={authParams.notice||""}/>;
+    if(authScreen==="register") return <RegisterScreen onNavigate={goAuth}/>;
+    return <AuthLandingScreen onNavigate={goAuth} onGuest={()=>{ setGuestMode(true); setAuthScreen("app"); }}/>;
+  }
+
+  // Main app
+  const showNav=!["welcome","onboarding","lesson"].includes(screen);
+  return <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
+    {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
+    {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
+    {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
+    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
+    {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
+    {screen==="practice"&&<PracticeScreen companion={companion}/>}
+    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
+    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
+    {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
+  </div>;
+}
