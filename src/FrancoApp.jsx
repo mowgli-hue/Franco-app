@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
+import { Home, BookOpen, Zap, User, ChevronDown, ChevronRight, Search, X, Play, RotateCcw, Check, Lock, Star, Flame, Target, Volume2, ArrowLeft, MessageCircle, Clock } from "lucide-react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
@@ -2390,7 +2391,7 @@ function FocusSessionWidget({onNavigate}){
       <div style={{display:"flex",gap:6}}>
         {phase!=="done"&&<button onClick={toggle} style={{background:"#F1F5F9",color:"#0F172A",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>{running?"⏸":"▶"}</button>}
         {phase==="done"&&<button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>Again</button>}
-        <button onClick={reset} style={{background:"#F1F5F9",color:"#64748B",border:"none",padding:"6px 10px",borderRadius:7,fontSize:12,cursor:"pointer"}}>↺</button>
+        <button onClick={reset} style={{background:"#F1F5F9",color:"#64748B",border:"none",padding:"6px 10px",borderRadius:7,fontSize:12,cursor:"pointer"}}><RotateCcw size={14}/></button>
       </div>
     </div>
   </div>;
@@ -2434,8 +2435,8 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
     {/* STAT PILLS — 2x2 on mobile, 4 across on desktop */}
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:isMobile?8:12}}>
       {[
-        {label:"Streak",val:`${streak()}d`,icon:"🔥"},
-        {label:"XP",val:xp,icon:"⭐"},
+        {label:"Streak",val:`${streak()}d`,Icon:Flame},
+        {label:"XP",val:xp,Icon:Star},
         {label:"Lessons",val:`${doneL}/${allL.length}`,icon:"📚"},
         {label:"CLB",val:level.clbTag,icon:"🎯"},
       ].map((s,i)=>(
@@ -2560,10 +2561,10 @@ function HubScreen({progress,onStartLesson}){
 
     {/* Search */}
     <div style={{position:"relative",marginBottom:12}}>
-      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14}}>🔍</span>
+      <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",display:"flex",alignItems:"center",color:"#94A3B8"}}><Search size={15}/></span>
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search lessons..."
         style={{width:"100%",padding:"10px 12px 10px 36px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:13,color:"#0F172A",background:"#fff",outline:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
-      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#94A3B8"}}>✕</button>}
+      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#94A3B8",display:"flex",alignItems:"center"}}><X size={14}/></button>}
     </div>
 
     {/* Search results */}
@@ -2603,7 +2604,7 @@ function HubScreen({progress,onStartLesson}){
             <div style={{fontSize:11,color:"#94A3B8"}}>{doneCount}/{lLessons.length} lessons · {level.cefrTag}</div>
           </div>
           <div style={{fontSize:12,fontWeight:700,color:donePct>0?"#10B981":"#94A3B8",marginRight:4}}>{donePct}%</div>
-          <span style={{fontSize:14,color:"#94A3B8",transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s",display:"inline-block"}}>⌄</span>
+          <ChevronDown size={16} color="#94A3B8" style={{transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s",flexShrink:0}}/>
         </div>
         {/* Progress bar */}
         {isOpen&&<div style={{height:2,background:"#F1F5F9",margin:"0 14px"}}><div style={{height:"100%",width:`${donePct||1}%`,background:"#0F172A",transition:"width 0.5s"}}/></div>}
@@ -3451,7 +3452,7 @@ Rules:
     return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:760,margin:"0 auto"}}>
       {/* Header */}
       <div style={{padding:"14px 20px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif"}}>← Back</button>
+        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif"}}><ArrowLeft size={14}/> Back</button>
         <Avatar companion={c} size={36}/>
         <div>
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{c.name} · {topic.label}</div>
@@ -3743,10 +3744,10 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   const isMobile=useIsMobile();
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
   const nav=[
-    {id:"dashboard",label:"Home",emoji:"🏠"},
-    {id:"hub",label:"Learn",emoji:"📚"},
-    {id:"practice",label:"Practice",emoji:"⚡"},
-    {id:"profile",label:"Profile",emoji:"👤"},
+    {id:"dashboard",label:"Home",Icon:Home},
+    {id:"hub",label:"Learn",Icon:BookOpen},
+    {id:"practice",label:"Practice",Icon:Zap},
+    {id:"profile",label:"Profile",Icon:User},
   ];
   return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
     {/* Logo */}
