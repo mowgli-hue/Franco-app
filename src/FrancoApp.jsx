@@ -2843,63 +2843,64 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
     {/* Content */}
     <div style={{padding:"12px 14px 60px",display:"flex",flexDirection:"column",gap:12,maxWidth:640,margin:"0 auto"}}>
       {/* ══ TEACH PHASE — SLIDES ══ */}
+      {/* ══ TEACH PHASE — SLIDES WITH AVATAR ══ */}
       {phase==="teach"&&(()=>{
-        const slides=[
-          {type:"intro",cta:"Let's learn →"},
-          {type:"vocab",cta:"I've got it →"},
-          {type:"ready",cta:"Start questions →"}
+        const companionMsgs=[
+          `Bonjour! I'm ${c.name} — your French teacher. Let's learn "${lesson.title}" together. Read carefully — I'll quiz you after! 😊`,
+          `Great! Now tap each word to see the English. Tap 🔈 to hear me say it in French!`,
+          `You're ready! We start easy so you always get a win. Let's go! 💪`
         ];
+        const slides=[{type:"intro",cta:"Let's learn →"},{type:"vocab",cta:"Got it →"},{type:"ready",cta:"Start questions →"}];
         const slide=slides[teachSlide];
-        const isLast=teachSlide===slides.length-1;
-        const next=()=>{if(isLast){handleTeachDone();}else{setTeachSlide(s=>s+1);}};
+        const next=()=>{if(teachSlide===slides.length-1){handleTeachDone();}else{setTeachSlide(s=>s+1);}};
         return <>
           <div style={{display:"flex",gap:6,justifyContent:"center"}}>
             {slides.map((_,i)=><div key={i} style={{width:i===teachSlide?24:6,height:6,borderRadius:99,background:i===teachSlide?"#0F172A":i<teachSlide?"#94A3B8":"#E2E8F0",transition:"all 0.3s"}}/>)}
           </div>
-          <div style={{background:"#fff",borderRadius:20,border:"1px solid #E2E8F0",overflow:"hidden",flex:1,display:"flex",flexDirection:"column"}}>
+          <div style={{background:"#0F172A",borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+            <Avatar companion={c} size={36}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{c.name} says</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.5,fontStyle:"italic"}}>{companionMsgs[teachSlide]}</div>
+            </div>
+          </div>
+          <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
             {slide.type==="intro"&&<>
-              <div style={{background:"#0F172A",padding:"26px 22px",textAlign:"center"}}>
-                <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>{level.cefrTag} · {lesson.skill} · {lesson.mins} min</div>
-                <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#fff",lineHeight:1.3}}>{lesson.title}</div>
+              <div style={{background:"#0F172A",padding:"18px"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{level.cefrTag} · {lesson.skill} · {lesson.mins} min</div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.25}}>{lesson.title}</div>
               </div>
-              <div style={{padding:"20px 22px",flex:1}}>
-                <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>What you'll learn</div>
-                <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:16}}>{lesson.teach}</div>
-                <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen to explanation</button>
+              <div style={{padding:"16px 18px"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>What you'll learn</div>
+                <div style={{fontSize:13,color:"#334155",lineHeight:1.8,marginBottom:14}}>{lesson.teach}</div>
+                <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
               </div>
             </>}
             {slide.type==="vocab"&&<>
-              <div style={{padding:"18px 22px 12px",borderBottom:"1px solid #F1F5F9"}}>
-                <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:800,color:"#0F172A",marginBottom:4}}>Key vocabulary</div>
-                <div style={{fontSize:12,color:"#94A3B8"}}>Tap each word to see the translation · tap 🔈 to hear it</div>
+              <div style={{padding:"16px 18px 10px",borderBottom:"1px solid #F1F5F9"}}>
+                <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:800,color:"#0F172A",marginBottom:3}}>Key vocabulary</div>
+                <div style={{fontSize:11,color:"#94A3B8"}}>Tap to translate · 🔈 to hear French</div>
               </div>
-              <div style={{padding:"16px 22px",flex:1}}><VocabFlipList vocab={lesson.vocab}/></div>
-              <div style={{padding:"12px 22px",background:"#F8FAFC",borderTop:"1px solid #F1F5F9"}}>
-                <div style={{fontSize:12,color:"#64748B",display:"flex",gap:6}}>💡 <span>Tap a word to translate · tap 🔈 to hear French</span></div>
-              </div>
+              <div style={{padding:"14px 18px"}}><VocabFlipList vocab={lesson.vocab}/></div>
+              <div style={{padding:"10px 18px",background:"#F8FAFC",borderTop:"1px solid #F1F5F9",fontSize:11,color:"#64748B"}}>💡 Learn these — they appear in the questions!</div>
             </>}
-            {slide.type==="ready"&&<div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"32px 22px",textAlign:"center",gap:18}}>
-              <div style={{fontSize:52}}>🎯</div>
+            {slide.type==="ready"&&<div style={{padding:"28px 20px",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",gap:14}}>
+              <div style={{fontSize:44}}>🎯</div>
               <div>
-                <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A",marginBottom:6}}>Ready to practise?</div>
-                <div style={{fontSize:13,color:"#64748B",lineHeight:1.6}}>{total} questions — easy to harder, AI checks every answer</div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:19,fontWeight:800,color:"#0F172A",marginBottom:6}}>Ready to practise?</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.6}}>{total} questions — easy first, builds up</div>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-                {[...new Set(sortedQuestions.map(q=>q.type))].map(t=>{
-                  const icons={tap:"👆 Tap",mcq:"🎯 Choose",fill:"✏️ Fill",order:"🔀 Build",write:"✍️ Write",speak:"🎤 Speak"};
-                  return <span key={t} style={{fontSize:12,fontWeight:600,padding:"5px 12px",borderRadius:50,background:"#F1F5F9",color:"#475569"}}>{icons[t]||t}</span>;
-                })}
+                {[...new Set(sortedQuestions.map(q=>q.type))].map(t=>{const icons={tap:"👆 Tap",mcq:"🎯 Choose",fill:"✏️ Fill",order:"🔀 Build",write:"✍️ Write",speak:"🎤 Speak"};return <span key={t} style={{fontSize:12,fontWeight:600,padding:"5px 12px",borderRadius:50,background:"#F1F5F9",color:"#475569"}}>{icons[t]||t}</span>;})}
               </div>
-              <div style={{fontSize:12,color:"#94A3B8"}}>🧠 You always start with the easiest question</div>
             </div>}
           </div>
-          <div style={{display:"flex",gap:10}}>
+          <div style={{display:"flex",gap:8}}>
             {teachSlide>0&&<button onClick={()=>setTeachSlide(s=>s-1)} style={{padding:"13px 18px",background:"#F8FAFC",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>← Back</button>}
             <button onClick={next} style={{flex:1,padding:"14px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:800,fontSize:14,cursor:"pointer"}}>{slide.cta}</button>
           </div>
         </>;
       })()}
-      {/* QUESTION PHASE */}
       {phase==="questions"&&q&&<>
         {/* Question header */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
