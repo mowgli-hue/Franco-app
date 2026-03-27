@@ -1,4 +1,377 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile } from "firebase/auth";
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIREBASE AUTH SETUP
+// ─────────────────────────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            (import.meta.env.VITE_FIREBASE_API_KEY            || "").trim(),
+  authDomain:        (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        || "").trim(),
+  projectId:         (import.meta.env.VITE_FIREBASE_PROJECT_ID         || "").trim(),
+  storageBucket:     (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     || "").trim(),
+  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID|| "").trim(),
+  appId:             (import.meta.env.VITE_FIREBASE_APP_ID             || "").trim(),
+};
+
+const hasFirebaseConfig = Object.values(FIREBASE_CONFIG).every(v=>v.trim().length>0);
+let _firebaseApp = null;
+let _firebaseAuth = null;
+if(hasFirebaseConfig){
+  try{
+    _firebaseApp = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
+    _firebaseAuth = getAuth(_firebaseApp);
+  }catch(e){ console.error("[firebase] init failed",e); }
+}
+
+function mapAuthError(error){
+  const code = error?.code || "";
+  switch(code){
+    case "auth/invalid-email":          return "Please enter a valid email address.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":         return "Invalid email or password.";
+    case "auth/user-not-found":         return "No account found with this email.";
+    case "auth/email-not-verified":     return "Please verify your email before logging in. A new verification email has been sent.";
+    case "auth/email-already-verified": return "Email is already verified. You can login now.";
+    case "auth/email-already-in-use":   return "This email is already registered.";
+    case "auth/weak-password":          return "Password must be at least 6 characters.";
+    case "auth/too-many-requests":      return "Too many attempts. Please try again later.";
+    case "auth/network-request-failed": return "Network error. Check your connection.";
+    case "auth/operation-not-allowed":  return "Email/password sign-in is disabled. Check Firebase console.";
+    case "auth/unauthorized-domain":    return "This domain is not authorized in Firebase Auth. Add it in Firebase Console → Authentication → Settings → Authorized domains.";
+    default:
+      if(error?.message) return `Authentication failed: ${error.message}`;
+      return "Authentication failed. Check your Firebase configuration.";
+  }
+}
+
+// ─── AUTH CONTEXT ─────────────────────────────────────────────────────────────
+const AuthContext = createContext(null);
+
+function AuthProvider({children}){
+  const[user,setUser]=useState(undefined); // undefined = still initializing
+  const[initializing,setInitializing]=useState(true);
+
+  useEffect(()=>{
+    if(!_firebaseAuth){ setInitializing(false); return; }
+    const unsub = onAuthStateChanged(_firebaseAuth, u=>{ setUser(u); setInitializing(false); });
+    return unsub;
+  },[]);
+
+  const value = useMemo(()=>({
+    user,
+    initializing,
+    firebaseReady: !!_firebaseAuth,
+
+    async login(email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured.")  ,{code:"auth/no-config"});
+      const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
+      await reload(cred.user);
+      // Email verification not required
+    },
+
+    async register(name, email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const cred = await createUserWithEmailAndPassword(_firebaseAuth, email, password);
+      if(name.trim()) await updateProfile(cred.user,{displayName:name.trim()});
+      try{ await sendEmailVerification(cred.user); }catch{}
+      await signOut(_firebaseAuth);
+    },
+
+    async resendVerification(email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
+      await reload(cred.user);
+      if(cred.user.emailVerified){
+        await signOut(_firebaseAuth);
+        throw Object.assign(new Error("Already verified"),{code:"auth/email-already-verified"});
+      }
+      await sendEmailVerification(cred.user);
+      await signOut(_firebaseAuth);
+    },
+
+    async logout(){
+      if(_firebaseAuth) await signOut(_firebaseAuth);
+    }
+  }),[user, initializing]);
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+function useAuth(){
+  const ctx = useContext(AuthContext);
+  if(!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
+}
+
+// ─── AUTH LANDING SCREEN ─────────────────────────────────────────────────────
+function AuthLandingScreen({onNavigate, onGuest}){
+  const[hovered,setHovered]=useState(null);
+  const features=[
+    {id:"speaking", icon:"🗣️", text:"AI speaking practice"},
+    {id:"clb",      icon:"🎯", text:"CLB + TEF aligned sessions"},
+    {id:"canada",   icon:"🍁", text:"Canadian context scenarios"},
+    {id:"ai",       icon:"🤖", text:"Adaptive feedback and coaching"},
+  ];
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",flexDirection:"column",alignItems:"center",padding:"40px 24px",gap:40,overflowY:"auto"}}>
+      {/* Hero */}
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:560,width:"100%",textAlign:"center",animation:"slideUp 0.5s ease"}}>
+        {/* Avatar */}
+        <div style={{width:102,height:102,borderRadius:"50%",background:"#EAF2FF",border:"1.5px solid #BFDBFE",display:"flex",alignItems:"center",justifyContent:"center",fontSize:46,position:"relative",animation:"float 3s ease-in-out infinite",boxShadow:"0 8px 32px rgba(26,86,219,0.12)"}}>
+          👩‍🏫
+          <span style={{position:"absolute",top:-10,right:-8,fontSize:22,animation:"float 2.5s ease-in-out infinite 0.5s"}}>👋</span>
+        </div>
+        {/* Speech bubble */}
+        <div style={{border:"1.5px solid #BFDBFE",borderRadius:14,background:"#fff",padding:"10px 18px",maxWidth:400,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <span style={{fontSize:13,color:"#0D1B3E",fontStyle:"italic"}}>Bonjour! I'm your AI coach for Canadian French training.</span>
+        </div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:"#0B1220",lineHeight:1.2,marginTop:8}}>French Training for Canada</div>
+        <div style={{fontSize:15,color:"#475569",lineHeight:1.65}}>Structured daily sessions to improve CLB performance for immigration goals.</div>
+
+        {/* CTA buttons */}
+        <button onClick={()=>onNavigate("login")}
+          style={{marginTop:16,width:"100%",maxWidth:340,padding:"15px 32px",background:"#1A56DB",color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 4px 20px rgba(26,86,219,0.3)",transition:"all 0.2s"}}
+          onMouseEnter={e=>e.currentTarget.style.background="#1547c0"}
+          onMouseLeave={e=>e.currentTarget.style.background="#1A56DB"}>
+          Start Training
+        </button>
+
+        <button onClick={onGuest}
+          style={{marginTop:8,padding:"11px 28px",background:"#EFF6FF",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.background="#E2ECFF";}}
+          onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";}}>
+          Try as Guest
+        </button>
+
+        <span onClick={()=>onNavigate("login")} style={{fontSize:13,color:"#64748B",cursor:"pointer",marginTop:4,textDecoration:"underline"}}>Already registered? Sign in</span>
+        <span style={{fontSize:12,color:"#94A3B8",marginTop:4}}>Used by learners preparing for Canadian immigration pathways</span>
+      </div>
+
+      {/* Feature cards */}
+      <div style={{width:"100%",maxWidth:560}}>
+        {features.map(f=>(
+          <div key={f.id}
+            onMouseEnter={()=>setHovered(f.id)} onMouseLeave={()=>setHovered(null)}
+            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?"#BFDBFE":"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
+            <span style={{fontSize:20}}>{f.icon}</span>
+            <span style={{fontSize:14,fontWeight:600,color:"#0D1B3E"}}>{f.text}</span>
+          </div>
+        ))}
+        <div style={{textAlign:"center",marginTop:20}}>
+          <div style={{fontSize:13,fontWeight:600,color:"#475569"}}>🇨🇦 Powered by Newton Immigration</div>
+          <div style={{fontSize:12,color:"#94A3B8",marginTop:4}}>Built by licensed Canadian immigration professionals.</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen({onNavigate, prefillEmail="", notice=""}){
+  const{login,resendVerification,firebaseReady}=useAuth();
+  const[email,setEmail]=useState(prefillEmail);
+  const[password,setPassword]=useState("");
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+  const[resending,setResending]=useState(false);
+  const[infoMsg,setInfoMsg]=useState(notice||"");
+
+  const canSubmit = email.trim()&&password.trim()&&!loading;
+
+  const validate=()=>{
+    const e={};
+    if(!email.trim()) e.email="Email is required";
+    else if(!/^\S+@\S+\.\S+$/.test(email.trim())) e.email="Enter a valid email address";
+    if(!password.trim()) e.password="Password is required";
+    setErrors(e);
+    return Object.keys(e).length===0;
+  };
+
+  const handleLogin=async()=>{
+    if(!validate()) return;
+    try{
+      setLoading(true); setInfoMsg("");
+      await login(email.trim(), password);
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setLoading(false); }
+  };
+
+  const handleResend=async()=>{
+    if(!validate()) return;
+    try{
+      setResending(true); setInfoMsg("");
+      await resendVerification(email.trim(), password);
+      setInfoMsg("Verification email sent! Please check inbox/spam, then login.");
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setResending(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Welcome back</div>
+          <div style={{fontSize:14,color:"#475569",marginTop:6}}>Sign in to continue your structured French training.</div>
+        </div>
+
+        {!firebaseReady&&(
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+            ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable login. You can still <span onClick={()=>onNavigate("guest")} style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>continue as guest</span>.
+          </div>
+        )}
+
+        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+          <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
+          <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Enter password" error={errors.password}/>
+
+          {infoMsg&&<div style={{fontSize:13,color:"#059669",background:"#D1FAE5",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{infoMsg}</div>}
+          {errors.submit&&<div style={{fontSize:13,color:"#991B1B",background:"#FEE2E2",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{errors.submit}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <AuthBtn label="Login" onClick={handleLogin} disabled={!canSubmit} loading={loading} primary/>
+            <AuthBtn label="Register" onClick={()=>onNavigate("register")} variant="outline" disabled={loading}/>
+            <AuthBtn label="Resend Verification Email" onClick={handleResend} variant="text" disabled={loading||resending} loading={resending}/>
+            <AuthBtn label="← Back" onClick={()=>onNavigate("landing")} variant="text" disabled={loading}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REGISTER SCREEN ──────────────────────────────────────────────────────────
+function RegisterScreen({onNavigate}){
+  const{register,firebaseReady}=useAuth();
+  const[name,setName]=useState("");
+  const[email,setEmail]=useState("");
+  const[password,setPassword]=useState("");
+  const[confirm,setConfirm]=useState("");
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+
+  const canSubmit = name.trim()&&email.trim()&&password.trim()&&confirm.trim()&&!loading;
+
+  const handleRegister=async()=>{
+    const e={};
+    if(!name.trim()) e.name="Full name is required";
+    if(!email.trim()) e.email="Email is required";
+    else if(!/^\S+@\S+\.\S+$/.test(email.trim())) e.email="Enter a valid email address";
+    if(!password.trim()) e.password="Password is required";
+    else if(password.length<6) e.password="Password must be at least 6 characters";
+    if(!confirm.trim()) e.confirm="Please confirm your password";
+    else if(confirm!==password) e.confirm="Passwords do not match";
+    setErrors(e);
+    if(Object.keys(e).length>0) return;
+
+    try{
+      setLoading(true);
+      await register(name, email.trim(), password);
+      onNavigate("login", {prefillEmail:email.trim(), notice:"Verification email sent! Please verify your email, then login."});
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setLoading(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Create your account</div>
+          <div style={{fontSize:14,color:"#475569",marginTop:6}}>Start your AI-guided French training for Canada.</div>
+        </div>
+
+        {!firebaseReady&&(
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+            ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable registration.
+          </div>
+        )}
+
+        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+          <AuthInput label="Full name" value={name} onChange={v=>{setName(v);setErrors(p=>({...p,name:undefined,submit:undefined}));}} placeholder="Your full name" error={errors.name}/>
+          <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
+          <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Create a password (min. 6 chars)" error={errors.password}/>
+          <AuthInput label="Confirm password" type="password" value={confirm} onChange={v=>{setConfirm(v);setErrors(p=>({...p,confirm:undefined,submit:undefined}));}} placeholder="Re-enter your password" error={errors.confirm}/>
+
+          {errors.submit&&<div style={{fontSize:13,color:"#991B1B",background:"#FEE2E2",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{errors.submit}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <AuthBtn label="Create Account" onClick={handleRegister} disabled={!canSubmit} loading={loading} primary/>
+            <AuthBtn label="Already have an account? Login" onClick={()=>onNavigate("login")} variant="outline" disabled={loading}/>
+            <AuthBtn label="← Back" onClick={()=>onNavigate("landing")} variant="text" disabled={loading}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH SHARED COMPONENTS ───────────────────────────────────────────────────
+function AuthInput({label,type="text",value,onChange,placeholder,error}){
+  const[show,setShow]=useState(false);
+  const isPass=type==="password";
+  return(
+    <div style={{marginBottom:16}}>
+      <label style={{display:"block",fontSize:13,fontWeight:700,color:"#0D1B3E",marginBottom:6}}>{label}</label>
+      <div style={{position:"relative"}}>
+        <input type={isPass&&show?"text":type} value={value}
+          onChange={e=>onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{width:"100%",padding:"12px 14px",paddingRight:isPass?44:14,borderRadius:10,border:`1.5px solid ${error?"#EF4444":"#E2E8F0"}`,fontFamily:"system-ui,sans-serif",fontSize:14,color:"#0D1B3E",outline:"none",background:"#fff",boxSizing:"border-box",transition:"border-color 0.2s"}}
+          onFocus={e=>e.target.style.borderColor="#1A56DB"}
+          onBlur={e=>e.target.style.borderColor=error?"#EF4444":"#E2E8F0"}
+        />
+        {isPass&&<button type="button" onClick={()=>setShow(s=>!s)}
+          style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94A3B8",padding:0}}>
+          {show?"🙈":"👁️"}
+        </button>}
+      </div>
+      {error&&<div style={{fontSize:12,color:"#EF4444",marginTop:4}}>{error}</div>}
+    </div>
+  );
+}
+
+function AuthBtn({label,onClick,disabled,loading,primary,variant="primary"}){
+  const styles={
+    primary:{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"},
+    outline:{background:"transparent",color:"#1A56DB",border:"1.5px solid #BFDBFE"},
+    text:{background:"transparent",color:"#64748B",border:"none"},
+  }[variant]||{};
+  if(primary) Object.assign(styles,{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"});
+  return(
+    <button onClick={onClick} disabled={disabled||loading}
+      style={{padding:"12px 20px",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:14,cursor:disabled||loading?"not-allowed":"pointer",opacity:disabled&&!loading?0.6:1,transition:"all 0.2s",...styles}}>
+      {loading?"Loading...":label}
+    </button>
+  );
+}
+
+function useIsMobile(){
+  const[m,setM]=useState(typeof window!=="undefined"&&window.innerWidth<640);
+  useEffect(()=>{const h=()=>setM(window.innerWidth<640);window.addEventListener("resize",h);return()=>window.removeEventListener("resize",h);},[]);
+  return m;
+}
+
+// Persists state to localStorage so progress survives page refresh
+function useLocalState(key, defaultVal){
+  const[state,setState]=useState(()=>{
+    try{
+      const stored=localStorage.getItem(key);
+      return stored!==null?JSON.parse(stored):defaultVal;
+    }catch{return defaultVal;}
+  });
+  const setter=(val)=>{
+    setState(prev=>{
+      const next=typeof val==="function"?val(prev):val;
+      try{localStorage.setItem(key,JSON.stringify(next));}catch{}
+      return next;
+    });
+  };
+  return[state,setter];
+}
 
 const T = {
   navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
@@ -771,6 +1144,7 @@ const A2_LESSONS = [
     [mcq("'Si j'avais su, je n'aurais pas signé ce bail.' This sentence expresses:",["a future plan","a present habit","a past regret (conditional perfect + pluperfect)","a description of the past"],2,"Si + plus-que-parfait (j'avais su) + conditionnel passé (je n'aurais pas signé) = Type 3 conditional — expressing regret about the PAST. 'If I had known, I wouldn't have signed that lease.' This structure shows advanced A2/B1 level!"),
      mcq("The CORRECT sentence is:",["Je suis allé à la pharmacie hier et j'ai achetais des médicaments","Hier, je suis allé à la pharmacie et j'ai acheté des médicaments","Je allais à la pharmacie et j'ai acheté des médicaments","Hier, j'ai allé à la pharmacie et j'achetais des médicaments"],1,"Je suis allé (être verb = aller) + j'ai acheté (avoir verb = acheter) — both passé composé for specific past events. The others mix up tenses or use wrong auxiliary!"),
      wr("Write 3 sentences showing your A2 level: past, future, and opinion",["j'ai","je vais","à mon avis","je voudrais","selon moi","je pense que"],"J'ai commencé à apprendre le français il y a un an. L'année prochaine, je passerai le TEF Canada. À mon avis, parler français ouvre beaucoup de portes au Canada. — Three tenses + opinion = A2 showcase! Félicitations — vous passez maintenant au niveau B1!")])
+];
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1511,284 +1885,37 @@ const SYLLABUS = {
 // type: "order" = drag words into correct order
 // type: "write" = free-text write (intermediate)
 // type: "speak" = speaking challenge prompt (advanced)
-// difficulty: 1=very easy, 2=easy, 3=medium, 4=hard, 5=CLB test-level
-// ─────────────────────────────────────────────────────────────────────────────
 
-const mkL = (id, title, mins, skill, teach, vocab, questions) =>
-  ({id, title, mins, skill, teach, vocab, questions});
-
-// Easy tap question — just tap the right translation
-const tap = (fr, opts, correct, explain, diff=1) =>
-  ({type:"tap", fr, opts, correct, explain, diff});
-
-// Multiple choice
-const mcq = (prompt, options, correct, explain, diff=2) =>
-  ({type:"mcq", prompt, options, correct, explain, diff});
-
-// Fill blank with given word bank
-const fill = (before, after, options, correct, explain, diff=3) =>
-  ({type:"fill", before, after, options, correct, explain, diff});
-
-// Reorder words into correct sentence
-const order = (words, correct, explain, diff=3) =>
-  ({type:"order", words, correct, explain, diff});
-
-// Free write
-const wr = (prompt, accepted, explain, diff=4, hint="") =>
-  ({type:"write", prompt, accepted, explain, diff, hint});
-
-// Speaking challenge
-const speak = (prompt, sampleAnswer, tips, diff=5) =>
-  ({type:"speak", prompt, sampleAnswer, tips, diff});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FOUNDATION — 20 lessons, starts ULTRA easy (diff 1), builds confidence fast
-// ─────────────────────────────────────────────────────────────────────────────
-const FOUNDATION_LESSONS = [
-
-  mkL("f-01","The French Alphabet",15,"listening",
-    "French has 26 letters like English — but they sound very different! The most important differences: E = 'uh', I = 'ee', U = 'oo' (round lips!), R = from the throat, H = always silent. Don't worry — you just need to recognize sounds right now. Confidence first! 🎉",
-    ["A (ah)","E (uh)","I (ee)","U (oo)","R (throat)","H (silent!)"],
-    [
-      tap("Bonjour",["Hello","Goodbye","Please","Sorry"],0,"Bonjour = Hello / Good day. Your very FIRST French word! Say it out loud: 'bon-ZHOOR' 🎉",1),
-      tap("Merci",["Thank you","Sorry","Please","Goodbye"],0,"Merci = Thank you. Easy! 'Merci' sounds almost like 'mercy' in English. 🙌",1),
-      tap("Oui",["Yes","No","Maybe","Hello"],0,"Oui = Yes, pronounced 'wee'! Your first French answer. 😄",1),
-      mcq("The letter 'H' in French is:",["always pronounced","always SILENT","sometimes silent","pronounced like English H"],1,"H is ALWAYS silent in French! 'Hôpital' = 'opital'. Never pronounce H in French — ever! This rule has zero exceptions.",2),
-    ]),
-
-  mkL("f-02","Nasal Vowels — The French Hum",20,"listening",
-    "French has sounds that don't exist in English — nasal vowels where air goes through your NOSE! The main ones: ON (bonjour), AN (France), IN (pain = bread). Don't stress about being perfect — just try to hear the difference! 😊",
-    ["on → bonjour, bon","an → France, dans","in → pain (bread), vin (wine)","nasal = air through nose"],
-    [
-      tap("bon",["good","bad","big","small"],0,"Bon = good! You hear the ON nasal — like humming through your nose. 'Bon appétit!' = enjoy your meal! 🍽️",1),
-      tap("vin",["wine","water","bread","milk"],0,"Vin = wine! IN nasal. 'Un verre de vin rouge' = a glass of red wine. Very French! 🍷",1),
-      mcq("'Bonjour' contains which nasal sound?",["AN","IN","ON","UN"],2,"BON-jour — the ON nasal! Feel your nose hum when you say 'bon'. This sound is everywhere in French: bon, son, mon, ton, long.",2),
-      mcq("'Pain' (bread) uses which nasal?",["ON","AN","IN/AIN","none"],2,"IN/AIN nasal — sounds like 'pan' in English but with a hum. 'Une baguette' and 'du pain' = the most French sentence ever! 🥖",2),
-    ]),
-
-  mkL("f-03","Silent Letters & How French Flows",15,"listening",
-    "Great news: French has LOTS of silent letters — less to pronounce! Final consonants are usually silent: Paris = 'pah-REE', vous = 'voo', est = 'ay'. BUT — when the next word starts with a vowel, silent letters can 'wake up' (liaison). 'Vous êtes' = 'vouz-êtes'. This is what makes French sound musical! 🎵",
-    ["Paris = pah-REE (silent S)","vous = voo (silent S)","est = ay (silent T)","liaison: vous êtes = vouz-êtes","c'est = say","et = ay (NEVER makes liaison)"],
-    [
-      tap("c'est",["it is","it was","it will be","it should be"],0,"C'est = it is, pronounced 'say'! The T is silent. 'C'est bon!' = It's good! You'll say this constantly. 😄",1),
-      tap("Paris",["pah-REE","pah-RIS","PAR-ee","pah-ri"],0,"Paris = 'pah-REE' — final S is silent! Same with: 'vous' = 'voo', 'est' = 'ay'. Final consonants are almost always silent in French.",1),
-      mcq("'Vous êtes' is pronounced:",["voo ay-tuh","vouz ay-tuh","voos ay-tuh","voo-zay"],1,"Liaison! Silent S in 'vous' becomes Z when 'êtes' starts with a vowel. 'Vouz-êtes' — this is what makes French sound smooth and elegant! 🎶",2),
-      mcq("The word 'et' (and) before a vowel:",["always makes liaison","NEVER makes liaison","sometimes makes liaison","always changes pronunciation"],1,"'Et' NEVER makes liaison — it's the one big exception! 'Et elle' = 'ay el' (NOT 'ayt-el'). This is important to know so you don't make this common mistake.",2),
-    ]),
-
-  mkL("f-04","Accents — They Change Everything!",15,"reading",
-    "French uses 5 accents. The most important: é (accent aigu) = 'ay' sound like in café. è (accent grave) = open 'eh'. ç (cédille) = S sound. They're not decorations — they change pronunciation and meaning! 'ou' = or, 'où' = where. Don't worry, you'll learn them naturally! ✨",
-    ["é = ay (café, étudiant)","è = open eh (père, mère)","ê = ay/eh (être, fête)","ç = S sound (français, garçon)","à vs a: different meanings!","où vs ou: where vs or"],
-    [
-      tap("café",["coffee","tea","cake","juice"],0,"Café = coffee! The é makes an 'ay' sound. 'Un café, s'il vous plaît' = A coffee please. Your first real Canadian French order! ☕",1),
-      tap("père",["father","mother","brother","sister"],0,"Père = father. The è makes an open 'eh' sound. Père, mère, frère — family words all have accents! 👨‍👩‍👦",1),
-      mcq("'Français' has ç because:",["it looks nice","ç makes C sound like S before A","ç makes C sound like K","it's always used with ais"],1,"Cédille (ç) makes C sound like S before A, O, U. Without ç: 'francais' would sound like 'franKAY'. With ç: 'franSAY' ✓ The correct pronunciation of the language you're learning! 🇫🇷",2),
-      mcq("'Où est la pharmacie?' — 'où' means:",["or","is","where","what"],2,"Où = where (with accent grave). 'Ou' without accent = or. 'Où est...?' = Where is...? One of the most useful questions in Canada! 🏥",2),
-    ]),
-
-  mkL("f-05","Your First Greetings 👋",20,"speaking",
-    "Time to say your first French sentences! Bonjour is used ALL day in Canada (morning, afternoon, evening until ~7pm). ALWAYS greet first in Quebec — it's rude not to! Cashiers, doctors, strangers all expect 'Bonjour'. This one word will change how people treat you in Canada. Try it today! 🍁",
-    ["Bonjour (all day — not just morning!)","Bonsoir (evening, after 7pm)","Salut (hi — friends ONLY)","Au revoir (goodbye)","À bientôt (see you soon)","Bonne journée (have a good day)"],
-    [
-      tap("Bonjour",["Hello / Good day","Good night","Thank you","Goodbye"],0,"Bonjour! The most important word in Canada. Use it ALL DAY — morning, afternoon, evening. Walking into any store? Say 'Bonjour!' first. Always. 🍁",1),
-      tap("Au revoir",["Goodbye","Hello","Please","Sorry"],0,"Au revoir = goodbye. Literally 'until we see again'. Always say this when leaving any store, clinic, or meeting in Canada! Very important politeness. 👋",1),
-      tap("Bonne journée",["Have a good day","Good morning","Good evening","Good night"],0,"Bonne journée = have a good day! Cashiers say this to you, you say it back. A tiny phrase that makes people smile everywhere in Canada. 😊",1),
-      mcq("It's 3pm. You walk into a pharmacy. You say:",["Bonsoir","Salut","Bonjour","Bonne nuit"],2,"'Bonjour' is used from morning until ~7pm! It means 'good day' — not just morning. This is the biggest difference from English. Always greet first in Quebec! 🏥",2),
-      speak("Say 'Bonjour!' then introduce yourself: 'Je m'appelle [your name]'",
-        "Bonjour! Je m'appelle [name].",
-        ["Say Bonjour clearly","Then: Zhuh mah-PEL [name]","Smile — pronunciation isn't perfect yet and that's totally fine!"],4),
-    ]),
-
-  mkL("f-06","Introducing Yourself 😊",25,"speaking",
-    "The most important 4 sentences for Canada: Je m'appelle... (My name is), J'ai X ans (I'm X years old — French uses HAVE not BE for age!), Je viens de... (I come from), J'habite à... (I live in). You'll use these every single day — at clinics, offices, schools, making friends!",
-    ["Je m'appelle... (My name is)","J'ai ... ans (I'm ... years old)","Je viens de... (I come from)","J'habite à... (I live in)","Enchanté(e)! (Nice to meet you)","Et vous? (And you? — formal)"],
-    [
-      tap("Je m'appelle",["My name is","I have","I live in","I come from"],0,"Je m'appelle = My name is (literally 'I call myself'). THE French introduction. 'Je m'appelle Marie.' Simple and perfect! 🌟",1),
-      tap("J'habite à",["I live in","I come from","My name is","I am from"],0,"J'habite à = I live in. 'J'habite à Montréal.' You'll say this constantly in Canada when filling forms, meeting people, at appointments! 🏠",1),
-      mcq("'J'ai 30 ans' — how do you say this in English?",["I have 30 years","I am 30 years old","I live 30 years","I want 30"],1,"French uses AVOIR (to have) for age! 'J'ai 30 ans' = I AM 30. Never 'Je suis 30 ans' — one of the most common errors! You literally 'have' years in French. 🎂",2),
-      fill("Je","de Montréal.",["viens","suis","ai","vais"],0,"Je viens de = I come from. 'Je viens du Canada, du Maroc, de France...' Venir de + place = your origin. Essential for any introduction! 🌍",2),
-      speak("Introduce yourself fully: name, age, where you're from, where you live now",
-        "Bonjour! Je m'appelle [name]. J'ai [X] ans. Je viens de [country]. J'habite à [city].",
-        ["Say each part slowly","J'ai = zhay","Je viens de = zhuh vyen duh","J'habite à = zhah-BEET ah","It's OK to pause between parts!"],4),
-    ]),
-
-  mkL("f-07","Numbers 1–10 — Your First Numbers! 🔢",20,"listening",
-    "Numbers are CRITICAL for life in Canada — prices, addresses, phone numbers, ages, bus numbers! Start with 1-10. Say each one out loud as you learn it. un, deux, trois, quatre, cinq, six, sept, huit, neuf, dix. Say them like a little song — it really helps! 🎵",
-    ["un (1)","deux (2)","trois (3)","quatre (4)","cinq (5)","six (6)","sept (7)","huit (8)","neuf (9)","dix (10)"],
-    [
-      tap("trois",["3","2","4","1"],0,"Trois = 3! Pronounced 'twah'. 'Trois enfants' = 3 children. 'Ligne trois' = line 3 (metro). You'll use this constantly! 🚇",1),
-      tap("sept",["7","6","8","9"],0,"Sept = 7! Pronounced 'set' — the P is silent! 'Sept jours par semaine' = 7 days a week. ✨",1),
-      tap("huit",["8","7","6","9"],0,"Huit = 8! Pronounced 'weet' — H is silent! Think 'weet'. 'Il est huit heures' = It's 8 o'clock. ⏰",1),
-      mcq("A price tag says '5 dollars'. In French:",["deux dollars","cinq dollars","dix dollars","six dollars"],1,"Cinq = 5. 'Cinq dollars' = 5 dollars. 'C'est cinq dollars, s'il vous plaît.' — your first real shopping French! 💰",2),
-      order(["Je","ai","dix","enfants."],["Je","ai","dix","enfants."],"J'ai dix enfants — wait, that's a lot! But 'j'ai dix' = I have ten. Notice: 'Je ai' → 'J'ai' (elision before vowel)! 🔢",2),
-    ]),
-
-  mkL("f-08","Numbers 11–20 and Beyond 📊",20,"listening",
-    "Numbers 11-16 are unique words you must memorize: onze, douze, treize, quatorze, quinze, seize. Then 17-19 are compounds: dix-sept (10+7), dix-huit, dix-neuf. 20 = vingt. For 21-69: vingt et un, vingt-deux... trente... quarante... cinquante... soixante. Then it gets fun with 70, 80, 90! 😄",
-    ["onze(11) douze(12) treize(13)","quatorze(14) quinze(15) seize(16)","dix-sept(17) dix-huit(18) dix-neuf(19)","vingt(20) trente(30) quarante(40)","cinquante(50) soixante(60)","soixante-dix(70) quatre-vingts(80) quatre-vingt-dix(90) cent(100)"],
-    [
-      tap("quinze",["15","14","16","50"],0,"Quinze = 15! 'Il est quinze heures' = It's 3pm (15h). Canada uses 24h time on schedules and forms! ⏰",1),
-      tap("vingt",["20","12","2","200"],0,"Vingt = 20! 'Vingt dollars' = $20. After 20: vingt et un (21), vingt-deux (22)... vingt-neuf (29), trente (30)! 💵",1),
-      mcq("80 in French is:",["huitante","quatre-vingts","octante","huit-dix"],1,"Quatre-vingts = 4×20 = 80! Historical counting system. Note: the S disappears before another number (quatre-vingt-cinq = 85). Unique to France/Canada! 🧮",3),
-      mcq("A bus schedule says 'départ à quatorze heures trente'. The bus leaves at:",["2:30pm","4:30pm","3:30pm","1:30pm"],0,"Quatorze heures trente = 14:30 = 2:30pm! Canada uses 24h on official schedules. 14-12=2, so 14h=2pm. Essential for bus, train, and appointment times! 🚌",2),
-      wr("Write a Canadian phone number format in French: 514-XXX-XXXX",["cinq cent quatorze","514","le numéro est","mon numéro de téléphone"],"Mon numéro de téléphone est le 514-XXX-XXXX. Say each digit: cinq-un-quatre... In French, phone numbers are often said as pairs: 51-4... 😄",3),
-    ]),
-
-  mkL("f-09","Telling Time ⏰",20,"listening",
-    "Time is essential for appointments, buses, and work! Il est + number + heures = It is X o'clock. 'Il est neuf heures' = It's 9 o'clock. Special: midi (noon), minuit (midnight). For minutes: Il est neuf heures quinze (9:15), neuf heures et demie (9:30), dix heures moins le quart (9:45). 'À quelle heure?' = At what time?",
-    ["Il est... heures (It is... o'clock)","Il est midi (noon)","Il est minuit (midnight)","et quart (quarter past)","et demie (half past)","moins le quart (quarter to)","À quelle heure? (At what time?)","du matin/de l'après-midi"],
-    [
-      tap("Il est midi",["It's noon","It's midnight","It's 12am","It's one o'clock"],0,"Midi = noon! 'La pause de midi' = lunch break. 'Il est midi et demie' = 12:30pm. Very common in daily Canadian life! ☀️",1),
-      tap("À quelle heure?",["At what time?","What day?","How long?","Since when?"],0,"À quelle heure = At what time? Your most important scheduling question! 'À quelle heure est mon rendez-vous?' = What time is my appointment? 📅",1),
-      fill("Il est trois heures",".",["et demie","et","de","plus"],0,"Il est trois heures et demie = It's 3:30! Et demie = half past. Et quart = quarter past (3:15). Moins le quart = quarter to (2:45). 🕰️",2),
-      mcq("'Mon rendez-vous est à quatorze heures.' My appointment is at:",["2pm","4pm","12pm","3pm"],0,"14h = 2pm! Canada uses 24h officially: 14h, 15h, 16h... Just subtract 12 for pm hours above 12. 'Je dois être là à 14h' = I must be there at 2pm! 🏥",2),
-      speak("Tell me: what time do you wake up and go to bed?",
-        "Je me réveille à sept heures du matin. Je me couche à vingt-deux heures (dix heures du soir).",
-        ["Use: Il est... / Je me réveille à...","du matin = am, de l'après-midi = pm","Try using 24h time for bonus points!"],4),
-    ]),
-
-  mkL("f-10","Days, Months & Dates 📅",20,"reading",
-    "Days in French (lowercase!): lundi, mardi, mercredi, jeudi, vendredi, samedi, dimanche. Months: janvier, février, mars, avril, mai, juin, juillet, août, septembre, octobre, novembre, décembre. Key: days and months are NEVER capitalized in French! Dates: le 15 mars = March 15th.",
-    ["lundi(Mon) mardi(Tue) mercredi(Wed)","jeudi(Thu) vendredi(Fri)","samedi(Sat) dimanche(Sun)","aujourd'hui(today) demain(tomorrow) hier(yesterday)","le [number] [month] = the date","cette semaine(this week)"],
-    [
-      tap("mercredi",["Wednesday","Monday","Friday","Saturday"],0,"Mercredi = Wednesday! French days come from Roman gods: Mercure (Mercury). 'Le mercredi, j'ai cours' = On Wednesdays I have class. 📚",1),
-      tap("demain",["tomorrow","yesterday","today","next week"],0,"Demain = tomorrow! 'Demain, j'ai un rendez-vous' = Tomorrow I have an appointment. One of the most useful words in Canada! 📅",1),
-      mcq("Days and months in French are written:",["With capital letters","In lowercase","In ALL CAPS","Only with numbers"],1,"Lowercase always! 'lundi, janvier' — NOT 'Lundi, Janvier'. Days, months, languages, nationalities are all lowercase in French. Very different from English! 📝",2),
-      fill("Mon rendez-vous est","15 mars.",["le","la","un","au"],0,"Le 15 mars = March 15th! 'Le' before dates. 'Mon rendez-vous est le 15 mars à 14h' — perfect appointment sentence for Canada! 🏥",2),
-      order(["Aujourd'hui","est","lundi","15","mars."],["Aujourd'hui","est","lundi","15","mars."],"Aujourd'hui est lundi 15 mars — today is Monday March 15th. You'll say this when confirming dates at appointments, on the phone, filling forms! 📋",3),
-    ]),
-
-  mkL("f-11","Politeness — The Key to Canada 🙏",15,"speaking",
-    "Canadians love politeness! These phrases will make everyone like you: S'il vous plaît (please — formal, with strangers ALWAYS), Merci (thank you), De rien (you're welcome), Pardon (excuse me — small things), Excusez-moi (excuse me — getting attention), Je suis désolé(e) (I'm sorry). Always add s'il vous plaît — it transforms everything!",
-    ["S'il vous plaît (formal please — always with strangers)","S'il te plaît (informal please — friends only)","Merci / Merci beaucoup","De rien / Avec plaisir (you're welcome)","Pardon (minor excuse me)","Excusez-moi (getting attention)","Je suis désolé(e) (I'm sorry)"],
-    [
-      tap("S'il vous plaît",["Please (formal)","Thank you","Sorry","Goodbye"],0,"S'il vous plaît = please, formal. ALWAYS use with strangers in Canada — cashiers, doctors, officials. It makes every request polite and respectful! 🙏",1),
-      tap("De rien",["You're welcome","Sorry","Please","Goodbye"],0,"De rien = you're welcome (literally 'it's nothing'). When someone says 'Merci!', you say 'De rien!' Natural Canadian French response! 😊",1),
-      tap("Excusez-moi",["Excuse me (to get attention)","Sorry (apology)","Thank you","Please"],0,"Excusez-moi = excuse me when stopping someone. Then use S'il vous plaît for your request: 'Excusez-moi, où est la pharmacie, s'il vous plaît?' Perfect! 🗺️",1),
-      mcq("You bump into someone by accident. You say:",["De rien","Merci","Pardon!","Bonjour"],2,"Pardon! = excuse me for small accidents. 'Je suis désolé(e)' = genuine apology. Canadians are very forgiving — just say Pardon with a smile! 😄",2),
-      speak("Practice saying: 'Excusez-moi, où est la pharmacie, s'il vous plaît?'",
-        "Excusez-moi, où est la pharmacie, s'il vous plaît?",
-        ["Excusez-moi: ex-KYOO-zay mwah","Où est: oo ay","S'il vous plaît: seel voo play","Say it like one smooth sentence!"],3),
-    ]),
-
-  mkL("f-12","Survival Phrases — Your Safety Net 🛟",20,"speaking",
-    "These 6 phrases will get you through ANY tough moment as a beginner. Use them freely and without shame — they actually show you're engaged and trying! Canadians will always help someone who's clearly making the effort. Wear these phrases like armor! 💪",
-    ["Je ne comprends pas (I don't understand)","Pouvez-vous répéter? (Can you repeat?)","Plus lentement, s'il vous plaît (Slower please)","Je parle un peu français (I speak a little French)","Comment dit-on...? (How do you say...?)","Je ne sais pas (I don't know)"],
-    [
-      tap("Je ne comprends pas",["I don't understand","I don't speak French","I don't know","I can't hear you"],0,"Je ne comprends pas = I don't understand. Say it CONFIDENTLY — it shows you're listening! Not knowing is the first step to knowing. 🌟",1),
-      tap("Pouvez-vous répéter?",["Can you repeat?","Can you help me?","Can you speak?","Can you wait?"],0,"Pouvez-vous répéter? = Can you repeat? Your most used phrase as a beginner! Add s'il vous plaît: 'Pouvez-vous répéter, s'il vous plaît?' Perfect politeness! 🔄",1),
-      tap("Plus lentement",["More slowly","More quickly","More quietly","More clearly"],0,"Plus lentement = more slowly. 'Plus lentement, s'il vous plaît' = Slower please! Native speakers talk fast — use this freely. No one minds! 🐢",1),
-      mcq("'Je parle un peu français' tells native speakers to:",["stop speaking French","speak English","slow down and be patient with you","speak louder"],2,"Un peu = a little. This magical phrase makes Canadians warm and helpful! It says: I'm trying, please be patient. They LOVE the effort. 🍁",2),
-      speak("Say your full survival kit: 'Je parle un peu français. Pouvez-vous répéter plus lentement, s'il vous plaît?'",
-        "Je parle un peu français. Pouvez-vous répéter plus lentement, s'il vous plaît?",
-        ["Take it one phrase at a time","Je parle: zhuh parl","Un peu: un puh","Pouvez-vous: poo-vay voo","This sentence will save you hundreds of times in Canada!"],4),
-    ]),
-
-  mkL("f-13","Colors & Adjectives 🎨",20,"reading",
-    "Colors in French agree with the noun's gender! Most add -E for feminine: bleu→bleue, vert→verte, noir→noire. Some don't change: rouge, jaune, orange, rose. Important: adjectives usually come AFTER the noun in French! 'Une voiture rouge' = a red car. The color comes after 'voiture'!",
-    ["rouge (red — no change)","bleu/bleue (blue)","vert/verte (green)","jaune (yellow — no change)","noir/noire (black)","blanc/blanche (white)","grand/grande (big)","petit/petite (small)"],
-    [
-      tap("rouge",["red","blue","green","yellow"],0,"Rouge = red! Never changes for gender — it already ends in E. 'Une robe rouge' (red dress), 'Un livre rouge' (red book). Easy! 🔴",1),
-      tap("bleu",["blue","green","grey","purple"],0,"Bleu = blue (masculine)! Bleue for feminine. 'Un ciel bleu' (blue sky). 'Une porte bleue' (blue door). The sky is the same color — only the article changes! 🔵",1),
-      mcq("'Une maison ___' (a white house — feminine noun)",["blanc","blanche","blancs","blanche"],1,"Blanche = feminine of blanc! Blanc → blanche (add -he). 'Une maison blanche' = a white house. The Canadian PM's residence isn't called the White House — but you can describe a white house! 🏠",2),
-      fill("J'ai une voiture",".",["noire","noir","noirs","noires"],0,"Une voiture noire = a black car. 'La voiture' is feminine → noire (add E to noir). 'Un chat noir' (m) vs 'une voiture noire' (f) — same color, different ending! 🚗",2),
-      order(["C'est","une","grande","maison","blanche."],["C'est","une","grande","maison","blanche."],"C'est une grande maison blanche — It's a big white house! Grande comes BEFORE (size adjective — exception!), blanche comes AFTER (color). Position matters in French! 🏡",3),
-    ]),
-
-  mkL("f-14","Family & People 👨‍👩‍👦",20,"speaking",
-    "Family vocabulary is essential — you'll describe your family at clinics, schools, government offices constantly! La mère (mother), le père (father), le frère (brother), la sœur (sister), les enfants (children), le mari (husband), la femme (wife/woman), les grands-parents (grandparents). Gender matters: 'la' = feminine, 'le' = masculine!",
-    ["la mère (mother)","le père (father)","le frère (brother)","la sœur (sister)","les enfants (children)","le mari (husband)","la femme (wife/woman)","célibataire (single)","marié(e) (married)"],
-    [
-      tap("le frère",["the brother","the sister","the father","the son"],0,"Le frère = the brother! Masculine (le). 'J'ai un frère et une sœur' = I have a brother and a sister. Practice this sentence! 👦",1),
-      tap("les enfants",["the children","the parents","the family","the adults"],0,"Les enfants = the children! 'J'ai deux enfants' = I have two children. 'Mes enfants vont à l'école' = My children go to school. Essential for Canada! 👶👧",1),
-      mcq("'La femme' can mean:",["only wife","only woman","wife OR woman","only daughter"],2,"La femme = both 'wife' AND 'woman'! 'Ma femme' = my wife. 'Une femme' = a woman. Context makes it clear — just like English 'partner'. 👩",2),
-      fill("J'ai deux","et un frère.",["sœurs","frères","enfants","parents"],0,"J'ai deux sœurs et un frère = I have two sisters and a brother. Note: sœur has an 'œ' ligature! One of the most common family introduction sentences! 👨‍👩‍👧‍👧",2),
-      speak("Tell me about your family: how many brothers, sisters, children?",
-        "J'ai [une/deux/trois] sœur(s) et [un/deux] frère(s). J'ai [X] enfants. Je suis marié(e) / célibataire.",
-        ["J'ai = zhay","Sœurs = sur (like 'sir')","Use numbers you learned!","It's perfect even if your grammar isn't!"],4),
-    ]),
-
-  mkL("f-15","House & Home 🏠",20,"reading",
-    "Housing vocab is critical for newcomers — for finding apartments, communicating with landlords, describing problems! L'appartement (apartment), la maison (house), la chambre (bedroom), le salon (living room), la cuisine (kitchen), la salle de bain (bathroom), le loyer (rent), les charges (utilities).",
-    ["l'appartement (apartment)","la maison (house)","la chambre (bedroom)","le salon (living room)","la cuisine (kitchen)","la salle de bain (bathroom)","le loyer (rent)","les charges (utilities)"],
-    [
-      tap("la chambre",["the bedroom","the kitchen","the bathroom","the living room"],0,"La chambre = bedroom! 'Un appartement de 2 chambres' = a 2-bedroom apartment. Canadian rental ads always list chambres. 'Je cherche un 3½' = Quebec shorthand for 3 rooms! 🛏️",1),
-      tap("le loyer",["the rent","the kitchen","the bathroom","the deposit"],0,"Le loyer = rent! 'Mon loyer est de 900$ par mois' = My rent is $900/month. Essential vocabulary for renting in Canada! 💰",1),
-      mcq("'J'ai un appartement de 3 chambres' means:",["3 floors","3 bedrooms","3 bathrooms","3 apartments"],1,"3 chambres = 3 bedrooms. 'Chambres' is the key word in Canadian rental ads! Always ask: 'Combien de chambres?' and 'Le loyer comprend-il les charges?' 🏢",2),
-      fill("Je cherche","à louer.",["un appartement","une chambre","un loyer","une maison"],0,"Je cherche un appartement à louer = I'm looking for an apartment to rent. The most useful sentence for a newcomer! Add: 'avec 2 chambres, proche du métro, à moins de 1200$ par mois.' 🔍",2),
-      speak("Describe your ideal apartment in French",
-        "Je cherche un appartement de deux chambres. Je voudrais un loyer de moins de mille dollars par mois. Je préfère un appartement proche du métro.",
-        ["Cherche = I'm looking for","Je voudrais = I would like","Proche de = near/close to","Use numbers you know!"],4),
-    ]),
-
-  mkL("f-16","Weather — Canada's Favorite Topic ☀️❄️",15,"speaking",
-    "Weather is THE #1 small talk topic in Canada — especially with the dramatic seasons! Il fait chaud/froid (hot/cold), Il pleut (raining), Il neige (snowing), Il y a du vent (windy), Il fait beau (nice weather). Canada uses Celsius! -15°C is a normal Quebec winter day — dress in layers! 🧥",
-    ["Il fait chaud (hot)","Il fait froid (cold)","Il fait beau (nice)","Il pleut (raining)","Il neige (snowing)","Il y a du vent (windy)","Il y a du verglas (black ice — very important!)","Il fait combien? (What's the temperature?)"],
-    [
-      tap("Il neige",["It's snowing","It's raining","It's cold","It's hot"],0,"Il neige = it's snowing! From November to April in Quebec. 'Il neige beaucoup aujourd'hui' = It's snowing a lot today. You'll say this A LOT in Canada! ❄️",1),
-      tap("Il fait beau",["It's nice out","It's cold","It's raining","It's windy"],0,"Il fait beau = it's nice out! The phrase everyone loves saying. 'Il fait vraiment beau aujourd'hui!' = It's really nice today! Start any conversation with this on a sunny day! ☀️",1),
-      tap("Il y a du verglas",["There's black ice","It's snowing","It's foggy","It's windy"],0,"Du verglas = black ice! Super important for safety in Canada. 'Attention, il y a du verglas sur les routes!' = Watch out, black ice on the roads! 🧊",1),
-      mcq("Your Canadian colleague says 'Il fait -15 aujourd'hui!' They mean:",["It's 15 degrees — nice!","It's very cold — dress warmly!","It's 15pm (time)","The bus is 15 minutes late"],1,"Canada uses Celsius! -15°C is VERY cold — you need a heavy coat, hat, scarf, and gloves. 'Il fait très froid' = it's very cold. Typical Quebec winter! Bundle up! 🧣🧤",2),
-      speak("Tell me what the weather is like where you are today",
-        "Aujourd'hui, il fait [froid/chaud/beau]. Il [pleut/neige/fait beau]. La température est de [X] degrés.",
-        ["Aujourd'hui = today","Il fait: eel fay","Just use words you know — even 1-2 words is a win!"],3),
-    ]),
-
-  mkL("f-17","Body Parts & Medical French 🏥",20,"speaking",
-    "Essential for any medical appointment in Canada! J'ai mal à = I have pain in. Then + body part: la tête (head), le ventre (stomach), la gorge (throat), le dos (back), la jambe (leg), le bras (arm). 'J'ai de la fièvre' = I have a fever. 'Je tousse' = I'm coughing. These phrases could be life-saving! 💊",
-    ["la tête (head)","les yeux (eyes)","le nez (nose)","la bouche (mouth)","la gorge (throat)","le dos (back)","le ventre (stomach)","la jambe (leg)","le pied (foot)","J'ai mal à... = I have pain in..."],
-    [
-      tap("J'ai mal à la tête",["I have a headache","I have a stomachache","I have a backache","I have a sore throat"],0,"J'ai mal à la tête = I have a headache! Pattern: J'ai mal à + body part. This pattern works for ALL body parts. Learn it once, use it forever! 💊",1),
-      tap("J'ai de la fièvre",["I have a fever","I have a cold","I have a cough","I am tired"],0,"J'ai de la fièvre = I have a fever. 'De la' before fièvre — partitive article. Critical medical phrase! Always check temperature in Celsius in Canada: 38°C+ is a fever. 🌡️",1),
-      fill("J'ai mal","dos.",["au","à la","à","du"],0,"J'ai mal au dos = I have a backache. 'Au' = à + le (masculine). 'à + la' = à la (feminine). Les → aux. Mal à la tête, mal au dos, mal aux pieds! 😣",2),
-      mcq("'Je tousse beaucoup' means:",["I'm very tired","I'm coughing a lot","I have a headache","I'm very sick"],1,"Je tousse = I'm coughing. 'Beaucoup' = a lot. 'Je tousse depuis 3 jours' = I've been coughing for 3 days. Information a doctor will ask for! 😷",2),
-      speak("You're at a Quebec clinic. Describe 2 symptoms to the doctor.",
-        "Docteur, j'ai mal à la gorge et j'ai de la fièvre depuis hier. Je me sens très mal.",
-        ["Start with: Docteur/Bonjour, j'ai...","Use: J'ai mal à...","Add: depuis [time] (for how long)","The doctor will understand even with simple French!"],4),
-    ]),
-
-  mkL("f-18","Countries & Nationalities 🌍",15,"reading",
-    "Common countries and their nationalities! Nationalities agree with gender (add -E for women) and are LOWERCASE in French: canadien/canadienne, français/française, marocain/marocaine. Countries use different prepositions: en France, au Canada, aux États-Unis, à Paris. Learning this helps with introductions and forms!",
-    ["Je viens de... (I come from)","Je suis + nationalité (I am...)","canadien/canadienne","français/française","marocain/marocaine","en (f.countries) / au (m.) / aux (pl.)","les nationalités = minuscules (lowercase)!"],
-    [
-      tap("canadienne",["Canadian woman","Canadian man","From Canada","To Canada"],0,"Canadienne = Canadian (feminine)! A woman says 'Je suis canadienne'. A man says 'Je suis canadien'. Nationalities agree with gender — and always lowercase! 🍁",1),
-      tap("Je viens du Maroc",["I come from Morocco","I live in Morocco","I go to Morocco","I like Morocco"],0,"Je viens du Maroc = I come from Morocco! 'Du' = de + le (Morocco is masculine). 'Je viens de France' (feminine). 'Je viens des États-Unis' (plural). 🌍",1),
-      mcq("'Je suis français' — the speaker is:",["a French woman","a French man","from Quebec","French Canadian"],1,"Français = French (masculine). A woman would say 'Je suis française' (add E). Nationalities: masculine form = remove the E for men, add E for women. Always lowercase! 🇫🇷",2),
-      fill("J'habite","Canada depuis 2 ans.",["au","en","à","du"],0,"J'habite au Canada — Canada is masculine (le Canada) → au. 'J'habite en France' (feminine). 'J'habite à Montréal' (city = à). Three different prepositions for different contexts! 🇨🇦",2),
-    ]),
-
-  mkL("f-19","Shopping Basics 🛍️",20,"speaking",
-    "Shopping vocabulary for Canada! Je cherche... (I'm looking for), Avez-vous...? (Do you have...?), C'est combien? (How much?), C'est trop cher (too expensive), Payer par carte (pay by card), En espèces (cash). Add s'il vous plaît to everything! Quebec has 15% tax (TVQ + TPS) — always added at checkout.",
-    ["Je cherche... (I'm looking for)","Avez-vous...? (Do you have?)","C'est combien? (How much?)","C'est trop cher (too expensive)","Je prends ça (I'll take this)","Payer par carte (card payment)","En espèces (cash)","Le reçu (receipt)"],
-    [
-      tap("C'est combien?",["How much?","What is it?","Where is it?","When is it?"],0,"C'est combien? = How much? Your most useful shopping phrase! Also: 'Combien ça coûte?' — both work perfectly at any Canadian store, market, or café. 💰",1),
-      tap("Payer par carte",["Pay by card","Pay cash","Pay online","Pay later"],0,"Payer par carte = pay by card. 'Vous acceptez la carte?' = Do you accept card? Canada is very card-friendly! 'Avez-vous Apple Pay?' is also understood. 💳",1),
-      fill("Je prends ça,","vous plaît.",["s'il","si","il","s'"],0,"Je prends ça, s'il vous plaît = I'll take this, please! 'Je prends' = I'll have/take. 'S'il vous plaît' = please. Always add s'il vous plaît — it makes everything more pleasant! 🛍️",1),
-      mcq("The total in Quebec includes:",["only the price shown","the price + 15% tax (TVQ + TPS)","the price + tip","the price + 10% tax"],1,"Quebec has two taxes: TVQ (9.975%) + TPS (5%) = about 15% total. So $100 item = ~$115 at checkout. Don't be surprised! 'Les taxes sont incluses?' = Are taxes included? 💰",3),
-      speak("You're at a pharmacy looking for cold medicine. What do you say?",
-        "Bonjour! Je cherche un médicament pour le rhume, s'il vous plaît. C'est combien?",
-        ["Always start with Bonjour!","Je cherche = I'm looking for","Un médicament = a medicine","Pour le rhume = for a cold","Add C'est combien? at the end"],3),
-    ]),
-
-  mkL("f-20","Foundation Review & Confidence Check! 🏆",25,"integrated",
-    "You've completed Foundation! 🎉 You now know: French sounds, greetings, numbers 1-100, time, days/months, politeness, survival phrases, colors, family, body parts, shopping basics. That's real progress! This review checks your confidence — there are NO tricks, just things you've already learned. You've got this!",
-    ["Complete review: all Foundation topics","Self-introduction: all 4 sentences","Numbers + time confidently","Politeness reflexes: merci, pardon, s'il vous plaît","Survival phrases: comprends pas, répéter, lentement","Vocabulary: family, house, weather, shopping","YOU ARE READY FOR A1! 🚀"],
-    [
-      tap("Bonjour! Je m'appelle...",["Hi, my name is...","Goodbye, my name is...","Sorry, my name is...","Thank you, my name is..."],0,"Bonjour! Je m'appelle [name] — your foundation sentence! Still perfectly correct. Still perfect to use anywhere in Canada today! 🌟",1),
-      mcq("Which is CORRECT French?",["Je suis 28 ans","J'ai 28 ans","Je ai 28 ans","Je suis avoir 28 ans"],1,"J'ai 28 ans ✓ — avoir for age, not être! This is the #1 rule to remember from Foundation. French HAVE years, they don't ARE years! 🎂",2),
-      fill("Excusez-moi, où est la","s'il vous plaît?",["pharmacie,","pharmacie","pharmacie.","pharmacie!"],0,"Excusez-moi, où est la pharmacie, s'il vous plaît? — Your complete direction-asking sentence! Formal, polite, complete. Say this confidently anywhere in Canada! 🏥",2),
-      order(["Je","ne","comprends","pas","—","pouvez-vous","répéter?"],["Je","ne","comprends","pas","—","pouvez-vous","répéter?"],"Je ne comprends pas — pouvez-vous répéter? The perfect beginner comeback! Two of your most powerful survival phrases used together. Use them freely — they show intelligence, not weakness! 💪",3),
-      wr("Write your full self-introduction in French (all 4 sentences)",["je m'appelle","j'ai","je viens","j'habite"],
-        "Je m'appelle [name]. J'ai [X] ans. Je viens de [country]. J'habite à [city]. — You've mastered the Foundation! A1 awaits. Félicitations! 🎉🍁",3,"Use: Je m'appelle / J'ai X ans / Je viens de / J'habite à"),
-      speak("Congratulations speech: Introduce yourself fully + say one thing you like",
-        "Bonjour! Je m'appelle [name]. J'ai [X] ans. Je viens de [country] et j'habite à [city]. J'aime [hobby]!",
-        ["This is your REAL French moment!","Don't worry about perfection","You have genuinely learned French today","Say it proudly — you earned this! 🏆"],5),
-    ]),
+const COMPANIONS = [
+  {
+    id:"sophie", name:"Sophie", emoji:"👩‍🏫", color:"#1A56DB", level:"All levels",
+    messages:{
+      idle:"Prêt à apprendre? Let's go! 🇨🇦",
+      correct:"Parfait! Excellent work! 🌟",
+      wrong:"Pas de problème! Let's try again 💪",
+      complete:"Félicitations! Lesson complete! 🎉",
+    }
+  },
+  {
+    id:"marc", name:"Marc", emoji:"👨‍🎓", color:"#059669", level:"All levels",
+    messages:{
+      idle:"Bonjour! Ready to practice? 📚",
+      correct:"Très bien! Keep it up! ✨",
+      wrong:"Presque! Almost there 🔥",
+      complete:"Bravo! You crushed it! 🏆",
+    }
+  },
+  {
+    id:"amelie", name:"Amélie", emoji:"👩‍💼", color:"#8B5CF6", level:"All levels",
+    messages:{
+      idle:"Allons-y! Let's make progress! 🚀",
+      correct:"Magnifique! You're on fire! 🔥",
+      wrong:"Courage! Mistakes help us learn 🧠",
+      complete:"Incroyable! You did it! 🌟",
+    }
+  },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GAMES — 6 types for the Practice Hub
-// ─────────────────────────────────────────────────────────────────────────────
 const GAMES = [
   {
     id:"speed", emoji:"⚡", name:"Speed Recall",
@@ -1914,7 +2041,7 @@ function Pill({children,variant="blue",style={}}){
 
 function Btn({children,onClick,variant="primary",disabled,style={}}){
   const base={primary:{background:T.navy,color:"#fff",border:"none"},secondary:{background:T.card,color:T.navy,border:`2px solid ${T.border}`},ghost:{background:"transparent",color:T.blue,border:"none"}}[variant]||{};
-  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
 }
 
 function Card({children,style={},onClick}){
@@ -1991,14 +2118,14 @@ function PaywallModal({onClose, lessonTitle}){
       <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"28px 28px 20px",textAlign:"center",position:"relative"}}>
         <button onClick={onClose} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         <div style={{fontSize:44,marginBottom:8}}>🔓</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
         <div style={{color:"rgba(255,255,255,0.75)",fontSize:13,marginTop:6}}>"{lessonTitle}" is a premium lesson</div>
       </div>
 
       {/* Price */}
       <div style={{padding:"20px 28px 0",textAlign:"center"}}>
         <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
-          <span style={{fontFamily:"'Playfair Display',serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
+          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
           <span style={{color:T.textMid,fontSize:16}}>/month</span>
         </div>
         <div style={{color:T.textSoft,fontSize:12,marginTop:2}}>Cancel anytime · Secure payment via Stripe</div>
@@ -2024,7 +2151,7 @@ function PaywallModal({onClose, lessonTitle}){
 
       {/* CTA */}
       <div style={{padding:"16px 28px 24px"}}>
-        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
           🚀 Start Premium — {PRICE_DISPLAY}
         </button>
         <div style={{textAlign:"center",marginTop:10}}>
@@ -2051,10 +2178,10 @@ function WelcomeScreen({onNext}){
     <div style={{position:"absolute",bottom:60,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,maxWidth:520,textAlign:"center",zIndex:1}}>
       <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:"drop-shadow(0 0 30px rgba(255,255,255,0.15))"}}>{s.emoji}</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
       <div style={{fontSize:16,color:"rgba(255,255,255,0.8)",lineHeight:1.7}}>{s.sub}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-        {["🎉 100% Free","🚫 No Paywall","🚫 No Ads","🍁 Made for Canada","190 Lessons"].map(tag=>
+        {["✅ Try Free","🍁 Made for Canada","190 Lessons","🎤 AI Coach","🔒 Premium Access"].map(tag=>
           <span key={tag} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"rgba(16,185,129,0.25)",color:"#6EE7B7",border:"1px solid rgba(110,231,183,0.3)"}}>{tag}</span>
         )}
       </div>
@@ -2062,9 +2189,9 @@ function WelcomeScreen({onNext}){
         {steps.map((_,i)=><div key={i} onClick={()=>setStep(i)} style={{width:i===step?28:8,height:8,borderRadius:4,background:i===step?"#fff":"rgba(255,255,255,0.3)",cursor:"pointer",transition:"all 0.3s"}}/>)}
       </div>
       {step<steps.length-1
-        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
-        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — It's Free! 🚀</button>}
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · Start immediately · Progress saves locally</div>
+        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
+        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — Try Free! 🚀</button>}
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · 3 free lessons · Unlock all 190 with Premium</div>
     </div>
   </div>;
 }
@@ -2083,7 +2210,7 @@ function OnboardingScreen({onComplete}){
   if(phase==="companion") return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 1 of 2</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
       <div style={{fontSize:15,color:T.textMid}}>Your companion guides every lesson with personalised feedback.</div>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16,maxWidth:700,width:"100%"}}>
@@ -2097,7 +2224,7 @@ function OnboardingScreen({onComplete}){
   return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
       <div style={{fontSize:15,color:T.textMid}}>Be honest — Franco personalises your path.</div>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:520,width:"100%"}}>
@@ -2114,82 +2241,62 @@ function OnboardingScreen({onComplete}){
   </div>;
 }
 
-function DashboardScreen({companion,startLevel,progress,onNavigate}){
+function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
+  const isMobile=useIsMobile();
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
   const doneL=Object.keys(progress).length;
   const pct=Math.round((doneL/allL.length)*100);
   const xp=doneL*25;
-  const skills=[{name:"Listening 🎧",pct:74,color:T.blue},{name:"Speaking 🗣",pct:58,color:T.mint},{name:"Writing ✍",pct:65,color:T.gold},{name:"Reading 📖",pct:81,color:T.purple}];
-  return <div style={{padding:"28px 32px",maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
+  const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
+  const c=companion||COMPANIONS[0];
+  const hour=new Date().getHours();
+  const greeting=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
+  const nextLesson=allL.find(l=>!progress[l.id]);
+  const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
+  return <div style={{padding:"24px 28px",maxWidth:860,margin:"0 auto",display:"flex",flexDirection:"column",gap:16}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:4}}>Good morning 👋</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy}}>Your French Journey</div>
+        <div style={{fontSize:13,color:T.textSoft,marginBottom:2}}>{greeting} 👋</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:700,color:T.navy}}>Welcome back, {c.name} is ready!</div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <Pill variant="gold">🔥 7 days</Pill>
-        <Pill variant="blue">⭐ {xp} XP</Pill>
-        <div style={{width:40,height:40,borderRadius:"50%",background:T.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
+      <div style={{display:"flex",gap:8}}><Pill variant="gold">🔥 {streak()} days</Pill><Pill variant="blue">⭐ {xp} XP</Pill></div>
+    </div>
+    <div style={{background:`linear-gradient(135deg,${T.navy},#1A3280)`,borderRadius:20,padding:"22px 24px",color:"#fff"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,color:"rgba(255,255,255,0.55)",textTransform:"uppercase",marginBottom:8}}>Next Up</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,marginBottom:4}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
+      <div style={{fontSize:13,color:"rgba(255,255,255,0.6)",marginBottom:16}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:"You have completed all lessons!"}</div>
+      <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+        <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:T.navy,border:"none",padding:"12px 24px",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{nextLesson?"▶ Start Lesson":"📚 Review Lessons"}</button>
+        <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"#fff",border:"1px solid rgba(255,255,255,0.2)",padding:"12px 20px",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:600,fontSize:13,cursor:"pointer"}}>⚡ Practice</button>
+        <div style={{marginLeft:"auto",textAlign:"right"}}>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.55)",marginBottom:4}}>{pct}% · {doneL}/{allL.length} lessons</div>
+          <div style={{width:120,height:5,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:"#60A5FA",borderRadius:99}}/></div>
+        </div>
       </div>
     </div>
-    {/* Hero */}
-    <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 60%,${T.blue} 100%)`,borderRadius:24,padding:28,color:"#fff",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-40,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:12}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1.2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:8}}>Today's Mission</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:4}}>{level.label} — Continue Your Path</div>
-          <div style={{fontSize:14,color:"rgba(255,255,255,0.65)"}}>{level.desc}</div>
-        </div>
-        <div style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",padding:"8px 14px",borderRadius:12,fontSize:13,fontWeight:600}}>{level.cefrTag} · {level.clbTag}</div>
-      </div>
-      <div style={{marginBottom:20}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,fontSize:13,color:"rgba(255,255,255,0.7)"}}>
-          <span>Overall progress</span><span style={{color:"#fff",fontWeight:700}}>{pct}% · {doneL}/{allL.length} lessons</span>
-        </div>
-        <div style={{height:8,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#60A5FA,#93C5FD)",borderRadius:99,transition:"width 1s"}}/>
-        </div>
-      </div>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        {[{l:"▶️ Continue Learning",s:"hub",p:true},{l:"⚡ Practice",s:"practice"},{l:"📊 Progress",s:"profile"}].map(a=>(
-          <button key={a.s} onClick={()=>onNavigate(a.s)} style={{background:a.p?"#fff":"rgba(255,255,255,0.1)",color:a.p?T.navy:"rgba(255,255,255,0.9)",border:a.p?"none":"1.5px solid rgba(255,255,255,0.2)",padding:"13px 22px",borderRadius:13,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{a.l}</button>
-        ))}
-      </div>
-    </div>
-    {/* Stats */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
-      {[{icon:"📅",label:"Lessons",val:doneL,sub:`of ${allL.length} total`},{icon:"🏆",label:"CLB Target",val:level.clbTag,sub:"current path"},{icon:"⭐",label:"XP Earned",val:totalXP(),sub:"all time"},{icon:"🔥",label:"Day Streak",val:streak(),sub:"keep going!"}].map((s,i)=>(
-        <Card key={i}><div style={{fontSize:28,marginBottom:10}}>{s.icon}</div><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:8}}>{s.label}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:T.navy,marginBottom:4}}>{s.val}</div><div style={{fontSize:13,color:T.textSoft}}>{s.sub}</div></Card>
+    <FocusSessionWidget onNavigate={onNavigate}/>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+      {[{icon:"📚",label:"Lessons Done",val:doneL,sub:`of ${allL.length}`},{icon:"🎯",label:"CLB Target",val:level.clbTag,sub:level.cefrTag},{icon:"⭐",label:"XP Earned",val:xp,sub:"total"},{icon:"🔥",label:"Day Streak",val:streak(),sub:"days"}].map((s,i)=>(
+        <Card key={i} style={{textAlign:"center",padding:"16px 12px"}}>
+          <div style={{fontSize:22,marginBottom:6}}>{s.icon}</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:700,color:T.navy}}>{s.val}</div>
+          <div style={{fontSize:11,fontWeight:600,color:T.textSoft,marginTop:2}}>{s.label}</div>
+          <div style={{fontSize:11,color:T.textSoft,opacity:0.7}}>{s.sub}</div>
+        </Card>
       ))}
     </div>
-    {/* Skills + AI */}
-    <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16}}>
-      <Card>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Skill Breakdown</div>
-        {skills.map(sk=><div key={sk.name} style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{fontSize:14,fontWeight:600}}>{sk.name}</span>
-            <span style={{fontSize:14,fontWeight:700,color:sk.color}}>{sk.pct}%</span>
-          </div>
-          <ProgressBar value={sk.pct} color={sk.color}/>
-        </div>)}
-      </Card>
-      <Card style={{background:"linear-gradient(135deg,#EFF6FF,#F0FDF4)",border:`1.5px solid #C7D2FE`}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-          <Avatar companion={companion||COMPANIONS[0]} size={52}/>
-          <div>
-            <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{companion?.name||"Sophie"}</div>
-            <div style={{fontSize:12,color:T.mint,fontWeight:600}}>● Active</div>
-          </div>
-        </div>
-        <div style={{fontSize:14,color:T.textMid,lineHeight:1.6,fontStyle:"italic",padding:14,background:"rgba(255,255,255,0.6)",borderRadius:12,borderLeft:`3px solid ${T.blue}`,marginBottom:14}}>"{companion?.messages?.idle||"Ready to learn! Let's tackle your next lesson."}"</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Pill variant="blue">Practice Speaking</Pill><Pill variant="mint">Review Vocab</Pill></div>
-      </Card>
-    </div>
+    <Card style={{display:"flex",alignItems:"center",gap:16,padding:"16px 20px",background:T.blueLight,border:`1.5px solid ${T.border}`}}>
+      <Avatar companion={c} size={48}/>
+      <div style={{flex:1}}>
+        <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:2}}>{c.name}</div>
+        <div style={{fontSize:13,color:T.textMid,fontStyle:"italic"}}>"{c.messages?.idle||"Ready to learn!"}"</div>
+      </div>
+      <button onClick={()=>onNavigate("hub")} style={{background:T.navy,color:"#fff",border:"none",padding:"10px 18px",borderRadius:10,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:13,cursor:"pointer",flexShrink:0}}>{"Let's Go →"}</button>
+    </Card>
   </div>;
 }
+
 
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
@@ -2210,14 +2317,14 @@ function HubScreen({progress,onStartLesson}){
       <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",position:"relative"}}>
         <div style={{flex:1}}>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,255,255,0.5)",marginBottom:6}}>🍁 FRANCO — Learn French for Canada</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:4}}>{doneLessons.length} lessons complete — {allLessons.length-doneLessons.length} to go!</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,marginBottom:4}}>{doneLessons.length} lessons complete — {allLessons.length-doneLessons.length} to go!</div>
           <div style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>Foundation → B2 · CLB 1–7 · TEF Canada prep · 190 lessons · 100% FREE 🎉</div>
         </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
           {[{icon:"⭐",val:totalXP()+" XP",lbl:"Total"},{icon:"🔥",val:streak()+" days",lbl:"Streak"},{icon:"📊",val:Math.round(doneLessons.length/allLessons.length*100)+"%",lbl:"Done"}].map(s=>
             <div key={s.lbl} style={{textAlign:"center",background:"rgba(255,255,255,0.1)",borderRadius:14,padding:"12px 16px",border:"1px solid rgba(255,255,255,0.15)"}}>
               <div style={{fontSize:18}}>{s.icon}</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}}>{s.val}</div>
+              <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700}}>{s.val}</div>
               <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:.8}}>{s.lbl}</div>
             </div>)}
         </div>
@@ -2229,14 +2336,14 @@ function HubScreen({progress,onStartLesson}){
           <div style={{fontSize:15,fontWeight:700}}>{nextLesson.title}</div>
           <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>{nextLevel.label} · {nextLesson.mins} min · starts easy!</div>
         </div>
-        <button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Start Now →</button>
+        <button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Start Now →</button>
       </div>}
     </div>
 
     {/* Search bar */}
     <div style={{marginBottom:20,position:"relative"}}>
       <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:16}}>🔍</span>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any lesson topic..." style={{width:"100%",padding:"12px 16px 12px 42px",borderRadius:14,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,color:T.text,background:T.card,outline:"none",boxSizing:"border-box"}}/>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any lesson topic..." style={{width:"100%",padding:"12px 16px 12px 42px",borderRadius:14,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,sans-serif",fontSize:14,color:T.text,background:T.card,outline:"none",boxSizing:"border-box"}}/>
       {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:16,cursor:"pointer",color:T.textSoft}}>✕</button>}
     </div>
 
@@ -2269,7 +2376,7 @@ function HubScreen({progress,onStartLesson}){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div style={{textAlign:"right"}}>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:level.color}}>{donePct}%</div>
+              <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:level.color}}>{donePct}%</div>
               <div style={{fontSize:11,color:T.textSoft}}>complete</div>
             </div>
             <div style={{display:"flex",gap:4}}><Pill style={{background:`${level.color}15`,color:level.color}}>{level.cefrTag}</Pill></div>
@@ -2308,6 +2415,66 @@ function HubScreen({progress,onStartLesson}){
   </div>;
 }
 
+
+// Vocab flip cards — extracted so hooks aren't called inside .map()
+// ─── FRENCH TTS — uses browser Web Speech API ────────────────────────────────
+function speakFrench(text){
+  if(!('speechSynthesis' in window)) return;
+  // Strip anything in parens (English translations) before speaking
+  const cleaned = text.replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(cleaned);
+  utt.lang = "fr-CA";
+  utt.rate = 0.88;
+  utt.pitch = 1;
+  // Prefer a French voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const frVoice = voices.find(v=>v.lang.startsWith("fr-CA"))
+    || voices.find(v=>v.lang.startsWith("fr-FR"))
+    || voices.find(v=>v.lang.startsWith("fr"));
+  if(frVoice) utt.voice = frVoice;
+  window.speechSynthesis.speak(utt);
+}
+
+function SpeakBtn({text, size=14, style={}}){
+  const[speaking,setSpeaking]=useState(false);
+  const handle=(e)=>{
+    e.stopPropagation();
+    setSpeaking(true);
+    speakFrench(text);
+    setTimeout(()=>setSpeaking(false), Math.max(800, text.length*60));
+  };
+  return(
+    <button onClick={handle} title="Listen in French"
+      style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",
+        fontSize:size,lineHeight:1,borderRadius:6,transition:"transform 0.15s",
+        transform:speaking?"scale(1.3)":"scale(1)",opacity:speaking?1:0.65,...style}}>
+      {speaking?"🔊":"🔈"}
+    </button>
+  );
+}
+
+function VocabFlipList({vocab}){
+  const[flipped,setFlipped]=useState(()=>vocab.map(()=>false));
+  const toggle=(i)=>setFlipped(f=>{const n=[...f];n[i]=!n[i];return n;});
+  return <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+    {vocab.map((v,i)=>{
+      const parts=v.split(/[()]/);
+      const hasTrans=parts.length>1;
+      const isFlipped=flipped[i];
+      const frWord = parts[0].trim();
+      return <div key={i} style={{display:"flex",alignItems:"center",gap:4,
+          fontSize:13,fontWeight:600,padding:"6px 10px 6px 14px",borderRadius:50,
+          background:isFlipped?T.navy:T.blueLight,color:isFlipped?"#fff":T.navy,
+          fontStyle:"italic",transition:"all 0.25s",border:`1.5px solid ${isFlipped?T.navy:"transparent"}`}}>
+        <span onClick={()=>hasTrans&&toggle(i)} style={{cursor:hasTrans?"pointer":"default"}}>
+          {isFlipped&&hasTrans?<><span style={{fontSize:10,marginRight:4}}>🔄</span>{parts[1]?.trim()||v}</>:<>{v}{hasTrans&&<span style={{fontSize:10,marginLeft:4,opacity:0.5}}>tap</span>}</>}
+        </span>
+        <SpeakBtn text={frWord} size={13} style={{color:isFlipped?"rgba(255,255,255,0.8)":T.navy}}/>
+      </div>;
+    })}
+  </div>;
+}
 
 function LessonScreen({lesson,level,companion,onComplete,onBack}){
   const c=companion||COMPANIONS[0];
@@ -2403,9 +2570,13 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
   const placeWord=(word,idx)=>{if(answered)return;setOrderPlaced(p=>[...p,word]);setOrderBank(b=>{const n=[...b];n.splice(idx,1,"__used__");return n;});};
   const removeWord=(idx)=>{if(answered)return;const word=orderPlaced[idx];setOrderPlaced(p=>{const n=[...p];n.splice(idx,1);return n;});setOrderBank(b=>b.map(w=>w==="__used__"&&orderBank.indexOf("__used__")>-1?word:w));};
 
-  return <div style={{display:"grid",gridTemplateColumns:"260px 1fr",minHeight:"calc(100vh - 64px)"}}>
+  return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
     {/* Avatar Panel */}
-    <div style={{background:`linear-gradient(170deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,padding:"28px 18px",display:"flex",flexDirection:"column",alignItems:"center",gap:16,position:"sticky",top:64,height:"calc(100vh - 64px)",overflow:"hidden"}}>
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"10px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:52,zIndex:50}}>
+      <button onClick={()=>{if(window.confirm("Leave this lesson? Your progress on this lesson will not be saved."))onBack();}}
+        style={{alignSelf:"flex-start",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.85)",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"system-ui,sans-serif",marginBottom:4}}>
+        ← Back
+      </button>
       <div style={{fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:"rgba(255,255,255,0.5)"}}>AI Teacher</div>
       <Avatar companion={c} speaking={speaking} size={110} showWaves/>
       <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center"}}>
@@ -2432,27 +2603,16 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
       {phase==="teach"&&<>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <Pill variant="blue">📖 Lesson</Pill>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:700,color:T.navy}}>{lesson.title}</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:21,fontWeight:700,color:T.navy}}>{lesson.title}</div>
           <Pill style={{background:`${level.color}20`,color:level.color}}>{level.cefrTag}</Pill>
         </div>
         <Card>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>🎯 What You'll Learn</div>
-          <div style={{fontSize:15,color:T.textMid,lineHeight:1.75,marginBottom:18}}>{lesson.teach}</div>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📝 Key Vocabulary — click to flip!</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {lesson.vocab.map((v,i)=>{
-              const[flipped,setFlipped]=useState(false);
-              const parts=v.split(/[()]/);
-              const hasTrans=parts.length>1;
-              return <div key={v} onClick={()=>hasTrans&&setFlipped(f=>!f)}
-                style={{fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:50,
-                  background:flipped?T.navy:T.blueLight,color:flipped?"#fff":T.navy,
-                  fontStyle:"italic",cursor:hasTrans?"pointer":"default",
-                  transition:"all 0.25s",border:`1.5px solid ${flipped?T.navy:"transparent"}`}}>
-                {flipped&&hasTrans?<><span style={{fontSize:10,marginRight:4}}>🔄</span>{parts[1]?.trim()||v}</>:<>{v}{hasTrans&&<span style={{fontSize:10,marginLeft:4,opacity:0.5}}>tap</span>}</>}
-              </div>;
-            })}
+          <div style={{fontSize:15,color:T.textMid,lineHeight:1.75,marginBottom:18,display:"flex",alignItems:"flex-start",gap:8}}>
+            <span style={{flex:1}}>{lesson.teach}</span>
           </div>
+          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📝 Key Vocabulary — click to flip!</div>
+          <VocabFlipList vocab={lesson.vocab}/>
         </Card>
         <Card style={{background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)",border:"1.5px solid #FCD34D"}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
@@ -2479,7 +2639,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         </div>
         <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
           <Btn onClick={handleTeachDone} style={{padding:"15px 32px",fontSize:15}}>Start Practice Questions →</Btn>
-          <div style={{fontSize:12,color:T.textSoft}}>100% free · no account needed · no ads 🎉</div>
+          <div style={{fontSize:12,color:T.textSoft}}>AI-powered · CLB exam ready 🍁</div>
         </div>
       </>}
 
@@ -2496,7 +2656,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* TAP type — easiest, just tap the translation */}
         {q.type==="tap"&&<>
           <Card>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 10px",letterSpacing:1}}>{q.fr}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 6px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
+              {q.fr}
+              <SpeakBtn text={q.fr} size={22}/>
+            </div>
             <div style={{textAlign:"center",fontSize:13,color:T.textSoft,marginBottom:20}}>What does this mean in English?</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {q.opts.map((opt,i)=>{
@@ -2510,7 +2673,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* MCQ type */}
         {q.type==="mcq"&&<>
           <Card>
-            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.5}}>{q.prompt}</div>
+            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:8}}>
+            <span style={{flex:1}}>{q.prompt}</span>
+            <SpeakBtn text={q.prompt} size={18}/>
+          </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {q.options.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
@@ -2531,7 +2697,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
               {q.options.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 16px",borderRadius:12,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,fontStyle:"italic",color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 16px",borderRadius:12,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontFamily:"system-ui,sans-serif",fontSize:14,fontWeight:600,fontStyle:"italic",color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
               })}
             </div>
           </Card>
@@ -2543,10 +2709,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <div style={{fontSize:13,fontWeight:700,color:T.textSoft,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Arrange the words:</div>
             <div style={{minHeight:52,padding:"10px 12px",background:T.surface,borderRadius:12,border:`2px dashed ${answered?(isOk?T.mint:T.red):T.border}`,marginBottom:14,display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"}}>
               {orderPlaced.length===0&&<span style={{color:T.textSoft,fontSize:13,fontStyle:"italic"}}>Click words below to build the sentence...</span>}
-              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>removeWord(i)} style={{padding:"7px 13px",borderRadius:50,background:answered?isOk?T.mint:T.red:T.blue,color:"#fff",border:"none",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:answered?"default":"pointer",transition:"all 0.2s"}}>{w}</button>)}
+              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>removeWord(i)} style={{padding:"7px 13px",borderRadius:50,background:answered?isOk?T.mint:T.red:T.blue,color:"#fff",border:"none",fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:14,cursor:answered?"default":"pointer",transition:"all 0.2s"}}>{w}</button>)}
             </div>
             <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-              {orderBank.map((w,i)=>w==="__used__"?<div key={i} style={{padding:"7px 13px",minWidth:40,height:35}}/>:<button key={i} disabled={answered} onClick={()=>placeWord(w,i)} style={{padding:"7px 13px",borderRadius:50,background:T.card,border:`2px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:14,cursor:"pointer",color:T.text,transition:"all 0.2s"}}>{w}</button>)}
+              {orderBank.map((w,i)=>w==="__used__"?<div key={i} style={{padding:"7px 13px",minWidth:40,height:35}}/>:<button key={i} disabled={answered} onClick={()=>placeWord(w,i)} style={{padding:"7px 13px",borderRadius:50,background:T.card,border:`2px solid ${T.border}`,fontFamily:"system-ui,sans-serif",fontWeight:600,fontSize:14,cursor:"pointer",color:T.text,transition:"all 0.2s"}}>{w}</button>)}
             </div>
           </Card>
         </>}
@@ -2578,11 +2744,18 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* SPEAK type — AI Speaking Coach */}
         {q.type==="speak"&&<>
           <Card style={{border:`2px solid #F9731620`,background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)"}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
             <AISpeakingCoach
               prompt={q.prompt}
               sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
-              onDone={(passed)=>{setSpeakDone(true);if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}speak(passed?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);}}
+              onDone={(passed)=>{
+                setSpeakDone(true);
+                if(!answered){
+                  setAnswered(true);
+                  if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
+                  speak(passed?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);
+                }
+              }}
             />
           </Card>
         </>}
@@ -2628,7 +2801,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           {correct>=total*0.8?"🏆":correct>=total*0.6?"🎉":correct>=total*0.4?"💪":"📚"}
         </div>
 
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:900,color:T.navy}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:T.navy}}>
           {correct>=total*0.8?"Outstanding! 🌟":correct>=total*0.6?"Great Work!":correct>=total*0.4?"Good Effort!":"Keep Going!"}</div>
 
         <div style={{fontSize:15,color:T.textMid,maxWidth:420,lineHeight:1.7}}>
@@ -2647,7 +2820,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#FFF7ED",col:"#C2410C"},
           ].map(s=><div key={s.lbl} style={{minWidth:90,textAlign:"center",padding:"16px 18px",borderRadius:16,background:s.bg,border:`1.5px solid ${s.col}20`}}>
             <div style={{fontSize:10,marginBottom:4}}>{s.icon}</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
             <div style={{fontSize:10,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginTop:3}}>{s.lbl}</div>
           </div>)}
         </div>
@@ -2659,7 +2832,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 
         {/* What you learned recap */}
         <div style={{width:"100%",maxWidth:480,background:T.surface,borderRadius:16,padding:"16px 20px",border:`1.5px solid ${T.border}`,textAlign:"left"}}>
-          <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>📝 Key phrases from this lesson:</div>
+          <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>📝 Key phrases from this lesson — click 🔈 to hear them:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
             {lesson.vocab.slice(0,6).map(v=><span key={v} style={{fontSize:12,padding:"5px 11px",borderRadius:50,background:T.blueLight,color:T.navy,fontWeight:600,fontStyle:"italic"}}>{v}</span>)}
           </div>
@@ -2679,19 +2852,32 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 // PRACTICE SCREEN — 6 games
 // ─────────────────────────────────────────────────────────────────────────────
 // ─── AI UTILITIES ─────────────────────────────────────────────────────────────
+const ANTHROPIC_KEY = (import.meta.env.VITE_ANTHROPIC_API_KEY || "").trim();
+
 async function callClaude(systemPrompt, userMessage, maxTokens=600){
-  const res = await fetch("https://api.anthropic.com/v1/messages",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      model:"claude-sonnet-4-20250514",
-      max_tokens:maxTokens,
-      system:systemPrompt,
-      messages:[{role:"user",content:userMessage}]
-    })
-  });
-  const data = await res.json();
-  return data.content?.[0]?.text || "Je suis désolé, une erreur s'est produite.";
+  try{
+    const res = await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true"
+      },
+      body:JSON.stringify({
+        model:"claude-sonnet-4-20250514",
+        max_tokens:maxTokens,
+        system:systemPrompt,
+        messages:[{role:"user",content:userMessage}]
+      })
+    });
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || "Je suis désolé, une erreur s'est produite.";
+  }catch(e){
+    console.warn("Claude API error:",e);
+    return "Je suis désolé — l'IA n'est pas disponible pour le moment. Essayez de rafraîchir la page! 🔄";
+  }
 }
 
 // ─── AI SPEAKING COACH ────────────────────────────────────────────────────────
@@ -2768,19 +2954,22 @@ Analyze their French pronunciation and content. Be encouraging.`;
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
       <span style={{fontSize:28}}>🎤</span>
       <div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
         <div style={{fontSize:12,color:T.textSoft}}>Powered by Claude AI — speaks French Canadian 🍁</div>
       </div>
     </div>
 
     <div style={{background:"rgba(255,255,255,0.7)",borderRadius:12,padding:14,marginBottom:14}}>
       <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💬 Say this:</div>
-      <div style={{fontSize:15,fontWeight:600,color:T.navy,lineHeight:1.6}}>{sampleAnswer}</div>
+      <div style={{fontSize:15,fontWeight:600,color:T.navy,lineHeight:1.6,display:"flex",alignItems:"flex-start",gap:8}}>
+        <span style={{flex:1}}>{sampleAnswer}</span>
+        <SpeakBtn text={sampleAnswer} size={18}/>
+      </div>
     </div>
 
     {stage==="ready"&&<>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:13,color:T.textMid,fontStyle:"italic"}}>Last attempt: "{transcript}"</div>}
-      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"'DM Sans',sans-serif"}}>
+      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"system-ui,sans-serif"}}>
         🎤 Start Speaking
       </button>
       <div style={{fontSize:12,color:T.textSoft,marginTop:8}}>Uses your microphone · French Canadian dialect</div>
@@ -2792,7 +2981,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
         <span style={{fontWeight:700,color:"#EF4444",fontSize:14}}>Recording... speak now!</span>
       </div>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:14,color:T.navy,fontStyle:"italic"}}>"{transcript}"</div>}
-      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui,sans-serif"}}>
         ⏹ Done Speaking
       </button>
     </>}
@@ -2823,8 +3012,8 @@ Analyze their French pronunciation and content. Be encouraging.`;
         {feedback.phonetic_tips.map((t,i)=><div key={i} style={{fontSize:13,color:"#4C1D95",padding:"3px 0",display:"flex",gap:8}}><span>🔊</span>{t}</div>)}
       </div>}
       <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",color:T.navy}}>Try Again 🔄</button>
-        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Continue →</button>
+        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui,sans-serif",color:T.navy}}>Try Again 🔄</button>
+        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,sans-serif"}}>Continue →</button>
       </div>
     </>}
   </div>;
@@ -2874,12 +3063,12 @@ Is this correct or close enough? Give feedback.`;
     <div style={{position:"relative",marginBottom:10}}>
       <textarea value={val} onChange={e=>setVal(e.target.value)} disabled={!!result}
         placeholder="Écrivez votre réponse en français..."
-        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
+        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"system-ui,sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
       <div style={{position:"absolute",bottom:10,right:12,fontSize:11,color:T.textSoft}}>{val.length} chars · AI-checked 🤖</div>
     </div>
 
     {!result&&<button onClick={checkWithAI} disabled={!val.trim()||checking}
-      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
+      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"system-ui,sans-serif",display:"flex",alignItems:"center",gap:8}}>
       {checking?<><span style={{animation:"float 0.8s infinite"}}>🧠</span> AI Checking...</>:"✍️ Check with AI"}
     </button>}
 
@@ -2922,7 +3111,7 @@ Give a gentle hint that helps without spoiling the answer.`;
   };
 
   return <div style={{position:"relative"}}>
-    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,sans-serif",display:"flex",alignItems:"center",gap:6}}>
       🧠 AI Hint
     </button>
     {open&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#fff",borderRadius:14,padding:16,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",border:`2px solid #8B5CF6`,width:280,zIndex:50,animation:"popIn 0.2s ease"}}>
@@ -3007,7 +3196,6 @@ Rules:
   };
 
   // Games section
-  const GAMES=window.GAMES||[];
   const startGame=(g)=>{
     setGameActive(g);setQIdx(0);setReveal(false);setScore(0);
     setMatchSel(null);setMatchDone([]);setFillSel(null);
@@ -3023,7 +3211,7 @@ Rules:
 
   if(!topic&&!gameActive){
     return <div style={{padding:28,maxWidth:760,margin:"0 auto"}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
       <div style={{fontSize:15,color:T.textMid,marginBottom:28}}>Practice real French conversation with your AI tutor — powered by Claude. Pick a topic to start!</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:36}}>
         {TOPICS.map(t=><div key={t.id} onClick={()=>startConversation(t)}
@@ -3034,7 +3222,7 @@ Rules:
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{t.label.split(" ").slice(0,-1).join(" ")}</div>
         </div>)}
       </div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         {(typeof GAMES!=="undefined"?GAMES:[]).map(g=><div key={g.id} onClick={()=>startGame(g)}
           style={{background:T.card,border:`2px solid ${T.border}`,borderRadius:14,padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,transition:"all 0.2s"}}
@@ -3055,7 +3243,7 @@ Rules:
     return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:760,margin:"0 auto"}}>
       {/* Header */}
       <div style={{padding:"14px 20px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"'DM Sans',sans-serif"}}>← Back</button>
+        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"system-ui,sans-serif"}}>← Back</button>
         <Avatar companion={c} size={36}/>
         <div>
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{c.name} · {topic.label}</div>
@@ -3086,10 +3274,10 @@ Rules:
         <textarea value={input} onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
           placeholder="Écrivez en français... (or English is fine too!)"
-          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
           rows={1}/>
         <button onClick={sendMessage} disabled={!input.trim()||loading}
-          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",flexShrink:0,transition:"all 0.2s"}}>
+          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,sans-serif",flexShrink:0,transition:"all 0.2s"}}>
           {loading?"...":"Send →"}
         </button>
       </div>
@@ -3099,86 +3287,127 @@ Rules:
   return null;
 }
 
-function ProfileScreen({companion,progress,startLevel,onReset}){
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
+function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onAuthNav}){
+  const{logout}=useAuth();
   const c=companion||COMPANIONS[0];
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
   const done=allL.filter(l=>progress[l.id]);
   const xp=done.length*25;
-  const achievements=[
-    {emoji:"🌱",name:"First Step",desc:"Complete your first lesson",unlocked:done.length>=1},
-    {emoji:"🔥",name:"Week Streak",desc:"Study 7 days in a row",unlocked:true},
-    {emoji:"📖",name:"A1 Explorer",desc:"Complete 5 A1 lessons",unlocked:done.filter(l=>l.id.startsWith("a1")).length>=5},
-    {emoji:"🎓",name:"CLB Ready",desc:"Complete a CLB prep lesson",unlocked:done.some(l=>l.id.startsWith("clb"))},
-    {emoji:"✍",name:"Writer",desc:"Complete a writing lesson",unlocked:done.some(l=>l.skill==="writing")},
-    {emoji:"🏆",name:"Halfway There",desc:"Complete 50% of the curriculum",unlocked:done.length>=Math.floor(allL.length/2)},
-  ];
-  return <div style={{padding:"28px 32px",maxWidth:900,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy}}>My Profile 👤</div>
-    <Card style={{display:"flex",alignItems:"center",gap:24,padding:"28px 28px",flexWrap:"wrap"}}>
-      <Avatar companion={c} size={80}/>
-      <div style={{flex:1}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:4}}>French Learner</div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:14}}>Learning with {c.name} · {level.label}</div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Pill variant="gold">🔥 7 day streak</Pill><Pill variant="blue">⭐ {xp} XP total</Pill><Pill variant="mint">✓ {done.length} lessons done</Pill></div>
+  const isPremium=isPremiumUnlocked();
+  const handleLogout=async()=>{ await logout(); window.location.reload(); };
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
+
+  const Row=({emoji,label,onClick})=>(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}
+      onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+      onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+      <span style={{fontSize:18,width:24,textAlign:"center"}}>{emoji}</span>
+      <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>{label}</span>
+      <span style={{color:T.textSoft,fontSize:13}}>›</span>
+    </div>
+  );
+
+  return <div style={{maxWidth:520,margin:"0 auto",padding:"28px 24px",display:"flex",flexDirection:"column",gap:0}}>
+    {/* Header logo */}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <span style={{fontSize:20}}>🍁</span>
+        <span style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.navy,letterSpacing:1}}>FRANCO</span>
       </div>
-    </Card>
-    <Card>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Progress by Level</div>
-      {Object.values(SYLLABUS).map(lev=>{
-        const lLessons=lev.modules.flatMap(m=>m.lessons);
-        const lDone=lLessons.filter(l=>progress[l.id]).length;
-        const pct=Math.round((lDone/lLessons.length)*100);
-        return <div key={lev.id} style={{marginBottom:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{lev.emoji}</span><span style={{fontSize:14,fontWeight:600}}>{lev.label}</span></div>
-            <span style={{fontSize:14,fontWeight:700,color:lev.color}}>{lDone}/{lLessons.length}</span>
-          </div>
-          <ProgressBar value={pct} color={lev.color}/>
-        </div>;
-      })}
-    </Card>
-    <Card>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Achievements 🏅</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        {achievements.map(a=><div key={a.name} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:a.unlocked?T.goldLight:T.surface,border:`1.5px solid ${a.unlocked?"#FCD34D":T.border}`,opacity:a.unlocked?1:0.55}}>
-          <span style={{fontSize:28}}>{a.emoji}</span>
-          <div><div style={{fontSize:14,fontWeight:700,color:T.navy}}>{a.name}</div><div style={{fontSize:12,color:T.textSoft,marginTop:2}}>{a.desc}</div></div>
-          {a.unlocked&&<span style={{marginLeft:"auto",color:T.gold,fontWeight:700}}>✓</span>}
-        </div>)}
+    </div>
+
+    {/* Profile card */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"20px",marginBottom:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:16}}>Profile</div>
+
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Guest mode":user?.email||"—"}</div>
       </div>
-    </Card>
-    <Btn variant="secondary" onClick={onReset} style={{alignSelf:"flex-start",color:T.red,borderColor:T.red}}>🔄 Reset All Progress</Btn>
+
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
+      </div>
+
+      <div style={{marginBottom:4}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:6}}>Subscription</div>
+        <span style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:50,background:isPremium?"#D1FAE5":"#F1F5F9",color:isPremium?"#065F46":T.textMid,border:`1px solid ${isPremium?"#6EE7B7":T.border}`}}>
+          {isPremium?"Premium ✓":"Free Plan"}
+        </span>
+      </div>
+    </div>
+
+    {/* More section */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px",letterSpacing:0.5}}>More</div>
+      <Row emoji="📈" label="Subscription" onClick={()=>window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank")}/>
+      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>window.open("https://wa.me/16046355031","_blank")}/>
+      <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:support@clbfrenchtrainer.app","_blank")}/>
+      <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset your level selection?"))onReset();}}/>
+      <div onClick={()=>window.open("https://franco.app/privacy","_blank")} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
+        onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+        onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <span style={{fontSize:18,width:24,textAlign:"center"}}>🔒</span>
+        <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>Privacy Policy</span>
+        <span style={{color:T.textSoft,fontSize:13}}>›</span>
+      </div>
+    </div>
+
+    {/* Auth button */}
+    {guestMode
+      ? <button onClick={()=>onAuthNav("landing")} style={{width:"100%",padding:"15px",background:T.navy,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+          Create Account / Login
+        </button>
+      : <button onClick={handleLogout} style={{width:"100%",padding:"15px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:14,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+          Sign Out
+        </button>
+    }
+
+    <div style={{textAlign:"center",fontSize:12,color:T.textSoft}}>Powered by Jungle Labs</div>
   </div>;
 }
 
-function TopBar({screen,onNavigate,companion,progress}){
-  const xp=Object.keys(progress).length*25;
+
+function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav}){
+  const{logout}=useAuth();
+  const isMobile=useIsMobile();
+  const handleLogout=async()=>{await logout();window.location.reload();};
   const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
-  return <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 28px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:T.navy,marginRight:4}}>Franco</div>
-    <div style={{fontSize:16,marginRight:12}}>🍁</div>
-    <div style={{flex:1}}/>
-    <div style={{display:"flex",gap:4}}>
-      {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 16px",borderRadius:10,border:"none",background:screen===n.id?T.blueLight:"transparent",color:screen===n.id?T.blue:T.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
+  return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+    <div style={{fontSize:18,fontWeight:800,color:"#0F172A",fontFamily:"Georgia,serif",marginRight:16,flexShrink:0}}>Franco 🍁</div>
+    <div style={{display:"flex",flex:1,justifyContent:"center"}}>
+      {nav.map(n=>(
+        <button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:isMobile?"8px 8px":"8px 16px",border:"none",background:"none",color:screen===n.id?"#0F172A":"#94A3B8",fontFamily:"system-ui,sans-serif",fontWeight:screen===n.id?700:500,fontSize:isMobile?10:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,borderBottom:screen===n.id?"2px solid #0F172A":"2px solid transparent",borderRadius:0,minWidth:isMobile?44:60}}>
+          <span style={{fontSize:isMobile?16:14}}>{n.emoji}</span>
+          <span>{n.label}</span>
+        </button>
+      ))}
     </div>
-    <div style={{flex:1}}/>
-    <div style={{display:"flex",alignItems:"center",gap:10}}>
-      <Pill variant="gold">⭐ {xp} XP</Pill>
-      <div style={{width:36,height:36,borderRadius:"50%",background:T.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
-    </div>
+    {user
+      ? <button onClick={handleLogout} style={{fontSize:12,fontWeight:600,padding:"6px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"none",color:"#64748B",cursor:"pointer",flexShrink:0}}>Out</button>
+      : <button onClick={()=>onAuthNav("landing")} style={{fontSize:12,fontWeight:700,padding:"6px 14px",borderRadius:8,border:"none",background:"#0F172A",color:"#fff",cursor:"pointer",flexShrink:0}}>Sign in</button>
+    }
   </div>;
+}
 }
 
 export default function App(){
+  return <AuthProvider><AppInner/></AuthProvider>;
+}
+
+function AppInner(){
+  const{user,initializing}=useAuth();
+  const[authScreen,setAuthScreen]=useLocalState("franco_auth_screen","landing");
+  const[authParams,setAuthParams]=useState({});
   const[screen,setScreen]=useLocalState("franco_screen","welcome");
   const[companion,setCompanion]=useLocalState("franco_companion",null);
   const[startLevel,setStartLevel]=useLocalState("franco_level","foundation");
   const[progress,setProgress]=useLocalState("franco_progress",{});
   const[activeLesson,setActiveLesson]=useState(null);
-  const[paywallLesson,setPaywallLesson]=useState(null); // lesson blocked by paywall
+  const[paywallLesson,setPaywallLesson]=useState(null);
+  const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
 
   // Check if returning from Stripe payment
   useEffect(()=>{checkStripeSuccess();},[]);
@@ -3186,7 +3415,7 @@ export default function App(){
   useEffect(()=>{
     const s=document.createElement("style");
     s.textContent=`
-      @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+      
       *{box-sizing:border-box;margin:0;padding:0;}
       body{background:${T.surface};}
       @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
@@ -3203,27 +3432,59 @@ export default function App(){
     return()=>document.head.removeChild(s);
   },[]);
 
+  // Navigate between auth screens
+  const goAuth=(screenName, params={})=>{ setAuthScreen(screenName); setAuthParams(params); };
+
+  // If Firebase is ready and user logs in, enter app
+  useEffect(()=>{
+    if(user){ setGuestMode(false); setAuthScreen("app"); }
+  },[user]);
+
   const handleOnboard=(comp,lev)=>{setCompanion(comp);setStartLevel(lev);setScreen("dashboard");};
   const handleStartLesson=(lesson,level)=>{
-    // Check if lesson requires premium
-    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){
-      setPaywallLesson(lesson);
-      return;
-    }
-    setActiveLesson({lesson,level});setScreen("lesson");
+    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
+    setActiveLesson({lesson,level}); setScreen("lesson");
   };
-  const handleLessonComplete=(lessonId)=>{setProgress(p=>({...p,[lessonId]:true}));setScreen("hub");setActiveLesson(null);};
-  const showNav=!["welcome","onboarding","lesson"].includes(screen);
+  const handleLessonComplete=(lessonId)=>{
+    const newProgress={...progress,[lessonId]:true};
+    const today=new Date().toISOString().split("T")[0];
+    const last=localStorage.getItem("franco_last_day");
+    const yest=new Date();yest.setDate(yest.getDate()-1);
+    let s=parseInt(localStorage.getItem("franco_streak")||"0");
+    if(last===today){}else if(last===yest.toISOString().split("T")[0]){s++;}else{s=1;}
+    localStorage.setItem("franco_streak",String(s));
+    localStorage.setItem("franco_last_day",today);
+    localStorage.setItem("franco_xp",String((parseInt(localStorage.getItem("franco_xp")||"0"))+25));
+    setProgress(newProgress);setScreen("hub");setActiveLesson(null);
+  };
 
-  return <div style={{fontFamily:"'DM Sans',sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
-    {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress}/>}
+  // Loading spinner while Firebase initializes
+  if(initializing) return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7FAFF",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:48,animation:"float 1.5s ease-in-out infinite"}}>🍁</div>
+      <div style={{fontFamily:"system-ui,sans-serif",fontSize:14,color:"#475569"}}>Loading Franco...</div>
+    </div>
+  );
+
+  // Auth screens (not logged in and not guest)
+  const isAuthed = !!user || guestMode;
+  if(!isAuthed){
+    if(authScreen==="login") return <LoginScreen onNavigate={goAuth} prefillEmail={authParams.prefillEmail||""} notice={authParams.notice||""}/>;
+    if(authScreen==="register") return <RegisterScreen onNavigate={goAuth}/>;
+    return <AuthLandingScreen onNavigate={goAuth} onGuest={()=>{ setGuestMode(true); setAuthScreen("app"); }}/>;
+  }
+
+  // Main app
+  const showNav=!["welcome","onboarding","lesson"].includes(screen);
+  return <div style={{fontFamily:"system-ui,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
+    {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
-    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen}/>}
+    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
     {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
-    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}}/>}
+    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
 }
