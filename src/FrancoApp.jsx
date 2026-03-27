@@ -3751,7 +3751,20 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   ];
   return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
     {/* Logo */}
-    <div style={{fontSize:18,fontWeight:800,color:"#0F172A",fontFamily:"Georgia,serif",marginRight:16,flexShrink:0}}>Franco 🍁</div>
+    <div style={{marginRight:16,flexShrink:0,display:"flex",alignItems:"center"}}>
+      <svg viewBox="0 0 148 52" width={isMobile?90:110} xmlns="http://www.w3.org/2000/svg">
+        <defs><clipPath id="bc"><ellipse cx="26" cy="24" rx="22" ry="19"/></clipPath></defs>
+        <ellipse cx="26" cy="24" rx="22" ry="19" fill="#1A3A8F"/>
+        <ellipse cx="33" cy="26" rx="18" ry="15" fill="#C8202A" clipPath="url(#bc)"/>
+        <polygon points="14,40 8,50 22,42" fill="#1A3A8F"/>
+        <g transform="translate(26,23) scale(0.16)" fill="white">
+          <path d="M0,-52 L6,-28 L18,-36 L12,-18 L28,-18 L20,0 L36,6 L28,18 L36,28 L18,24 L18,44 L-18,44 L-18,24 L-36,28 L-28,18 L-36,6 L-20,0 L-28,-18 L-12,-18 L-18,-36 L-6,-28 Z"/>
+        </g>
+        <g transform="translate(52,7)"><path d="M0,-4 L1,-1 L4,0 L1,1 L0,4 L-1,1 L-4,0 L-1,-1 Z" fill="#F5C842"/></g>
+        <g transform="translate(59,3)"><path d="M0,-2.5 L0.6,-0.6 L2.5,0 L0.6,0.6 L0,2.5 L-0.6,0.6 L-2.5,0 L-0.6,-0.6 Z" fill="#C8202A"/></g>
+        <text x="58" y="32" fontFamily="system-ui,-apple-system,sans-serif" fontWeight="800" fontSize="17" fill="#1A3A8F" letterSpacing="0.5">FRANCO</text>
+      </svg>
+    </div>
     {/* Nav */}
     <div style={{display:"flex",gap:0,flex:1,justifyContent:isMobile?"center":"flex-start"}}>
       {nav.map(n=>(
