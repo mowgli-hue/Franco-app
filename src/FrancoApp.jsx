@@ -349,6 +349,17 @@ function AuthBtn({label,onClick,disabled,loading,primary,variant="primary"}){
   );
 }
 
+// Mobile detection
+function useIsMobile(){ 
+  const[m,setM]=useState(typeof window!=="undefined"&&window.innerWidth<640);
+  useEffect(()=>{
+    const h=()=>setM(window.innerWidth<640);
+    window.addEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
+  },[]);
+  return m;
+}
+
 // Persists state to localStorage so progress survives page refresh
 function useLocalState(key, defaultVal){
   const[state,setState]=useState(()=>{
@@ -2332,7 +2343,8 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
   const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
   const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
   const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
-  return <div style={{minHeight:"100vh",background:"#F8F9FC",padding:"32px 28px",maxWidth:980,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
+  const isMobile=useIsMobile();
+  return <div style={{minHeight:"100vh",background:"#F8F9FC",padding:isMobile?"12px":"28px 32px",maxWidth:980,margin:"0 auto",display:"flex",flexDirection:"column",gap:isMobile?12:20}}>
     <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:12}}>
       <div>
         <div style={{fontSize:13,color:T.textSoft,fontWeight:500,marginBottom:4}}>{greeting} {displayName?`${displayName} —`:""} {new Date().toLocaleDateString("en-CA",{weekday:"long",month:"long",day:"numeric"})}</div>
@@ -2343,7 +2355,7 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
         <div><div style={{fontSize:12,fontWeight:700,color:T.navy}}>{c.name}</div><div style={{fontSize:11,color:T.mint}}>● Ready</div></div>
       </div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:10}}>
       {[{label:"Day Streak",val:`${streak()} days`,icon:"🔥",bg:"#fff",text:T.navy,border:T.border},{label:"XP Earned",val:`${xp} XP`,icon:"⭐",bg:"#fff",text:T.navy,border:T.border},{label:"Lessons Done",val:`${doneL} / ${allL.length}`,icon:"📚",bg:"#fff",text:T.navy,border:T.border},{label:"CLB Path",val:level.clbTag,icon:"🎯",bg:"#fff",text:T.navy,border:T.border}].map((s,i)=>(
         <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:s.bg,border:`1px solid ${s.border}`,borderRadius:14}}>
           <span style={{fontSize:16}}>{s.icon}</span>
@@ -2777,7 +2789,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
               <SpeakBtn text={q.fr} size={22}/>
             </div>
             <div style={{textAlign:"center",fontSize:13,color:T.textSoft,marginBottom:20}}>What does this mean in English?</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:10}}>
               {q.opts.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
                 return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"16px 14px",borderRadius:16,border:`2.5px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontSize:15,fontWeight:600,color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s",boxShadow:isC?"0 0 0 3px rgba(16,185,129,0.15)":isSel?"0 0 0 3px rgba(26,86,219,0.15)":"none"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
@@ -2793,7 +2805,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <span style={{flex:1}}>{q.prompt}</span>
             <SpeakBtn text={q.prompt} size={18}/>
           </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:10}}>
               {q.options.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
                 return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"14px 16px",borderRadius:14,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10,fontSize:14,fontWeight:500,color:T.text,transition:"all 0.2s"}}>
