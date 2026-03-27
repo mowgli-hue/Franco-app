@@ -2654,7 +2654,12 @@ function HubScreen({progress,onStartLesson}){
 function speakFrench(text){
   if(!("speechSynthesis" in window)) return;
   // Only speak the French part — strip English translations in parens
-  const cleaned = text.replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
+  const cleaned = text
+    .replace(/\(.*?\)/g,"")  // remove (English translation)
+    .replace(/→.*$/,"")       // remove → and everything after
+    .replace(/[()]/g,"")
+    .split(":")[0]             // take only first part if "word: explanation"
+    .trim();
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(cleaned);
   utt.lang = "fr-CA";
