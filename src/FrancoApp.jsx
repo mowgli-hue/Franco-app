@@ -224,7 +224,7 @@ function LoginScreen({onNavigate, prefillEmail="", notice=""}){
           </div>
         )}
 
-        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+        <div style={{background:"#fff",borderRadius:20,padding:"16px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
           <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
           <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Enter password" error={errors.password}/>
 
@@ -290,7 +290,7 @@ function RegisterScreen({onNavigate}){
           </div>
         )}
 
-        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+        <div style={{background:"#fff",borderRadius:20,padding:"16px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
           <AuthInput label="Full name" value={name} onChange={v=>{setName(v);setErrors(p=>({...p,name:undefined,submit:undefined}));}} placeholder="Your full name" error={errors.name}/>
           <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
           <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Create a password (min. 6 chars)" error={errors.password}/>
@@ -2343,9 +2343,9 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
         <div><div style={{fontSize:12,fontWeight:700,color:T.navy}}>{c.name}</div><div style={{fontSize:11,color:T.mint}}>● Ready</div></div>
       </div>
     </div>
-    <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
       {[{label:"Day Streak",val:`${streak()} days`,icon:"🔥",bg:"#fff",text:T.navy,border:T.border},{label:"XP Earned",val:`${xp} XP`,icon:"⭐",bg:"#fff",text:T.navy,border:T.border},{label:"Lessons Done",val:`${doneL} / ${allL.length}`,icon:"📚",bg:"#fff",text:T.navy,border:T.border},{label:"CLB Path",val:level.clbTag,icon:"🎯",bg:"#fff",text:T.navy,border:T.border}].map((s,i)=>(
-        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:s.bg,border:`1px solid ${s.border}`,borderRadius:50,flex:"1 1 160px"}}>
+        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 16px",background:s.bg,border:`1px solid ${s.border}`,borderRadius:14}}>
           <span style={{fontSize:16}}>{s.icon}</span>
           <div><div style={{fontSize:11,color:s.text,opacity:.7,fontWeight:600}}>{s.label}</div><div style={{fontSize:14,fontWeight:700,color:s.text}}>{s.val}</div></div>
         </div>
@@ -2424,10 +2424,10 @@ function HubScreen({progress,onStartLesson}){
   const nextLesson=allLessons.find(l=>!progress[l.id]);
   const nextLevel=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>!progress[l.id]));
 
-  return <div style={{padding:"28px 32px",maxWidth:960,margin:"0 auto"}}>
+  return <div style={{padding:"16px",maxWidth:960,margin:"0 auto"}}>
 
     {/* Header banner */}
-    <div style={{background:"linear-gradient(135deg,#0D1B3E 0%,#1A3280 50%,#1A56DB 100%)",borderRadius:24,padding:"28px 32px",marginBottom:24,color:"#fff",position:"relative",overflow:"hidden"}}>
+    <div style={{background:"linear-gradient(135deg,#0D1B3E 0%,#1A3280 50%,#1A56DB 100%)",borderRadius:24,padding:"16px",marginBottom:24,color:"#fff",position:"relative",overflow:"hidden"}}>
       <div style={{position:"absolute",top:-40,right:-40,width:180,height:180,borderRadius:"50%",background:"rgba(255,255,255,0.05)"}}/>
       <div style={{position:"absolute",bottom:-60,right:60,width:240,height:240,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
       <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",position:"relative"}}>
@@ -3329,7 +3329,7 @@ Rules:
     return <div style={{padding:28,maxWidth:760,margin:"0 auto"}}>
       <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
       <div style={{fontSize:15,color:T.textMid,marginBottom:28}}>Practice real French conversation with your AI tutor — powered by Claude. Pick a topic to start!</div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:36}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr",gap:14,marginBottom:36}}>
         {TOPICS.map(t=><div key={t.id} onClick={()=>startConversation(t)}
           style={{background:T.card,border:`2px solid ${T.border}`,borderRadius:16,padding:"20px 16px",cursor:"pointer",transition:"all 0.2s",textAlign:"center"}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;e.currentTarget.style.transform="translateY(-2px)";}}
