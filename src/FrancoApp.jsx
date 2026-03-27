@@ -2850,7 +2850,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 
       {/* QUESTION PHASE */}
       {phase==="questions"&&q&&<>
-    Question header */}
+        {/* Question header */}
         <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
           <span style={{fontSize:11,fontWeight:700,color:"#94A3B8"}}>Q{qIdx+1}/{total}</span>
           <div style={{flex:1,height:1,background:"#F1F5F9"}}/>
