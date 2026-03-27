@@ -2583,7 +2583,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <AISpeakingCoach
               prompt={q.prompt}
               sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
-              onDone={(passed)=>{setSpeakDone(true);if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}speak(passed?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);}}
+              onDone={(passed)=>{setSpeakDone(true);if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}speak(passed?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`)}}}
             />
           </Card>
         </>}
