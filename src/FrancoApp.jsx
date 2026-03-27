@@ -2850,12 +2850,11 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 
       {/* QUESTION PHASE */}
       {phase==="questions"&&q&&<>
-        {/* Question header with progress */}
-        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <div style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:`${diffColor(q.diff||2)}18`,color:diffColor(q.diff||2),border:`1.5px solid ${diffColor(q.diff||2)}35`}}>{diffLabel(q.diff||2)}</div>
-          <div style={{fontSize:12,color:T.textSoft}}>Question {qIdx+1} of {total}</div>
-          {qIdx===0&&<div style={{fontSize:12,fontWeight:700,color:T.mint,padding:"3px 10px",borderRadius:50,background:T.mintLight}}>Easiest first! 😊</div>}
-          <div style={{marginLeft:"auto"}}><Pill variant="blue">{q.type==="tap"?"👆 Tap":"mcq"===q.type?"🎯 Multiple Choice":"fill"===q.type?"✏️ Fill Blank":"order"===q.type?"🔀 Build Sentence":"speak"===q.type?"🎤 Speak":"✍️ Write"}</Pill></div>
+    Question header */}
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
+          <span style={{fontSize:11,fontWeight:700,color:"#94A3B8"}}>Q{qIdx+1}/{total}</span>
+          <div style={{flex:1,height:1,background:"#F1F5F9"}}/>
+          <span style={{fontSize:11,fontWeight:700,color:diffColor(q.diff||2)}}>{diffLabel(q.diff||2)}</span>
         </div>
 
         {/* TAP type — easiest, just tap the translation */}
