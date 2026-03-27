@@ -2046,7 +2046,7 @@ function Btn({children,onClick,variant="primary",disabled,style={}}){
 
 function Card({children,style={},onClick}){
   const[h,setH]=useState(false);
-  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:T.card,borderRadius:20,padding:"22px 24px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)",transition:"all 0.2s",...(h?{transform:"translateY(-2px)",boxShadow:"0 4px 16px rgba(0,0,0,0.06),0 16px 40px rgba(13,27,62,0.12)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
+  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:T.card,borderRadius:14,padding:"14px 16px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)",transition:"all 0.2s",...(h?{transform:"translateY(-2px)",boxShadow:"0 4px 16px rgba(0,0,0,0.06),0 16px 40px rgba(13,27,62,0.12)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
 }
 
 function ProgressBar({value,color=T.blue,style={}}){
@@ -2617,8 +2617,8 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           <Pill style={{background:`${level.color}20`,color:level.color}}>{level.cefrTag}</Pill>
         </div>
         <Card>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>🎯 What You'll Learn</div>
-          <div style={{fontSize:15,color:T.textMid,lineHeight:1.75,marginBottom:18,display:"flex",alignItems:"flex-start",gap:8}}>
+          <div style={{fontSize:11,fontWeight:700,color:T.textSoft,marginBottom:8}}>What you'll learn</div>
+          <div style={{fontSize:13,color:T.textMid,lineHeight:1.65,marginBottom:12,display:"flex",alignItems:"flex-start",gap:8}}>
             <span style={{flex:1}}>{lesson.teach}</span>
           </div>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📝 Key Vocabulary — click to flip!</div>
@@ -2660,13 +2660,13 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           <div style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:`${diffColor(q.diff||2)}18`,color:diffColor(q.diff||2),border:`1.5px solid ${diffColor(q.diff||2)}35`}}>{diffLabel(q.diff||2)}</div>
           <div style={{fontSize:12,color:T.textSoft}}>Question {qIdx+1} of {total}</div>
           {qIdx===0&&<div style={{fontSize:12,fontWeight:700,color:T.mint,padding:"3px 10px",borderRadius:50,background:T.mintLight}}>Easiest first! 😊</div>}
-          <div style={{marginLeft:"auto"}}><Pill variant="blue">{q.type==="tap"?"👆 Tap":"mcq"===q.type?"🎯 Multiple Choice":"fill"===q.type?"✏️ Fill Blank":"order"===q.type?"🔀 Build Sentence":"speak"===q.type?"🎤 Speak":"✍️ Write"}</Pill></div>
+          <div style={{marginLeft:"auto"}}><Pill variant="blue">{q.type==="tap"?"👆 Tap":"mcq"===q.type?"Choice":"fill"===q.type?"Fill":"order"===q.type?"Build":"speak"===q.type?"Speak":"Write"}</Pill></div>
         </div>
 
         {/* TAP type — easiest, just tap the translation */}
         {q.type==="tap"&&<>
           <Card>
-            <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 6px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:T.navy,textAlign:"center",padding:"12px 0 4px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
               {q.fr}
               <SpeakBtn text={q.fr} size={22}/>
             </div>
@@ -2674,7 +2674,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {q.opts.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"16px 14px",borderRadius:16,border:`2.5px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontSize:15,fontWeight:600,color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s",boxShadow:isC?"0 0 0 3px rgba(16,185,129,0.15)":isSel?"0 0 0 3px rgba(26,86,219,0.15)":"none"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"10px 12px",borderRadius:10,border:`1.5px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontSize:13,fontWeight:600,color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s",boxShadow:isC?"0 0 0 3px rgba(16,185,129,0.15)":isSel?"0 0 0 3px rgba(26,86,219,0.15)":"none"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
               })}
             </div>
           </Card>
@@ -2683,15 +2683,15 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* MCQ type */}
         {q.type==="mcq"&&<>
           <Card>
-            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:8}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:12,lineHeight:1.5,display:"flex",alignItems:"flex-start",gap:8}}>
             <span style={{flex:1}}>{q.prompt}</span>
             <SpeakBtn text={q.prompt} size={18}/>
           </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
               {q.options.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"14px 16px",borderRadius:14,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10,fontSize:14,fontWeight:500,color:T.text,transition:"all 0.2s"}}>
-                  <span style={{width:26,height:26,borderRadius:8,background:isC?T.mint:isW?T.red:isSel?T.blue:T.surface,color:(isSel||isC||isW)?"#fff":T.textMid,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}</button>;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"10px 12px",borderRadius:10,border:`1.5px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10,fontSize:13,fontWeight:500,color:T.text,transition:"all 0.2s"}}>
+                  <span style={{width:22,height:22,borderRadius:7,background:isC?T.mint:isW?T.red:isSel?T.blue:T.surface,color:(isSel||isC||isW)?"#fff":T.textMid,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}</button>;
               })}
             </div>
           </Card>
@@ -2730,7 +2730,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* WRITE type — AI Writing Checker */}
         {q.type==="write"&&<>
           <Card>
-            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:8,lineHeight:1.5}}>{q.prompt}</div>
+            <div style={{fontSize:14,fontWeight:700,color:T.navy,marginBottom:8,lineHeight:1.5}}>{q.prompt}</div>
             {q.hint&&<div style={{fontSize:13,color:T.textMid,background:T.goldLight,padding:"10px 12px",borderRadius:10,marginBottom:12,border:"1.5px solid #FCD34D"}}>💡 Hint: {q.hint}</div>}
             <div style={{fontSize:12,fontWeight:600,color:T.textSoft,marginBottom:7}}>Write your answer in French — AI will check it: ✍️🤖</div>
             {!answered
@@ -2850,7 +2850,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 
         {/* Actions */}
         <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
-          <Btn onClick={()=>onComplete(lesson.id)} style={{padding:"15px 32px",fontSize:15}}>✓ Complete &amp; Continue</Btn>
+          <Btn onClick={()=>onComplete(lesson.id)} style={{padding:"11px 22px",fontSize:13}}>✓ Complete</Btn>
           <Btn variant="secondary" onClick={()=>{setPhase("questions");setQIdx(0);setSelected(null);setWriteVal("");setAnswered(false);setCorrect(0);setXp(0);setSpeakDone(false);setShowConfetti(false);}}>↺ Try Again</Btn>
         </div>
       </div>}
