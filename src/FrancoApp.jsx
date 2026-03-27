@@ -3301,40 +3301,29 @@ Is this correct or close enough? Give feedback.`;
 }
 
 // ─── AI HINT BUTTON ───────────────────────────────────────────────────────────
-function AIHintButton({question, level}){
-  const[open,setOpen]=useState(false);
-  const[hint,setHint]=useState("");
+function AIHintButton({question,level}){
+  const[hint,setHint]=useState(null);
   const[loading,setLoading]=useState(false);
-
+  const[open,setOpen]=useState(false);
   const getHint=async()=>{
-    if(hint){setOpen(true);return;}
-    setOpen(true);setLoading(true);
-    const sys=`You are a friendly French tutor. Give a SHORT, helpful hint for a ${level} level Canadian French learner. 
-Don't give away the answer — guide them to it. 2-3 sentences max. Use one encouraging emoji.`;
-    const msg=`Question: "${question.prompt}"
-Type: ${question.type}
-${question.type==="write"?"Accepted answers (don't reveal directly): "+question.accepted?.join(", "):"Options: "+question.options?.join(", ")}
-Give a gentle hint that helps without spoiling the answer.`;
-    const h=await callClaude(sys,msg,150);
+    if(open){setOpen(false);return;}
+    setLoading(true);setOpen(true);
+    const sys="You are a warm French teacher. Give a short encouraging hint (2 sentences max). Don't give the answer directly.";
+    const msg=`Question: ${question.prompt||question.fr||""} Type: ${question.type} Level: ${level}`;
+    const h=await callClaude(sys,msg,120);
     setHint(h);setLoading(false);
   };
-
   return <div style={{position:"relative"}}>
-    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",display:"flex",alignItems:"center",gap:6}}>
-      🧠 AI Hint
+    <button onClick={getHint} style={{padding:"12px 16px",background:"#F8FAFC",color:"#475569",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+      💡 {loading?"...":open?"Hide":"Hint"}
     </button>
-    {open&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#fff",borderRadius:14,padding:16,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",border:`2px solid #8B5CF6`,width:280,zIndex:50,animation:"popIn 0.2s ease"}}>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#6D28D9",textTransform:"uppercase",letterSpacing:.8}}>🧠 AI Hint</div>
-        <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:T.textSoft}}>✕</button>
-      </div>
-      {loading?<div style={{textAlign:"center",padding:"10px 0"}}><span style={{animation:"float 0.8s infinite",fontSize:20}}>🧠</span><div style={{fontSize:12,color:T.textSoft,marginTop:6}}>Thinking...</div></div>
-      :<div style={{fontSize:14,color:T.text,lineHeight:1.65}}>{hint}</div>}
+    {open&&hint&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#0F172A",borderRadius:10,padding:"12px 14px",fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.6,zIndex:10,minWidth:240,boxShadow:"0 4px 20px rgba(0,0,0,0.25)"}}>
+      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginBottom:5,fontWeight:700,textTransform:"uppercase"}}>AI Hint</div>
+      {hint}
     </div>}
   </div>;
 }
 
-// ─── AI CONVERSATION PARTNER ──────────────────────────────────────────────────
 function PracticeScreen({companion}){
   const c=companion||COMPANIONS[0];
   const[msgs,setMsgs]=useState([]);
