@@ -2581,34 +2581,24 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
   const removeWord=(idx)=>{if(answered)return;const word=orderPlaced[idx];setOrderPlaced(p=>{const n=[...p];n.splice(idx,1);return n;});setOrderBank(b=>b.map(w=>w==="__used__"&&orderBank.indexOf("__used__")>-1?word:w));};
 
   return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
-    {/* Avatar Panel */}
-    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"10px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:52,zIndex:50}}>
-      <button onClick={()=>{if(window.confirm("Leave this lesson? Your progress on this lesson will not be saved."))onBack();}}
-        style={{alignSelf:"flex-start",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.85)",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"system-ui,sans-serif",marginBottom:4}}>
-        ← Back
-      </button>
-      <div style={{fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:"rgba(255,255,255,0.5)"}}>AI Teacher</div>
-      <Avatar companion={c} speaking={speaking} size={110} showWaves/>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center"}}>
-        {[c.name,level.cefrTag].map(t=><div key={t} style={{fontSize:10,fontWeight:700,padding:"4px 10px",borderRadius:50,background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.85)",border:"1px solid rgba(255,255,255,0.15)"}}>{t}</div>)}
+    {/* Top bar */}
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"10px 14px",display:"flex",alignItems:"center",gap:10,position:"sticky",top:52,zIndex:50}}>
+      <button onClick={()=>{if(window.confirm("Leave lesson?"))onBack();}} style={{background:"none",border:"1px solid #E2E8F0",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>← Back</button>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:12,fontWeight:700,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+        <div style={{height:3,background:"#F1F5F9",borderRadius:99,overflow:"hidden",marginTop:3}}>
+          <div style={{height:"100%",width:phase==="teach"?"5%":phase==="done"?"100%":`${Math.round(((qIdx+(answered?1:0))/total)*100)}%`,background:"#0F172A",borderRadius:99,transition:"width 0.4s"}}/>
+        </div>
       </div>
-      <SpeechBubble text={avatarText} companion={c} typing={typing}/>
-      {phase==="questions"&&<div style={{width:"100%",marginTop:"auto"}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,color:"rgba(255,255,255,0.65)",fontSize:12}}>
-          <span>Progress</span><span style={{color:"#fff",fontWeight:700}}>{qIdx+1}/{total}</span>
-        </div>
-        <div style={{height:7,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${((qIdx+(answered?1:0))/total)*100}%`,background:"linear-gradient(90deg,#60A5FA,#34D399)",transition:"width 0.5s"}}/>
-        </div>
-        <div style={{marginTop:10,display:"flex",gap:5,justifyContent:"center",flexWrap:"wrap"}}>
-          {lesson.questions.map((_,i)=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<qIdx?T.mint:i===qIdx?"#fff":"rgba(255,255,255,0.2)",transition:"all 0.3s"}}/>)}
-        </div>
-        <div style={{marginTop:10,textAlign:"center",fontSize:11,color:"rgba(255,255,255,0.5)"}}>⭐ {xp} XP earned</div>
-      </div>}
+      {phase==="questions"&&<span style={{fontSize:11,fontWeight:700,color:"#64748B",flexShrink:0}}>{qIdx+1}/{total}</span>}
     </div>
-
+    {/* Companion hint */}
+    {avatarText&&<div style={{margin:"10px 14px 0",padding:"8px 12px",background:"#0F172A",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:18,flexShrink:0}}>{c.emoji}</span>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.4,fontStyle:"italic"}}>{typing?"...":avatarText}</div>
+    </div>}
     {/* Content */}
-    <div style={{padding:28,display:"flex",flexDirection:"column",gap:18,overflowY:"auto"}}>
+    <div style={{padding:"14px",display:"flex",flexDirection:"column",gap:12,maxWidth:640,margin:"0 auto"}}>
       {/* TEACH PHASE */}
       {phase==="teach"&&<>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
