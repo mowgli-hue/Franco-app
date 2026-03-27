@@ -497,7 +497,7 @@ const FOUNDATION_LESSONS = [
      mcq("The accent e-aigu in cafe makes E sound like:",["uh","ay like say","oh","ee"],1,"Accent aigu e = ay sound! cafe = kaf-AY. Very common: etudiant, medecin, prefere. You will see this accent everywhere in Quebec!"),
      mcq("How is Paris pronounced?",["PAH-rees","PAH-riss","pah-REE","PAR-is"],2,"The final S in Paris is silent — pah-REE! Most final consonants in French are silent. This makes French sound musical and flowing."),
      mcq("Bonjour — is the final R pronounced?",["No, it is silent","Yes, guttural R","Yes, like English R","Only in Quebec"],1,"Yes — unlike most final consonants, R IS pronounced! bon-ZHOOR with a guttural R. This detail shows you are serious about French!"),
-     wr("Write the French word for yes",["oui"],"Oui (pronounced wee) — your very first French word! You will use it dozens of times every day in Canada. It starts every conversation.")])]),
+     wr("Write the French word for yes",["oui"],"Oui (pronounced wee) — your very first French word! You will use it dozens of times every day in Canada. It starts every conversation.")])]),]),
 
   mkL("f-02","Nasal Vowels",25,"listening",
     "French has 4 nasal vowels that do not exist in English! Air flows through your nose as you speak. ON (bonjour, bon), AN/EN (France, enfant, dans), IN/AIN (pain, vin, main), UN (brun, un). These appear constantly in everyday Canadian French. Tip: say the vowel and let your voice hum into your nose — do not close your lips!",
