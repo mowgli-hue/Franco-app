@@ -2241,6 +2241,54 @@ function OnboardingScreen({onComplete}){
   </div>;
 }
 
+function FocusSessionWidget({onNavigate}){
+  const FOCUS=25*60,BREAK=5*60;
+  const[phase,setPhase]=useState("idle");
+  const[secs,setSecs]=useState(FOCUS);
+  const[running,setRunning]=useState(false);
+  const[sessions,setSessions]=useState(0);
+  const[started,setStarted]=useState(false);
+  const timerRef=useRef();
+  useEffect(()=>{
+    if(running){
+      timerRef.current=setInterval(()=>{
+        setSecs(s=>{
+          if(s<=1){clearInterval(timerRef.current);setRunning(false);if(phase==="focus"){setSessions(n=>n+1);setPhase("break");setSecs(BREAK);}else{setPhase("done");}return 0;}
+          return s-1;
+        });
+      },1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[running,phase]);
+  const fmt=(s)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+  const pct=((( phase==="break"?BREAK:FOCUS)-secs)/(phase==="break"?BREAK:FOCUS))*100;
+  const go=()=>{setPhase("focus");setSecs(FOCUS);setRunning(true);setStarted(true);};
+  const toggle=()=>setRunning(r=>!r);
+  const reset=()=>{setRunning(false);setPhase("idle");setSecs(FOCUS);setSessions(0);setStarted(false);};
+  const barColor=phase==="break"?"#10B981":phase==="done"?"#F59E0B":"#0F172A";
+  const label=phase==="focus"?"Focus":phase==="break"?"Break":phase==="done"?"Done ✓":"";
+  if(!started) return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+    <span style={{fontSize:18}}>⏱️</span>
+    <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>25:5 Focus Session</div><div style={{fontSize:11,color:"#94A3B8"}}>Study 25 min · break 5 min</div></div>
+    <button onClick={go} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer"}}>Start</button>
+  </div>;
+  return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,overflow:"hidden"}}>
+    <div style={{height:3,background:"#F1F5F9"}}><div style={{height:"100%",width:`${pct}%`,background:barColor,transition:"width 0.5s"}}/></div>
+    <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <span style={{fontSize:18}}>⏱️</span>
+      <div style={{flex:1}}>
+        <div style={{fontSize:10,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label}{sessions>0?` · ${sessions} done`:""}</div>
+        <div style={{fontSize:20,fontWeight:800,color:"#0F172A",fontVariantNumeric:"tabular-nums"}}>{fmt(secs)}</div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        {phase!=="done"&&<button onClick={toggle} style={{background:"#F1F5F9",color:"#0F172A",border:"none",padding:"6px 12px",borderRadius:7,fontSize:14,fontWeight:600,cursor:"pointer"}}>{running?"⏸":"▶"}</button>}
+        {phase==="done"&&<button onClick={go} style={{background:"#0F172A",color:"#fff",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:700,cursor:"pointer"}}>Again</button>}
+        <button onClick={reset} style={{background:"#F1F5F9",color:"#64748B",border:"none",padding:"6px 10px",borderRadius:7,fontSize:13,cursor:"pointer"}}>↺</button>
+      </div>
+    </div>
+  </div>;
+}
+
 function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
   const isMobile=useIsMobile();
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
