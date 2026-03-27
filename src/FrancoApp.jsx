@@ -2579,7 +2579,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* SPEAK type — AI Speaking Coach */}
         {q.type==="speak"&&<>
           <Card style={{border:`2px solid #F9731620`,background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)"}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
             <AISpeakingCoach
               prompt={q.prompt}
               sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
