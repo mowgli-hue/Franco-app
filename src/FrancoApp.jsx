@@ -2435,8 +2435,8 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
     {/* STAT PILLS — 2x2 on mobile, 4 across on desktop */}
     <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:isMobile?8:12}}>
       {[
-        {label:"Streak",val:`${streak()}d`,Icon:Flame},
-        {label:"XP",val:xp,Icon:Star},
+        {label:"Streak",val:`${streak()}d`,icon:"🔥"},
+        {label:"XP",val:xp,icon:"⭐"},
         {label:"Lessons",val:`${doneL}/${allL.length}`,icon:"📚"},
         {label:"CLB",val:level.clbTag,icon:"🎯"},
       ].map((s,i)=>(
@@ -3744,10 +3744,10 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   const isMobile=useIsMobile();
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
   const nav=[
-    {id:"dashboard",label:"Home",Icon:Home},
-    {id:"hub",label:"Learn",Icon:BookOpen},
-    {id:"practice",label:"Practice",Icon:Zap},
-    {id:"profile",label:"Profile",Icon:User},
+    {id:"dashboard",label:"Home",icon:<Home size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"hub",label:"Learn",icon:<BookOpen size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"practice",label:"Practice",icon:<Zap size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"profile",label:"Profile",icon:<User size={isMobile?18:16} strokeWidth={2}/>},
   ];
   return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
     {/* Logo */}
