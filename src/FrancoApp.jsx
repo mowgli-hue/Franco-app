@@ -3770,7 +3770,7 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
       {nav.map(n=>(
         <button key={n.id} onClick={()=>onNavigate(n.id)}
           style={{padding:isMobile?"8px 10px":"8px 14px",border:"none",background:"none",color:screen===n.id?"#0F172A":"#94A3B8",fontFamily:"system-ui,sans-serif",fontWeight:screen===n.id?700:500,fontSize:isMobile?11:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,borderBottom:screen===n.id?"2px solid #0F172A":"2px solid transparent",borderRadius:0,transition:"all 0.15s"}}>
-          {isMobile&&<span style={{fontSize:16}}>{n.emoji}</span>}
+          <n.Icon size={16} strokeWidth={screen===n.id?2.5:1.8}/>
           <span>{isMobile?n.label:n.emoji+" "+n.label}</span>
         </button>
       ))}
