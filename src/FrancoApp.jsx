@@ -2692,8 +2692,10 @@ function SpeakBtn({text, size=14, style={}}){
   const handle=(e)=>{
     e.stopPropagation();
     setSpeaking(true);
-    speakFrench(text);
-    setTimeout(()=>setSpeaking(false), Math.max(800, text.length*60));
+    // Extract just the French word - take text before first ( or space
+    const frWord = text.split("(")[0].split("→")[0].split("=")[0].trim();
+    speakFrench(frWord||text);
+    setTimeout(()=>setSpeaking(false), Math.max(800, (frWord||text).length*80));
   };
   return(
     <button onClick={handle} title="Listen in French"
