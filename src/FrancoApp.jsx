@@ -2046,7 +2046,7 @@ function Btn({children,onClick,variant="primary",disabled,style={}}){
 
 function Card({children,style={},onClick}){
   const[h,setH]=useState(false);
-  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:T.card,borderRadius:14,padding:"14px 16px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)",transition:"all 0.2s",...(h?{transform:"translateY(-2px)",boxShadow:"0 4px 16px rgba(0,0,0,0.06),0 16px 40px rgba(13,27,62,0.12)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
+  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:T.card,borderRadius:12,padding:"12px 14px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)",transition:"all 0.2s",...(h?{transform:"translateY(-2px)",boxShadow:"0 4px 16px rgba(0,0,0,0.06),0 16px 40px rgba(13,27,62,0.12)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
 }
 
 function ProgressBar({value,color=T.blue,style={}}){
@@ -2474,7 +2474,7 @@ function VocabFlipList({vocab}){
       const isFlipped=flipped[i];
       const frWord = parts[0].trim();
       return <div key={i} style={{display:"flex",alignItems:"center",gap:4,
-          fontSize:13,fontWeight:600,padding:"6px 10px 6px 14px",borderRadius:50,
+          fontSize:12,fontWeight:600,padding:"5px 8px 5px 11px",borderRadius:50,
           background:isFlipped?T.navy:T.blueLight,color:isFlipped?"#fff":T.navy,
           fontStyle:"italic",transition:"all 0.25s",border:`1.5px solid ${isFlipped?T.navy:"transparent"}`}}>
         <span onClick={()=>hasTrans&&toggle(i)} style={{cursor:hasTrans?"pointer":"default"}}>
@@ -2593,12 +2593,12 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
       {phase==="questions"&&<span style={{fontSize:11,fontWeight:700,color:"#64748B",flexShrink:0}}>{qIdx+1}/{total}</span>}
     </div>
     {/* Companion hint */}
-    {avatarText&&<div style={{margin:"10px 14px 0",padding:"8px 12px",background:"#0F172A",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
-      <span style={{fontSize:18,flexShrink:0}}>{c.emoji}</span>
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.4,fontStyle:"italic"}}>{typing?"...":avatarText}</div>
+    {avatarText&&<div style={{margin:"6px 14px 0",padding:"6px 12px",background:"#0F172A",borderRadius:8,display:"flex",alignItems:"center",gap:8}}>
+      <span style={{fontSize:14,flexShrink:0}}>{c.emoji}</span>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.85)",lineHeight:1.4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{typing?"...":avatarText}</div>
     </div>}
     {/* Content */}
-    <div style={{padding:"14px",display:"flex",flexDirection:"column",gap:12,maxWidth:640,margin:"0 auto"}}>
+    <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:10,maxWidth:640,margin:"0 auto"}}>
       {/* TEACH PHASE */}
       {phase==="teach"&&<>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -2607,8 +2607,8 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           <Pill style={{background:`${level.color}20`,color:level.color}}>{level.cefrTag}</Pill>
         </div>
         <Card>
-          <div style={{fontSize:11,fontWeight:700,color:T.textSoft,marginBottom:8}}>What you'll learn</div>
-          <div style={{fontSize:13,color:T.textMid,lineHeight:1.65,marginBottom:12,display:"flex",alignItems:"flex-start",gap:8}}>
+          <div style={{fontSize:11,fontWeight:600,color:T.textSoft,marginBottom:6,textTransform:'uppercase',letterSpacing:.5}}>What you'll learn</div>
+          <div style={{fontSize:13,color:T.textMid,lineHeight:1.6,marginBottom:10,textAlign:"left",display:"flex",alignItems:"flex-start",gap:8}}>
             <span style={{flex:1}}>{lesson.teach}</span>
           </div>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📝 Key Vocabulary — click to flip!</div>
