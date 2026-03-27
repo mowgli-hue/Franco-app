@@ -3744,10 +3744,10 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   const isMobile=useIsMobile();
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
   const nav=[
-    {id:"dashboard",label:"Home",icon:<Home size={isMobile?18:16} strokeWidth={2}/>},
-    {id:"hub",label:"Learn",icon:<BookOpen size={isMobile?18:16} strokeWidth={2}/>},
-    {id:"practice",label:"Practice",icon:<Zap size={isMobile?18:16} strokeWidth={2}/>},
-    {id:"profile",label:"Profile",icon:<User size={isMobile?18:16} strokeWidth={2}/>},
+    {id:"dashboard",label:"Home",Icon:Home},
+    {id:"hub",label:"Learn",Icon:BookOpen},
+    {id:"practice",label:"Practice",Icon:Zap},
+    {id:"profile",label:"Profile",Icon:User},
   ];
   return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
     {/* Logo */}
