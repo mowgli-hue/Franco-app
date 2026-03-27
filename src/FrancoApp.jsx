@@ -2652,20 +2652,33 @@ function HubScreen({progress,onStartLesson}){
 // Vocab flip cards — extracted so hooks aren't called inside .map()
 // ─── FRENCH TTS — uses browser Web Speech API ────────────────────────────────
 function speakFrench(text){
-  if(!('speechSynthesis' in window)) return;
-  // Strip anything in parens (English translations) before speaking
+  if(!("speechSynthesis" in window)) return;
+  // Only speak the French part — strip English translations in parens
   const cleaned = text.replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(cleaned);
   utt.lang = "fr-CA";
-  utt.rate = 0.88;
+  utt.rate = 0.85;
   utt.pitch = 1;
-  // Prefer a French voice if available
   const voices = window.speechSynthesis.getVoices();
   const frVoice = voices.find(v=>v.lang.startsWith("fr-CA"))
     || voices.find(v=>v.lang.startsWith("fr-FR"))
     || voices.find(v=>v.lang.startsWith("fr"));
   if(frVoice) utt.voice = frVoice;
+  window.speechSynthesis.speak(utt);
+}
+
+function speakEnglish(text){
+  if(!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = "en-CA";
+  utt.rate = 0.92;
+  const voices = window.speechSynthesis.getVoices();
+  const enVoice = voices.find(v=>v.lang.startsWith("en-CA"))
+    || voices.find(v=>v.lang.startsWith("en-US"))
+    || voices.find(v=>v.lang.startsWith("en"));
+  if(enVoice) utt.voice = enVoice;
   window.speechSynthesis.speak(utt);
 }
 
@@ -2852,7 +2865,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
               <div style={{padding:"20px 22px",flex:1}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>What you'll learn</div>
                 <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:16}}>{lesson.teach}</div>
-                <button onClick={()=>speakFrench(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen to explanation</button>
+                <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen to explanation</button>
               </div>
             </>}
             {slide.type==="vocab"&&<>
