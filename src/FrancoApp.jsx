@@ -2349,120 +2349,82 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
   const[search,setSearch]=useState("");
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
+  const isMobile=useIsMobile();
   const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
   const doneLessons=allLessons.filter(l=>progress[l.id]);
   const nextLesson=allLessons.find(l=>!progress[l.id]);
   const nextLevel=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>!progress[l.id]));
-
-  return <div style={{padding:"28px 32px",maxWidth:960,margin:"0 auto"}}>
-
-    {/* Header banner */}
-    <div style={{background:"linear-gradient(135deg,#0D1B3E 0%,#1A3280 50%,#1A56DB 100%)",borderRadius:24,padding:"28px 32px",marginBottom:24,color:"#fff",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-40,right:-40,width:180,height:180,borderRadius:"50%",background:"rgba(255,255,255,0.05)"}}/>
-      <div style={{position:"absolute",bottom:-60,right:60,width:240,height:240,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
-      <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",position:"relative"}}>
-        <div style={{flex:1}}>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,255,255,0.5)",marginBottom:6}}>🍁 FRANCO — Learn French for Canada</div>
-          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,marginBottom:4}}>{doneLessons.length} lessons complete — {allLessons.length-doneLessons.length} to go!</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>Foundation → B2 · CLB 1–7 · TEF Canada prep · 190 lessons · 100% FREE 🎉</div>
-        </div>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          {[{icon:"⭐",val:totalXP()+" XP",lbl:"Total"},{icon:"🔥",val:streak()+" days",lbl:"Streak"},{icon:"📊",val:Math.round(doneLessons.length/allLessons.length*100)+"%",lbl:"Done"}].map(s=>
-            <div key={s.lbl} style={{textAlign:"center",background:"rgba(255,255,255,0.1)",borderRadius:14,padding:"12px 16px",border:"1px solid rgba(255,255,255,0.15)"}}>
-              <div style={{fontSize:18}}>{s.icon}</div>
-              <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700}}>{s.val}</div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:.8}}>{s.lbl}</div>
-            </div>)}
-        </div>
+  const pct=Math.round((doneLessons.length/allLessons.length)*100);
+  return <div style={{padding:isMobile?"10px":"20px 28px",maxWidth:760,margin:"0 auto"}}>
+    <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:12}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginBottom:2}}>{doneLessons.length}/{allLessons.length} lessons · {pct}% done</div>
+        <div style={{fontSize:14,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nextLesson?`Next: ${nextLesson.title}`:"All complete! 🎉"}</div>
       </div>
-      {nextLesson&&nextLevel&&<div style={{marginTop:20,padding:"14px 18px",background:"rgba(255,255,255,0.1)",borderRadius:14,border:"1px solid rgba(255,255,255,0.15)",display:"flex",alignItems:"center",gap:14,position:"relative"}}>
-        <span style={{fontSize:20}}>▶️</span>
-        <div style={{flex:1}}>
-          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginBottom:2}}>CONTINUE WHERE YOU LEFT OFF</div>
-          <div style={{fontSize:15,fontWeight:700}}>{nextLesson.title}</div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>{nextLevel.label} · {nextLesson.mins} min · starts easy!</div>
-        </div>
-        <button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Start Now →</button>
-      </div>}
+      {nextLesson&&nextLevel&&<button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:"#fff",color:"#0F172A",border:"none",padding:"8px 16px",borderRadius:9,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>Start →</button>}
     </div>
-
-    {/* Search bar */}
-    <div style={{marginBottom:20,position:"relative"}}>
-      <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:16}}>🔍</span>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any lesson topic..." style={{width:"100%",padding:"12px 16px 12px 42px",borderRadius:14,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,sans-serif",fontSize:14,color:T.text,background:T.card,outline:"none",boxSizing:"border-box"}}/>
-      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:16,cursor:"pointer",color:T.textSoft}}>✕</button>}
+    <div style={{position:"relative",marginBottom:12}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14}}>🔍</span>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search lessons..." style={{width:"100%",padding:"10px 12px 10px 36px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:13,color:"#0F172A",background:"#fff",outline:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#94A3B8"}}>✕</button>}
     </div>
-
-    {/* Search results */}
-    {search.length>1&&<div style={{marginBottom:20}}>
+    {search.length>1&&<div style={{marginBottom:12}}>
       {(()=>{
         const q=search.toLowerCase();
-        const results=allLessons.filter(l=>l.title.toLowerCase().includes(q)||l.teach?.toLowerCase().includes(q));
+        const results=allLessons.filter(l=>l.title.toLowerCase().includes(q));
         const lv=(l)=>Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(x=>x.id===l.id));
-        return results.length?results.slice(0,8).map(l=>{
-          const level=lv(l); const done=!!progress[l.id];
-          return <div key={l.id} onClick={()=>onStartLesson(l,level)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderRadius:13,border:`1.5px solid ${done?T.mint:T.border}`,background:T.card,cursor:"pointer",marginBottom:8,transition:"all 0.2s"}}>
-            <div style={{width:32,height:32,borderRadius:9,background:done?T.mint:level?.color||T.blue,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>{done?"✓":"▶"}</div>
-            <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600,color:T.navy}}>{l.title}</div><div style={{fontSize:11,color:T.textSoft}}>{level?.label} · {l.skill} · {l.mins} min</div></div>
-            {done?<Pill variant="mint">Done</Pill>:<span style={{fontSize:12,color:T.blue,fontWeight:600}}>Go →</span>}
+        return results.length?results.slice(0,6).map(l=>{
+          const lvl=lv(l);const done=!!progress[l.id];
+          return <div key={l.id} onClick={()=>onStartLesson(l,lvl)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,border:"1px solid #E2E8F0",background:"#fff",cursor:"pointer",marginBottom:6}}>
+            <div style={{width:28,height:28,borderRadius:7,background:done?"#10B981":"#0F172A",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>{done?"✓":"▶"}</div>
+            <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l.title}</div><div style={{fontSize:11,color:"#94A3B8"}}>{lvl?.label} · {l.skill} · {l.mins}min</div></div>
+            <span style={{fontSize:11,color:done?"#10B981":"#64748B",fontWeight:600,flexShrink:0}}>{done?"Done":"Go →"}</span>
           </div>;
-        }):<div style={{textAlign:"center",padding:"24px",color:T.textSoft,fontSize:14}}>No lessons found for "{search}" — try different keywords</div>;
+        }):<div style={{textAlign:"center",padding:"16px",color:"#94A3B8",fontSize:13}}>No results for "{search}"</div>;
       })()}
     </div>}
     {Object.values(SYLLABUS).map(level=>{
       const lLessons=level.modules.flatMap(m=>m.lessons);
       const donePct=Math.round((lLessons.filter(l=>progress[l.id]).length/lLessons.length)*100);
+      const doneCount=lLessons.filter(l=>progress[l.id]).length;
       const isOpen=expanded===level.id;
-      return <Card key={level.id} style={{marginBottom:14,border:isOpen?`2px solid ${level.color}50`:`2px solid transparent`}}>
-        <div onClick={()=>setExpanded(isOpen?null:level.id)} style={{display:"flex",alignItems:"center",gap:14,cursor:"pointer",marginBottom:isOpen?20:0}}>
-          <div style={{width:48,height:48,borderRadius:14,background:`${level.color}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{level.emoji}</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:2}}>{level.label}</div>
-            <div style={{fontSize:13,color:T.textSoft}}>{level.desc}</div>
+      return <div key={level.id} style={{marginBottom:8,background:"#fff",borderRadius:12,border:isOpen?"1.5px solid #0F172A":"1.5px solid #E2E8F0",overflow:"hidden"}}>
+        <div onClick={()=>setExpanded(isOpen?null:level.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer"}}>
+          <span style={{fontSize:18,flexShrink:0}}>{level.emoji}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{level.label}</div>
+            <div style={{fontSize:11,color:"#94A3B8"}}>{doneCount}/{lLessons.length} · {level.cefrTag}</div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:level.color}}>{donePct}%</div>
-              <div style={{fontSize:11,color:T.textSoft}}>complete</div>
-            </div>
-            <div style={{display:"flex",gap:4}}><Pill style={{background:`${level.color}15`,color:level.color}}>{level.cefrTag}</Pill></div>
-          </div>
-          <div style={{fontSize:20,color:T.textSoft,transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.3s"}}>⌄</div>
+          <div style={{fontSize:12,fontWeight:700,color:donePct>0?"#10B981":"#94A3B8",marginRight:4}}>{donePct}%</div>
+          <span style={{fontSize:14,color:"#94A3B8",transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s",display:"inline-block"}}>⌄</span>
         </div>
-        {isOpen&&<div>
-          <ProgressBar value={donePct} color={level.color} style={{marginBottom:20}}/>
-          {level.modules.map(mod=><div key={mod.id} style={{marginBottom:16}}>
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📂 {mod.title}</div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {mod.lessons.map((lesson,li)=>{
-                const done=!!progress[lesson.id];
-                const skillIcon={listening:"🎧",speaking:"🗣️",reading:"📖",writing:"✍️",integrated:"🔄"}[lesson.skill]||"📚";
-                const isNext=!done&&mod.lessons.slice(0,li).every(l=>progress[l.id]);
-                const locked=!isLessonFree(lesson.id)&&!isPremiumUnlocked();
-                return <div key={lesson.id} onClick={()=>onStartLesson(lesson,level)} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${done?level.color+"40":isNext&&!locked?level.color:locked?"#e2e8f0":T.border}`,background:done?`${level.color}07`:isNext&&!locked?`${level.color}04`:locked?"#f8fafc":T.card,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden",opacity:locked?0.75:1}}>
-                  {isNext&&!done&&!locked&&<div style={{position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,${level.color},${level.color}50)`}}/>}
-                  <div style={{width:36,height:36,borderRadius:11,background:locked?"#e2e8f0":done?level.color:isNext?`${level.color}20`:T.surface,border:isNext&&!locked?`2px solid ${level.color}`:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:done?14:16,color:done?"#fff":isNext?level.color:T.textSoft,fontWeight:700,flexShrink:0,transition:"all 0.2s"}}>{locked?"🔒":done?"✓":skillIcon}</div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:14,fontWeight:600,color:locked?"#94a3b8":T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
-                    <div style={{fontSize:11,color:T.textSoft,marginTop:2,display:"flex",gap:8,alignItems:"center"}}>
-                      <span>{lesson.skill}</span><span>·</span><span>{lesson.mins} min</span><span>·</span><span>{lesson.questions.length} questions</span>
-                      {isNext&&!locked&&<span style={{color:level.color,fontWeight:700,fontSize:11}}>← Next up!</span>}
-                      {locked&&<span style={{color:"#f59e0b",fontWeight:700,fontSize:11}}>⭐ Premium</span>}
-                    </div>
-                  </div>
-                  {locked?<span style={{fontSize:11,background:"linear-gradient(135deg,#f59e0b,#ef4444)",color:"#fff",padding:"3px 8px",borderRadius:8,fontWeight:700,flexShrink:0}}>Unlock</span>:done?<Pill variant="mint" style={{fontSize:11}}>Done ✓</Pill>:isNext?<span style={{fontSize:12,color:level.color,fontWeight:700,flexShrink:0}}>Start →</span>:<span style={{fontSize:12,color:T.textSoft,flexShrink:0}}>→</span>}
-                </div>;
-              })}
-            </div>
+        {isOpen&&<div style={{height:2,background:"#F1F5F9",margin:"0 14px"}}><div style={{height:"100%",width:`${donePct||1}%`,background:"#0F172A",transition:"width 0.5s"}}/></div>}
+        {isOpen&&<div style={{padding:"8px 10px"}}>
+          {level.modules.map(mod=><div key={mod.id} style={{marginBottom:8}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,padding:"4px 4px 6px"}}>{mod.title}</div>
+            {mod.lessons.map((lesson,li)=>{
+              const done=!!progress[lesson.id];
+              const isNext=!done&&mod.lessons.slice(0,li).every(l=>progress[l.id]);
+              const locked=!isLessonFree(lesson.id)&&!isPremiumUnlocked();
+              const icon={listening:"🎧",speaking:"🗣️",reading:"📖",writing:"✍️"}[lesson.skill]||"📚";
+              return <div key={lesson.id} onClick={()=>onStartLesson(lesson,level)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:9,cursor:"pointer",marginBottom:4,background:done?"#F0FDF4":isNext&&!locked?"#F8FAFC":"transparent",border:isNext&&!locked?"1px solid #E2E8F0":"1px solid transparent"}}>
+                <div style={{width:28,height:28,borderRadius:7,background:locked?"#F1F5F9":done?"#10B981":isNext?"#0F172A":"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:locked?"#94A3B8":done||isNext?"#fff":"#64748B",fontWeight:700,flexShrink:0}}>
+                  {locked?"🔒":done?"✓":icon}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:locked?"#94A3B8":"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+                  <div style={{fontSize:10,color:"#94A3B8"}}>{lesson.mins}min · {lesson.questions.length}q</div>
+                </div>
+                <span style={{fontSize:11,fontWeight:700,color:done?"#10B981":isNext?"#0F172A":locked?"#F59E0B":"#94A3B8",flexShrink:0}}>{done?"✓":locked?"⭐":isNext?"Start":"→"}</span>
+              </div>;
+            })}
           </div>)}
         </div>}
-      </Card>;
+      </div>;
     })}
   </div>;
 }
-
 
 // Vocab flip cards — extracted so hooks aren't called inside .map()
 // ─── FRENCH TTS — uses browser Web Speech API ────────────────────────────────
