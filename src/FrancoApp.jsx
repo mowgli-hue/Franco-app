@@ -127,19 +127,19 @@ function AuthLandingScreen({onNavigate, onGuest}){
         <div style={{border:"1.5px solid #BFDBFE",borderRadius:14,background:"#fff",padding:"10px 18px",maxWidth:400,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
           <span style={{fontSize:13,color:"#0D1B3E",fontStyle:"italic"}}>Bonjour! I'm your AI coach for Canadian French training.</span>
         </div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:900,color:"#0B1220",lineHeight:1.2,marginTop:8}}>French Training for Canada</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:"#0B1220",lineHeight:1.2,marginTop:8}}>French Training for Canada</div>
         <div style={{fontSize:15,color:"#475569",lineHeight:1.65}}>Structured daily sessions to improve CLB performance for immigration goals.</div>
 
         {/* CTA buttons */}
         <button onClick={()=>onNavigate("login")}
-          style={{marginTop:16,width:"100%",maxWidth:340,padding:"15px 32px",background:"#1A56DB",color:"#fff",border:"none",borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 4px 20px rgba(26,86,219,0.3)",transition:"all 0.2s"}}
+          style={{marginTop:16,width:"100%",maxWidth:340,padding:"15px 32px",background:"#1A56DB",color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 4px 20px rgba(26,86,219,0.3)",transition:"all 0.2s"}}
           onMouseEnter={e=>e.currentTarget.style.background="#1547c0"}
           onMouseLeave={e=>e.currentTarget.style.background="#1A56DB"}>
           Start Training
         </button>
 
         <button onClick={onGuest}
-          style={{marginTop:8,padding:"11px 28px",background:"#fff",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
+          style={{marginTop:8,padding:"11px 28px",background:"#fff",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
           onMouseEnter={e=>{e.currentTarget.style.background="#E2ECFF";}}
           onMouseLeave={e=>{e.currentTarget.style.background="#fff";}}>
           Try as Guest
@@ -214,7 +214,7 @@ function LoginScreen({onNavigate, prefillEmail="", notice=""}){
     <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
       <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Welcome back</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Welcome back</div>
           <div style={{fontSize:14,color:"#475569",marginTop:6}}>Sign in to continue your structured French training.</div>
         </div>
 
@@ -280,7 +280,7 @@ function RegisterScreen({onNavigate}){
     <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
       <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Create your account</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Create your account</div>
           <div style={{fontSize:14,color:"#475569",marginTop:6}}>Start your AI-guided French training for Canada.</div>
         </div>
 
@@ -320,7 +320,7 @@ function AuthInput({label,type="text",value,onChange,placeholder,error}){
         <input type={isPass&&show?"text":type} value={value}
           onChange={e=>onChange(e.target.value)}
           placeholder={placeholder}
-          style={{width:"100%",padding:"12px 14px",paddingRight:isPass?44:14,borderRadius:10,border:`1.5px solid ${error?"#EF4444":"#E2E8F0"}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,color:"#0D1B3E",outline:"none",background:"#fff",boxSizing:"border-box",transition:"border-color 0.2s"}}
+          style={{width:"100%",padding:"12px 14px",paddingRight:isPass?44:14,borderRadius:10,border:`1.5px solid ${error?"#EF4444":"#E2E8F0"}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:"#0D1B3E",outline:"none",background:"#fff",boxSizing:"border-box",transition:"border-color 0.2s"}}
           onFocus={e=>e.target.style.borderColor="#1A56DB"}
           onBlur={e=>e.target.style.borderColor=error?"#EF4444":"#E2E8F0"}
         />
@@ -343,7 +343,7 @@ function AuthBtn({label,onClick,disabled,loading,primary,variant="primary"}){
   if(primary) Object.assign(styles,{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"});
   return(
     <button onClick={onClick} disabled={disabled||loading}
-      style={{padding:"12px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:disabled||loading?"not-allowed":"pointer",opacity:disabled&&!loading?0.6:1,transition:"all 0.2s",...styles}}>
+      style={{padding:"12px 20px",borderRadius:12,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled||loading?"not-allowed":"pointer",opacity:disabled&&!loading?0.6:1,transition:"all 0.2s",...styles}}>
       {loading?"Loading...":label}
     </button>
   );
@@ -2046,7 +2046,7 @@ function Pill({children,variant="blue",style={}}){
 
 function Btn({children,onClick,variant="primary",disabled,style={}}){
   const base={primary:{background:T.navy,color:"#fff",border:"none"},secondary:{background:T.card,color:T.navy,border:`2px solid ${T.border}`},ghost:{background:"transparent",color:T.blue,border:"none"}}[variant]||{};
-  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
 }
 
 function Card({children,style={},onClick}){
@@ -2123,14 +2123,14 @@ function PaywallModal({onClose, lessonTitle}){
       <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"28px 28px 20px",textAlign:"center",position:"relative"}}>
         <button onClick={onClose} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         <div style={{fontSize:44,marginBottom:8}}>🔓</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
         <div style={{color:"rgba(255,255,255,0.75)",fontSize:13,marginTop:6}}>"{lessonTitle}" is a premium lesson</div>
       </div>
 
       {/* Price */}
       <div style={{padding:"20px 28px 0",textAlign:"center"}}>
         <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
-          <span style={{fontFamily:"'Playfair Display',serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
+          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
           <span style={{color:T.textMid,fontSize:16}}>/month</span>
         </div>
         <div style={{color:T.textSoft,fontSize:12,marginTop:2}}>Cancel anytime · Secure payment via Stripe</div>
@@ -2156,7 +2156,7 @@ function PaywallModal({onClose, lessonTitle}){
 
       {/* CTA */}
       <div style={{padding:"16px 28px 24px"}}>
-        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
           🚀 Start Premium — {PRICE_DISPLAY}
         </button>
         <div style={{textAlign:"center",marginTop:10}}>
@@ -2183,7 +2183,7 @@ function WelcomeScreen({onNext}){
     <div style={{position:"absolute",bottom:60,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,maxWidth:520,textAlign:"center",zIndex:1}}>
       <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:"drop-shadow(0 0 30px rgba(255,255,255,0.15))"}}>{s.emoji}</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
       <div style={{fontSize:16,color:"rgba(255,255,255,0.8)",lineHeight:1.7}}>{s.sub}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
         {["✅ Try Free","🍁 Made for Canada","190 Lessons","🎤 AI Coach","🔒 Premium Access"].map(tag=>
@@ -2194,8 +2194,8 @@ function WelcomeScreen({onNext}){
         {steps.map((_,i)=><div key={i} onClick={()=>setStep(i)} style={{width:i===step?28:8,height:8,borderRadius:4,background:i===step?"#fff":"rgba(255,255,255,0.3)",cursor:"pointer",transition:"all 0.3s"}}/>)}
       </div>
       {step<steps.length-1
-        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
-        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — Try Free! 🚀</button>}
+        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
+        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — Try Free! 🚀</button>}
       <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · 3 free lessons · Unlock all 190 with Premium</div>
     </div>
   </div>;
@@ -2215,7 +2215,7 @@ function OnboardingScreen({onComplete}){
   if(phase==="companion") return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 1 of 2</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
       <div style={{fontSize:15,color:T.textMid}}>Your companion guides every lesson with personalised feedback.</div>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16,maxWidth:700,width:"100%"}}>
@@ -2229,7 +2229,7 @@ function OnboardingScreen({onComplete}){
   return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
       <div style={{fontSize:15,color:T.textMid}}>Be honest — Franco personalises your path.</div>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:520,width:"100%"}}>
@@ -2252,18 +2252,13 @@ function FocusSessionWidget({onNavigate}){
   const[secs,setSecs]=useState(FOCUS);
   const[running,setRunning]=useState(false);
   const[sessions,setSessions]=useState(0);
+  const[started,setStarted]=useState(false);
   const timerRef=useRef();
   useEffect(()=>{
     if(running){
       timerRef.current=setInterval(()=>{
         setSecs(s=>{
-          if(s<=1){
-            clearInterval(timerRef.current);
-            setRunning(false);
-            if(phase==="focus"){ setSessions(n=>n+1); setPhase("break"); setSecs(BREAK); }
-            else { setPhase("done"); }
-            return 0;
-          }
+          if(s<=1){ clearInterval(timerRef.current); setRunning(false); if(phase==="focus"){setSessions(n=>n+1);setPhase("break");setSecs(BREAK);}else{setPhase("done");} return 0; }
           return s-1;
         });
       },1000);
@@ -2273,59 +2268,31 @@ function FocusSessionWidget({onNavigate}){
   const fmt=(s)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
   const total=phase==="break"?BREAK:FOCUS;
   const pct=((total-secs)/total)*100;
-  const circumference=2*Math.PI*76;
-  const start=()=>{setPhase("focus");setSecs(FOCUS);setRunning(true);};
+  const start=()=>{setPhase("focus");setSecs(FOCUS);setRunning(true);setStarted(true);};
   const toggle=()=>setRunning(r=>!r);
-  const reset=()=>{setRunning(false);setPhase("idle");setSecs(FOCUS);setSessions(0);};
-  const phaseColor=phase==="break"?T.mint:phase==="done"?T.gold:T.blue;
-  const phaseLabel=phase==="focus"?"Focus 🧠":phase==="break"?"Break ☕":phase==="done"?"Done! 🎉":"Ready";
-  return <Card style={{background:"#fff",border:`1.5px solid ${T.border}`}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:8}}>
-      <div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:T.navy,marginBottom:2}}>⏱ 25:5 Focus Session</div>
-        <div style={{fontSize:12,color:T.textSoft}}>25 min focus + 5 min break</div>
+  const reset=()=>{setRunning(false);setPhase("idle");setSecs(FOCUS);setSessions(0);setStarted(false);};
+  const barColor=phase==="break"?"#10B981":phase==="done"?"#F59E0B":"#0F172A";
+  const label=phase==="focus"?"Focus":phase==="break"?"Break":phase==="done"?"Done":"";
+  if(!started) return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+    <div style={{fontSize:16}}>⏱️</div>
+    <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>25:5 Focus Session</div><div style={{fontSize:11,color:"#94A3B8"}}>Study 25 min · break 5 min</div></div>
+    <button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer"}}>Start</button>
+  </div>;
+  return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,overflow:"hidden"}}>
+    <div style={{height:3,background:"#F1F5F9"}}><div style={{height:"100%",width:`${pct}%`,background:barColor,transition:"width 0.5s"}}/></div>
+    <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontSize:16}}>⏱️</div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:10,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label}{sessions>0?` · ${sessions} done`:""}</div>
+        <div style={{fontSize:20,fontWeight:800,color:"#0F172A",letterSpacing:1,fontVariantNumeric:"tabular-nums"}}>{fmt(secs)}</div>
       </div>
-      {sessions>0&&<div style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",padding:"4px 12px",borderRadius:50,fontSize:12,fontWeight:700,color:"#fff"}}>🔥 {sessions} done</div>}
-    </div>
-    <div style={{display:"flex",alignItems:"center",gap:24,flexWrap:"wrap"}}>
-      <div style={{position:"relative",flexShrink:0}}>
-        <svg width="140" height="140" style={{transform:"rotate(-90deg)"}}>
-          <circle cx="70" cy="70" r="60" fill="none" stroke="#E2E8F0" strokeWidth="8"/>
-          <circle cx="70" cy="70" r="60" fill="none" stroke={phaseColor} strokeWidth="8"
-            strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={circumference*(1-pct/100)}
-            style={{transition:"stroke-dashoffset 0.8s ease,stroke 0.5s"}}/>
-        </svg>
-        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
-          <div style={{fontSize:10,color:T.textSoft,marginBottom:1}}>{phaseLabel}</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:900,color:T.navy,letterSpacing:2}}>{fmt(secs)}</div>
-        </div>
-      </div>
-      <div style={{flex:1,display:"flex",flexDirection:"column",gap:10,minWidth:140}}>
-        <div style={{fontSize:12,color:T.textMid,lineHeight:1.6}}>
-          {phase==="idle"&&"25 minutes of focused French study, then a 5-minute break."}
-          {phase==="focus"&&"Stay focused! Work through your lesson now. 🎯"}
-          {phase==="break"&&"Well done! Rest for 5 minutes before the next session. ☕"}
-          {phase==="done"&&"Great session! Start another or continue your lessons."}
-        </div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {phase==="idle"&&<button onClick={start} style={{padding:"10px 20px",background:T.navy,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Start</button>}
-          {(phase==="focus"||phase==="break")&&<>
-            <button onClick={toggle} style={{padding:"10px 18px",background:running?"rgba(255,255,255,0.15)":T.mint,color:"#fff",border:"1px solid rgba(255,255,255,0.2)",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>{running?"⏸ Pause":"▶ Resume"}</button>
-            <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
-          </>}
-          {phase==="done"&&<>
-            <button onClick={start} style={{padding:"10px 18px",background:T.mint,color:"#fff",border:"none",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>▶ Again</button>
-            <button onClick={reset} style={{padding:"10px 14px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>↺</button>
-          </>}
-          <button onClick={()=>onNavigate("hub")} style={{padding:"10px 18px",background:T.surface,color:T.navy,border:`1px solid ${T.border}`,borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>📚 Lessons</button>
-        </div>
-        <div style={{display:"flex",gap:5,alignItems:"center"}}>
-          {[0,1,2,3].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<sessions?T.mint:T.border,transition:"background 0.3s"}}/>)}
-          <span style={{fontSize:11,color:T.textSoft,marginLeft:4}}>{sessions}/4 today</span>
-        </div>
+      <div style={{display:"flex",gap:6}}>
+        {phase!=="done"&&<button onClick={toggle} style={{background:"#F1F5F9",color:"#0F172A",border:"none",padding:"6px 12px",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>{running?"⏸":"▶"}</button>}
+        {phase==="done"&&<button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>Again</button>}
+        <button onClick={reset} style={{background:"#F1F5F9",color:"#64748B",border:"none",padding:"6px 10px",borderRadius:7,fontSize:13,cursor:"pointer"}}>↺</button>
       </div>
     </div>
-  </Card>;
+  </div>;
 }
 
 function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
@@ -2349,7 +2316,7 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
       <div style={{flex:1,minWidth:0}}>
         <div style={{fontSize:isMobile?11:13,color:"#64748B",fontWeight:500,marginBottom:2}}>{greeting}{displayName?` — ${displayName}`:""}</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?18:28,fontWeight:800,color:"#0F172A",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?18:28,fontWeight:800,color:"#0F172A",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
           {doneL===0?"Start your journey 🍁":doneL<10?"Building momentum 💪":"Great progress 🎯"}
         </div>
       </div>
@@ -2364,7 +2331,7 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
         <div key={i} style={{background:"#fff",borderRadius:12,border:"1.5px solid #E2E8F0",padding:isMobile?"10px 12px":"16px 18px",display:"flex",alignItems:"center",gap:isMobile?8:10}}>
           <span style={{fontSize:isMobile?18:22}}>{s.icon}</span>
           <div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?16:22,fontWeight:800,color:"#0F172A",lineHeight:1}}>{s.val}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:22,fontWeight:800,color:"#0F172A",lineHeight:1}}>{s.val}</div>
             <div style={{fontSize:10,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.3,marginTop:2}}>{s.label}</div>
           </div>
         </div>
@@ -2373,11 +2340,11 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
     <div style={{background:"#0F172A",borderRadius:16,overflow:"hidden",boxShadow:"0 4px 16px rgba(15,23,42,0.18)"}}>
       <div style={{padding:isMobile?"14px 16px":"22px 24px 18px"}}>
         <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.45)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Continue Learning</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?16:21,fontWeight:800,color:"#fff",marginBottom:4,lineHeight:1.25}}>{nextLesson?nextLesson.title:"All lessons complete!"}</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:21,fontWeight:800,color:"#fff",marginBottom:4,lineHeight:1.25}}>{nextLesson?nextLesson.title:"All lessons complete!"}</div>
         <div style={{fontSize:11,color:"rgba(255,255,255,0.45)",marginBottom:12}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:""}</div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:"#0F172A",border:"none",padding:"10px 20px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>{nextLesson?"▶ Start":"Browse"}</button>
-          <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.2)",padding:"10px 14px",borderRadius:10,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>⚡ Practice</button>
+          <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:"#0F172A",border:"none",padding:"10px 20px",borderRadius:10,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>{nextLesson?"▶ Start":"Browse"}</button>
+          <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.2)",padding:"10px 14px",borderRadius:10,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>⚡ Practice</button>
           <div style={{marginLeft:"auto",textAlign:"right"}}><div style={{fontSize:isMobile?15:20,fontWeight:800,color:"#fff"}}>{pct}%</div><div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>done</div></div>
         </div>
       </div>
@@ -2405,7 +2372,7 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
             <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div>
             <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.messages?.idle||"Ready to learn!"}</div>
           </div>
-          <button onClick={()=>onNavigate("tutor")} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 14px",borderRadius:9,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>Chat</button>
+          <button onClick={()=>onNavigate("tutor")} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 14px",borderRadius:9,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>Chat</button>
         </div>
         <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:"12px 14px"}}>
           <div style={{fontSize:10,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:4,fontWeight:700}}>Your CLB Path</div>
@@ -2445,14 +2412,14 @@ function HubScreen({progress,onStartLesson}){
       <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",position:"relative"}}>
         <div style={{flex:1}}>
           <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,255,255,0.5)",marginBottom:6}}>🍁 FRANCO — Learn French for Canada</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:4}}>{doneLessons.length} lessons complete — {allLessons.length-doneLessons.length} to go!</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,marginBottom:4}}>{doneLessons.length} lessons complete — {allLessons.length-doneLessons.length} to go!</div>
           <div style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>Foundation → B2 · CLB 1–7 · TEF Canada prep · 190 lessons · 100% FREE 🎉</div>
         </div>
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
           {[{icon:"⭐",val:totalXP()+" XP",lbl:"Total"},{icon:"🔥",val:streak()+" days",lbl:"Streak"},{icon:"📊",val:Math.round(doneLessons.length/allLessons.length*100)+"%",lbl:"Done"}].map(s=>
             <div key={s.lbl} style={{textAlign:"center",background:"rgba(255,255,255,0.1)",borderRadius:14,padding:"12px 16px",border:"1px solid rgba(255,255,255,0.15)"}}>
               <div style={{fontSize:18}}>{s.icon}</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}}>{s.val}</div>
+              <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700}}>{s.val}</div>
               <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:.8}}>{s.lbl}</div>
             </div>)}
         </div>
@@ -2464,14 +2431,14 @@ function HubScreen({progress,onStartLesson}){
           <div style={{fontSize:15,fontWeight:700}}>{nextLesson.title}</div>
           <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>{nextLevel.label} · {nextLesson.mins} min · starts easy!</div>
         </div>
-        <button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Start Now →</button>
+        <button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Start Now →</button>
       </div>}
     </div>
 
     {/* Search bar */}
     <div style={{marginBottom:20,position:"relative"}}>
       <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:16}}>🔍</span>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any lesson topic..." style={{width:"100%",padding:"12px 16px 12px 42px",borderRadius:14,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,color:T.text,background:T.card,outline:"none",boxSizing:"border-box"}}/>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any lesson topic..." style={{width:"100%",padding:"12px 16px 12px 42px",borderRadius:14,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:T.text,background:T.card,outline:"none",boxSizing:"border-box"}}/>
       {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:16,cursor:"pointer",color:T.textSoft}}>✕</button>}
     </div>
 
@@ -2504,7 +2471,7 @@ function HubScreen({progress,onStartLesson}){
           </div>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div style={{textAlign:"right"}}>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:level.color}}>{donePct}%</div>
+              <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:level.color}}>{donePct}%</div>
               <div style={{fontSize:11,color:T.textSoft}}>complete</div>
             </div>
             <div style={{display:"flex",gap:4}}><Pill style={{background:`${level.color}15`,color:level.color}}>{level.cefrTag}</Pill></div>
@@ -2702,7 +2669,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
     {/* Avatar Panel */}
     <div style={{background:`linear-gradient(170deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,padding:"28px 18px",display:"flex",flexDirection:"column",alignItems:"center",gap:16,position:"sticky",top:64,height:"calc(100vh - 64px)",overflow:"hidden"}}>
       <button onClick={()=>{if(window.confirm("Leave this lesson? Your progress on this lesson will not be saved."))onBack();}}
-        style={{alignSelf:"flex-start",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.85)",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:4}}>
+        style={{alignSelf:"flex-start",background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",color:"rgba(255,255,255,0.85)",borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",marginBottom:4}}>
         ← Back
       </button>
       <div style={{fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:"rgba(255,255,255,0.5)"}}>AI Teacher</div>
@@ -2731,7 +2698,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
       {phase==="teach"&&<>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <Pill variant="blue">📖 Lesson</Pill>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:700,color:T.navy}}>{lesson.title}</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:21,fontWeight:700,color:T.navy}}>{lesson.title}</div>
           <Pill style={{background:`${level.color}20`,color:level.color}}>{level.cefrTag}</Pill>
         </div>
         <Card>
@@ -2784,7 +2751,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* TAP type — easiest, just tap the translation */}
         {q.type==="tap"&&<>
           <Card>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 6px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 6px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
               {q.fr}
               <SpeakBtn text={q.fr} size={22}/>
             </div>
@@ -2825,7 +2792,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
               {q.options.map((opt,i)=>{
                 const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 16px",borderRadius:12,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,fontStyle:"italic",color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
+                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 16px",borderRadius:12,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,fontWeight:600,fontStyle:"italic",color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
               })}
             </div>
           </Card>
@@ -2837,10 +2804,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             <div style={{fontSize:13,fontWeight:700,color:T.textSoft,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Arrange the words:</div>
             <div style={{minHeight:52,padding:"10px 12px",background:T.surface,borderRadius:12,border:`2px dashed ${answered?(isOk?T.mint:T.red):T.border}`,marginBottom:14,display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"}}>
               {orderPlaced.length===0&&<span style={{color:T.textSoft,fontSize:13,fontStyle:"italic"}}>Click words below to build the sentence...</span>}
-              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>removeWord(i)} style={{padding:"7px 13px",borderRadius:50,background:answered?isOk?T.mint:T.red:T.blue,color:"#fff",border:"none",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:answered?"default":"pointer",transition:"all 0.2s"}}>{w}</button>)}
+              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>removeWord(i)} style={{padding:"7px 13px",borderRadius:50,background:answered?isOk?T.mint:T.red:T.blue,color:"#fff",border:"none",fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:answered?"default":"pointer",transition:"all 0.2s"}}>{w}</button>)}
             </div>
             <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-              {orderBank.map((w,i)=>w==="__used__"?<div key={i} style={{padding:"7px 13px",minWidth:40,height:35}}/>:<button key={i} disabled={answered} onClick={()=>placeWord(w,i)} style={{padding:"7px 13px",borderRadius:50,background:T.card,border:`2px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:14,cursor:"pointer",color:T.text,transition:"all 0.2s"}}>{w}</button>)}
+              {orderBank.map((w,i)=>w==="__used__"?<div key={i} style={{padding:"7px 13px",minWidth:40,height:35}}/>:<button key={i} disabled={answered} onClick={()=>placeWord(w,i)} style={{padding:"7px 13px",borderRadius:50,background:T.card,border:`2px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:14,cursor:"pointer",color:T.text,transition:"all 0.2s"}}>{w}</button>)}
             </div>
           </Card>
         </>}
@@ -2872,7 +2839,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         {/* SPEAK type — AI Speaking Coach */}
         {q.type==="speak"&&<>
           <Card style={{border:`2px solid #F9731620`,background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)"}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
             <AISpeakingCoach
               prompt={q.prompt}
               sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
@@ -2929,7 +2896,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           {correct>=total*0.8?"🏆":correct>=total*0.6?"🎉":correct>=total*0.4?"💪":"📚"}
         </div>
 
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:900,color:T.navy}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:T.navy}}>
           {correct>=total*0.8?"Outstanding! 🌟":correct>=total*0.6?"Great Work!":correct>=total*0.4?"Good Effort!":"Keep Going!"}</div>
 
         <div style={{fontSize:15,color:T.textMid,maxWidth:420,lineHeight:1.7}}>
@@ -2948,7 +2915,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
             {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#fff",col:T.navy},
           ].map(s=><div key={s.lbl} style={{minWidth:90,textAlign:"center",padding:"16px 18px",borderRadius:16,background:s.bg,border:`1.5px solid ${s.col}20`}}>
             <div style={{fontSize:10,marginBottom:4}}>{s.icon}</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
             <div style={{fontSize:10,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginTop:3}}>{s.lbl}</div>
           </div>)}
         </div>
@@ -3082,7 +3049,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
       <span style={{fontSize:28}}>🎤</span>
       <div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
         <div style={{fontSize:12,color:T.textSoft}}>Powered by Claude AI — speaks French Canadian 🍁</div>
       </div>
     </div>
@@ -3097,7 +3064,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
 
     {stage==="ready"&&<>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:13,color:T.textMid,fontStyle:"italic"}}>Last attempt: "{transcript}"</div>}
-      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"'DM Sans',sans-serif"}}>
+      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"system-ui,-apple-system,sans-serif"}}>
         🎤 Start Speaking
       </button>
       <div style={{fontSize:12,color:T.textSoft,marginTop:8}}>Uses your microphone · French Canadian dialect</div>
@@ -3109,7 +3076,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
         <span style={{fontWeight:700,color:"#EF4444",fontSize:14}}>Recording... speak now!</span>
       </div>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:14,color:T.navy,fontStyle:"italic"}}>"{transcript}"</div>}
-      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>
         ⏹ Done Speaking
       </button>
     </>}
@@ -3140,8 +3107,8 @@ Analyze their French pronunciation and content. Be encouraging.`;
         {feedback.phonetic_tips.map((t,i)=><div key={i} style={{fontSize:13,color:"#4C1D95",padding:"3px 0",display:"flex",gap:8}}><span>🔊</span>{t}</div>)}
       </div>}
       <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",color:T.navy}}>Try Again 🔄</button>
-        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Continue →</button>
+        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",color:T.navy}}>Try Again 🔄</button>
+        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Continue →</button>
       </div>
     </>}
   </div>;
@@ -3191,12 +3158,12 @@ Is this correct or close enough? Give feedback.`;
     <div style={{position:"relative",marginBottom:10}}>
       <textarea value={val} onChange={e=>setVal(e.target.value)} disabled={!!result}
         placeholder="Écrivez votre réponse en français..."
-        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
+        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
       <div style={{position:"absolute",bottom:10,right:12,fontSize:11,color:T.textSoft}}>{val.length} chars · AI-checked 🤖</div>
     </div>
 
     {!result&&<button onClick={checkWithAI} disabled={!val.trim()||checking}
-      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
+      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",display:"flex",alignItems:"center",gap:8}}>
       {checking?<><span style={{animation:"float 0.8s infinite"}}>🧠</span> AI Checking...</>:"✍️ Check with AI"}
     </button>}
 
@@ -3239,7 +3206,7 @@ Give a gentle hint that helps without spoiling the answer.`;
   };
 
   return <div style={{position:"relative"}}>
-    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
+    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",display:"flex",alignItems:"center",gap:6}}>
       🧠 AI Hint
     </button>
     {open&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#fff",borderRadius:14,padding:16,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",border:`2px solid #8B5CF6`,width:280,zIndex:50,animation:"popIn 0.2s ease"}}>
@@ -3339,7 +3306,7 @@ Rules:
 
   if(!topic&&!gameActive){
     return <div style={{padding:28,maxWidth:760,margin:"0 auto"}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
       <div style={{fontSize:15,color:T.textMid,marginBottom:28}}>Practice real French conversation with your AI tutor — powered by Claude. Pick a topic to start!</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr",gap:14,marginBottom:36}}>
         {TOPICS.map(t=><div key={t.id} onClick={()=>startConversation(t)}
@@ -3350,7 +3317,7 @@ Rules:
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{t.label.split(" ").slice(0,-1).join(" ")}</div>
         </div>)}
       </div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         {(typeof GAMES!=="undefined"?GAMES:[]).map(g=><div key={g.id} onClick={()=>startGame(g)}
           style={{background:T.card,border:`2px solid ${T.border}`,borderRadius:14,padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,transition:"all 0.2s"}}
@@ -3371,7 +3338,7 @@ Rules:
     return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:760,margin:"0 auto"}}>
       {/* Header */}
       <div style={{padding:"14px 20px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"'DM Sans',sans-serif"}}>← Back</button>
+        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif"}}>← Back</button>
         <Avatar companion={c} size={36}/>
         <div>
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{c.name} · {topic.label}</div>
@@ -3402,10 +3369,10 @@ Rules:
         <textarea value={input} onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
           placeholder="Écrivez en français... (or English is fine too!)"
-          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
           rows={1}/>
         <button onClick={sendMessage} disabled={!input.trim()||loading}
-          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",flexShrink:0,transition:"all 0.2s"}}>
+          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",flexShrink:0,transition:"all 0.2s"}}>
           {loading?"...":"Send →"}
         </button>
       </div>
@@ -3441,7 +3408,7 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:28}}>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
         <span style={{fontSize:20}}>🍁</span>
-        <span style={{fontFamily:"'Playfair Display',serif",fontSize:16,fontWeight:700,color:T.navy,letterSpacing:1}}>FRANCO</span>
+        <span style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.navy,letterSpacing:1}}>FRANCO</span>
       </div>
     </div>
 
@@ -3485,10 +3452,10 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
 
     {/* Auth button */}
     {guestMode
-      ? <button onClick={()=>onAuthNav("landing")} style={{width:"100%",padding:"15px",background:T.navy,color:"#fff",border:"none",borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+      ? <button onClick={()=>onAuthNav("landing")} style={{width:"100%",padding:"15px",background:T.navy,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
           Create Account / Login
         </button>
-      : <button onClick={handleLogout} style={{width:"100%",padding:"15px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+      : <button onClick={handleLogout} style={{width:"100%",padding:"15px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
           Sign Out
         </button>
     }
@@ -3505,20 +3472,20 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
   const displayName=user?.displayName||user?.email?.split("@")[0]||null;
   return <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 20px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:T.navy,marginRight:4}}>Franco</div>
+    <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:T.navy,marginRight:4}}>Franco</div>
     <div style={{fontSize:16,marginRight:8}}>🍁</div>
     {guestMode&&<span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#FEF3C7",color:T.navy,border:"1px solid #FCD34D"}}>Guest</span>}
     <div style={{flex:1}}/>
     <div style={{display:"flex",gap:4}}>
-      {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 14px",borderRadius:10,border:"none",background:screen===n.id?T.blueLight:"transparent",color:screen===n.id?T.blue:T.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
+      {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 14px",borderRadius:10,border:"none",background:screen===n.id?T.blueLight:"transparent",color:screen===n.id?T.blue:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
     </div>
     <div style={{flex:1}}/>
     <div style={{display:"flex",alignItems:"center",gap:10}}>
       <Pill variant="gold">⭐ {xp} XP</Pill>
       {displayName&&<span style={{fontSize:13,fontWeight:600,color:T.textMid,maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>👋 {displayName}</span>}
       {user
-        ? <button onClick={handleLogout} style={{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:8,border:`1px solid ${T.border}`,background:"transparent",color:T.textMid,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Sign out</button>
-        : guestMode&&<button onClick={()=>onAuthNav("landing")} style={{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:8,border:`1px solid ${T.blue}`,background:T.blueLight,color:T.blue,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Sign in</button>
+        ? <button onClick={handleLogout} style={{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:8,border:`1px solid ${T.border}`,background:"transparent",color:T.textMid,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Sign out</button>
+        : guestMode&&<button onClick={()=>onAuthNav("landing")} style={{fontSize:12,fontWeight:700,padding:"6px 12px",borderRadius:8,border:`1px solid ${T.blue}`,background:T.blueLight,color:T.blue,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Sign in</button>
       }
       <div style={{width:36,height:36,borderRadius:"50%",background:T.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
     </div>
@@ -3547,7 +3514,7 @@ function AppInner(){
   useEffect(()=>{
     const s=document.createElement("style");
     s.textContent=`
-      @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+      
       *{box-sizing:border-box;margin:0;padding:0;}
       body{background:${T.surface};}
       @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
@@ -3599,7 +3566,7 @@ function AppInner(){
   if(initializing) return(
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7FAFF",flexDirection:"column",gap:16}}>
       <div style={{fontSize:48,animation:"float 1.5s ease-in-out infinite"}}>🍁</div>
-      <div style={{fontFamily:"'DM Sans',sans-serif",fontSize:14,color:"#475569"}}>Loading Franco...</div>
+      <div style={{fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:"#475569"}}>Loading Franco...</div>
     </div>
   );
 
@@ -3613,7 +3580,7 @@ function AppInner(){
 
   // Main app
   const showNav=!["welcome","onboarding","lesson"].includes(screen);
-  return <div style={{fontFamily:"'DM Sans',sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
+  return <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
     {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
