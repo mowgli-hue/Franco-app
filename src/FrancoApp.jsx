@@ -2177,7 +2177,7 @@ function WelcomeScreen({onNext}){
     <div style={{position:"absolute",top:-80,left:-80,width:300,height:300,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
     <div style={{position:"absolute",bottom:60,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,maxWidth:520,textAlign:"center",zIndex:1}}>
-      <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:"drop-shadow(0 0 30px rgba(255,255,255,0.15))"}}>{s.emoji}</div>
+      <div style={{fontSize:56,animation:"float 2s ease-in-out infinite",filter:"drop-shadow(0 0 30px rgba(255,255,255,0.15))"}}>{s.emoji}</div>
       <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
       <div style={{fontSize:16,color:"rgba(255,255,255,0.8)",lineHeight:1.7}}>{s.sub}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
@@ -2777,15 +2777,15 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
                 (q.type==="tap"||q.type==="mcq"||q.type==="fill")?selected===null:
                 q.type==="order"?orderPlaced.length===0:
                 q.type==="write"||q.type==="speak"?false:false
-              }>{q.type==="write"||q.type==="speak"?"AI is checking... ✓":"Check Answer ✓"}</Btn>
-            :<Btn onClick={nextQ}>{qIdx<total-1?"Next Question →":"See Results →"}</Btn>}
+              }>{q.type==="write"||q.type==="speak"?"Checking... ✓":"Check ✓"}</Btn>
+            :<Btn onClick={nextQ}>{qIdx<total-1?"Next →":"See how I did →"}</Btn>}
           {!answered&&q.type!=="speak"&&q.type!=="write"&&<Btn variant="ghost" onClick={nextQ}>Skip →</Btn>}
           {!answered&&<AIHintButton question={q} level={level?.cefrTag||"A1"}/>}
         </div>
       </>}
 
-      {/* DONE PHASE — with confetti, streak, XP */}
-      {phase==="done"&&<div style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:20,textAlign:"center",padding:"32px 16px",overflow:"hidden"}}>
+      {/* DONE PHASE */}
+      {phase==="done"&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:14,textAlign:"center",padding:"16px 8px",position:"relative",overflow:"hidden"}}>
 
         {/* Confetti burst */}
         {showConfetti&&<div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:9999}}>
@@ -2797,14 +2797,14 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         </div>}
 
         {/* Trophy emoji */}
-        <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:correct>=total*0.8?"drop-shadow(0 0 20px gold)":"none"}}>
+        <div style={{fontSize:56,animation:"float 2s ease-in-out infinite",filter:correct>=total*0.8?"drop-shadow(0 0 20px gold)":"none"}}>
           {correct>=total*0.8?"🏆":correct>=total*0.6?"🎉":correct>=total*0.4?"💪":"📚"}
         </div>
 
-        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:T.navy}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A"}}>
           {correct>=total*0.8?"Outstanding! 🌟":correct>=total*0.6?"Great Work!":correct>=total*0.4?"Good Effort!":"Keep Going!"}</div>
 
-        <div style={{fontSize:15,color:T.textMid,maxWidth:420,lineHeight:1.7}}>
+        <div style={{fontSize:13,color:"#64748B",maxWidth:300,lineHeight:1.6}}>
           {correct>=total*0.8?"You're thinking in French — that's the real milestone. CLB-level thinking! 🍁":
            correct>=total*0.6?"Solid! Review the explanations for what you missed — they'll stick better next time.":
            correct>=total*0.4?"Every attempt literally rewires your brain for French. Keep going!":
@@ -2812,29 +2812,31 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         </div>
 
         {/* Stats row */}
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
-          {[
-            {val:`${correct}/${total}`,lbl:"Correct",icon:"✅",bg:T.mintLight,col:"#065F46"},
-            {val:`${Math.round((correct/total)*100)}%`,lbl:"Accuracy",icon:"🎯",bg:T.blueLight,col:T.navy},
-            {val:`+${xp}`,lbl:"XP Earned",icon:"⭐",bg:T.goldLight,col:"#92400E"},
-            {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#FFF7ED",col:"#C2410C"},
-          ].map(s=><div key={s.lbl} style={{minWidth:90,textAlign:"center",padding:"16px 18px",borderRadius:16,background:s.bg,border:`1.5px solid ${s.col}20`}}>
-            <div style={{fontSize:10,marginBottom:4}}>{s.icon}</div>
-            <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
-            <div style={{fontSize:10,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginTop:3}}>{s.lbl}</div>
-          </div>)}
+        <div style={{display:"flex",gap:8,width:"100%"}}>
+          {[{val:`${correct}/${total}`,lbl:"Correct",icon:"✅"},{val:`+${xp} XP`,lbl:"Earned",icon:"⭐"},{val:`${streak}🔥`,lbl:"Streak",icon:""}].map(s=>(
+            <div key={s.lbl} style={{flex:1,textAlign:"center",padding:"10px 6px",borderRadius:10,background:"#fff",border:"1.5px solid #E2E8F0"}}>
+              <div style={{fontSize:15,fontWeight:800,color:"#0F172A"}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>{s.lbl}</div>
+            </div>
+          ))}
         </div>
 
-        {/* Motivational bar */}
-        {correct>=total*0.7&&<div style={{padding:"14px 24px",borderRadius:50,background:"linear-gradient(135deg,#FEF3C7,#FDE68A)",border:"1.5px solid #FCD34D",fontSize:15,fontWeight:700,color:"#92400E"}}>
-          ⭐ +{xp} XP — fantastic lesson! You&apos;re building real French skills.
-        </div>}
 
-        {/* What you learned recap */}
-        <div style={{width:"100%",maxWidth:480,background:T.surface,borderRadius:16,padding:"16px 20px",border:`1.5px solid ${T.border}`,textAlign:"left"}}>
-          <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>📝 Key phrases from this lesson — click 🔈 to hear them:</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {lesson.vocab.slice(0,6).map(v=><span key={v} style={{fontSize:12,padding:"5px 11px",borderRadius:50,background:T.blueLight,color:T.navy,fontWeight:600,fontStyle:"italic"}}>{v}</span>)}
+
+        {/* Companion message */}
+        <div style={{background:"#0F172A",borderRadius:12,padding:"12px 14px",width:"100%",display:"flex",alignItems:"center",gap:10,textAlign:"left"}}>
+          <span style={{fontSize:24,flexShrink:0}}>{c.emoji}</span>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",lineHeight:1.5,fontStyle:"italic"}}>
+            {correct>=total*0.8?`Incroyable! ${correct}/${total} correct. French is becoming natural for you! 🇨🇦`
+            :correct>=total*0.6?`Good work! Every lesson gets easier — I promise. You're making real progress.`
+            :`Don't worry — every French speaker struggled at first. You showed up, and that's everything!`}
+          </div>
+        </div>
+        {/* Key vocab */}
+        <div style={{width:"100%",textAlign:"left"}}>
+          <div style={{fontSize:11,color:"#94A3B8",marginBottom:6,fontWeight:600}}>Words from this lesson:</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+            {lesson.vocab.slice(0,8).map(v=><span key={v} style={{fontSize:11,padding:"3px 9px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",fontWeight:600,fontStyle:"italic"}}>{v.split("(")[0].trim()}</span>)}
           </div>
         </div>
 
