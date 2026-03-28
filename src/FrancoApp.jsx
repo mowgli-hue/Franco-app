@@ -2800,6 +2800,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
   };
 
   const nextQ=()=>{
+    window.speechSynthesis?.cancel();
     if(qIdx<total-1){
       setQIdx(i=>i+1);setSelected(null);setWriteVal("");setAnswered(false);
       setSpeakDone(false);setOrderPlaced([]);
@@ -3364,8 +3365,8 @@ function AIHintButton({question,level}){
   const[loading,setLoading]=useState(false);
   const[open,setOpen]=useState(false);
   const getHint=async()=>{
-    if(open){setOpen(false);return;}
-    setLoading(true);setOpen(true);
+    if(open){setOpen(false);setHint(null);return;}
+    setLoading(true);setOpen(true);setHint(null);
     const sys="You are a warm French teacher. Give a short encouraging hint (2 sentences max). Don't give the answer directly.";
     const msg=`Question: ${question.prompt||question.fr||""} Type: ${question.type} Level: ${level}`;
     const h=await callClaude(sys,msg,120);
@@ -3375,8 +3376,8 @@ function AIHintButton({question,level}){
     <button onClick={getHint} style={{padding:"12px 16px",background:"#F8FAFC",color:"#475569",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
       💡 {loading?"...":open?"Hide":"Hint"}
     </button>
-    {open&&hint&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#0F172A",borderRadius:10,padding:"12px 14px",fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.6,zIndex:10,minWidth:240,boxShadow:"0 4px 20px rgba(0,0,0,0.25)"}}>
-      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginBottom:5,fontWeight:700,textTransform:"uppercase"}}>AI Hint</div>
+    {open&&hint&&<div style={{position:"absolute",top:"calc(100% + 8px)",left:0,right:0,background:"#0F172A",borderRadius:10,padding:"12px 14px",fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.6,zIndex:50,boxShadow:"0 4px 20px rgba(0,0,0,0.3)"}}>
+      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginBottom:5,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>💡 AI Hint</div>
       {hint}
     </div>}
   </div>;
