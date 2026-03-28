@@ -1906,7 +1906,7 @@ const CLB_LESSONS = [
 // ─────────────────────────────────────────────────────────────────────────────
 const SYLLABUS = {
   foundation:{
-    id:"foundation",label:"Foundation",emoji:"🌱",color:T.mint,
+    id:"foundation",label:"Foundation",emoji:"🌱",color:"#10B981",
     desc:"Zero French → survival phrases, sounds, numbers, greetings, basic vocabulary",
     cefrTag:"Pre-A1",clbTag:"Pre-CLB",
     modules:[
@@ -1918,7 +1918,7 @@ const SYLLABUS = {
     ]
   },
   a1:{
-    id:"a1",label:"A1 — Beginner",emoji:"🔤",color:T.blue,
+    id:"a1",label:"A1 — Beginner",emoji:"🔤",color:"#3B82F6",
     desc:"Core grammar, 1000 key words, handle daily situations in Canada",
     cefrTag:"CEFR A1",clbTag:"CLB 1–2",
     modules:[
@@ -1930,7 +1930,7 @@ const SYLLABUS = {
     ]
   },
   a2:{
-    id:"a2",label:"A2 — Elementary",emoji:"📖",color:T.purple,
+    id:"a2",label:"A2 — Elementary",emoji:"📖",color:"#7C3AED",
     desc:"Past & future tenses, functional writing, CLB 4 readiness",
     cefrTag:"CEFR A2",clbTag:"CLB 3–4",
     modules:[
@@ -1943,7 +1943,7 @@ const SYLLABUS = {
     ]
   },
   b1:{
-    id:"b1",label:"B1 — Intermediate",emoji:"💬",color:T.gold,
+    id:"b1",label:"B1 — Intermediate",emoji:"💬",color:"#F59E0B",
     desc:"Express opinions, professional French, CLB 5–6 performance",
     cefrTag:"CEFR B1",clbTag:"CLB 5–6",
     modules:[
@@ -2021,7 +2021,7 @@ const GAMES = [
   {
     id:"speed", emoji:"⚡", name:"Speed Recall",
     desc:"60 seconds. Translate French → English as fast as you can. Beat your high score!",
-    color:T.blue, tag:"60 sec",
+    color:"#3B82F6", tag:"60 sec",
     questions:[
       {fr:"Bonjour",en:"Hello / Good day"},{fr:"Merci beaucoup",en:"Thank you very much"},
       {fr:"Je voudrais...",en:"I would like..."},{fr:"Où est...?",en:"Where is...?"},
@@ -2041,7 +2041,7 @@ const GAMES = [
   {
     id:"errors", emoji:"🧩", name:"Error Hunter",
     desc:"Find the correct sentence. Spot the grammar mistake before it catches you in real life!",
-    color:T.mint, tag:"Grammar",
+    color:"#10B981", tag:"Grammar",
     questions:[
       {prompt:"Age in French — which is correct?",answer:"J'ai 28 ans ✓",wrong:"Je suis 28 ans ✗",explain:"French uses AVOIR for age! J'ai (I have) 28 ans. Never 'Je suis 28 ans' — one of the most common errors!"},
       {prompt:"After negation — which is correct?",answer:"Je n'ai pas de voiture ✓",wrong:"Je n'ai pas une voiture ✗",explain:"After ne...pas: un/une/des → DE. Je n'ai pas DE voiture. Always!"},
@@ -2056,7 +2056,7 @@ const GAMES = [
   {
     id:"match", emoji:"🎯", name:"Word Match",
     desc:"Tap a French word then its English meaning. Match all pairs to win!",
-    color:T.purple, tag:"Vocabulary",
+    color:"#7C3AED", tag:"Vocabulary",
     pairs:[
       {fr:"le rendez-vous",en:"appointment"},{fr:"le courriel",en:"email (Quebec)"},
       {fr:"la pharmacie",en:"pharmacy"},{fr:"le médecin",en:"doctor"},
@@ -2069,7 +2069,7 @@ const GAMES = [
   {
     id:"fill", emoji:"✏️", name:"Fill the Gap",
     desc:"Complete each sentence with the right word. Build grammar muscle memory!",
-    color:T.gold, tag:"Grammar",
+    color:"#F59E0B", tag:"Grammar",
     questions:[
       {before:"Je",after:"au travail à 9h.",options:["vais","aller","allé","vas"],correct:0,explain:"Je vais = I go (aller with je). Je VAIS au travail — near future or habitual action!"},
       {before:"Il",after:"un café, s'il vous plaît.",options:["voudrait","veut","voudrais","vouloir"],correct:0,explain:"Il voudrait = he would like (conditional, polite). Voudrait for il/elle — more polite than veut!"},
@@ -2141,7 +2141,7 @@ function Pill({children,variant="blue",style={}}){
 }
 
 function Btn({children,onClick,variant="primary",disabled,style={}}){
-  const base={primary:{background:T.navy,color:"#fff",border:"none"},secondary:{background:T.card,color:T.navy,border:`2px solid ${T.border}`},ghost:{background:"transparent",color:T.blue,border:"none"}}[variant]||{};
+  const base={primary:{background:T.navy,color:"#fff",border:"none"},secondary:{background:T.card,color:T.navy,border:`2px solid ${T.border}`},ghost:{background:"transparent",color:"#3B82F6",border:"none"}}[variant]||{};
   return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
 }
 
@@ -2335,7 +2335,7 @@ function OnboardingScreen({onComplete}){
           <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{l.label}</div>
           <div style={{fontSize:13,color:T.textSoft,marginTop:2}}>{l.hint}</div>
         </div>
-        {level===l.id&&<div style={{color:T.blue,fontSize:20}}>✓</div>}
+        {level===l.id&&<div style={{color:"#3B82F6",fontSize:20}}>✓</div>}
       </Card>)}
     </div>
     <Btn onClick={()=>onComplete(companion,level)} disabled={!level} style={{padding:"15px 40px",fontSize:16}}>Start Learning →</Btn>
@@ -3262,7 +3262,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
         </div>
         <div>
           <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{feedback.overall}</div>
-          <div style={{fontSize:13,color:T.mint,fontWeight:600,marginTop:3}}>{feedback.encouragement}</div>
+          <div style={{fontSize:13,color:"#10B981",fontWeight:600,marginTop:3}}>{feedback.encouragement}</div>
         </div>
       </div>
       {feedback.corrections?.length>0&&<div style={{background:"#FEF9C3",borderRadius:10,padding:12,marginBottom:10}}>
@@ -3498,7 +3498,7 @@ Rules:
         <Avatar companion={c} size={36}/>
         <div>
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{c.name} · {topic.label}</div>
-          <div style={{fontSize:11,color:T.mint,fontWeight:600}}>AI Conversation Partner · Claude-powered 🤖</div>
+          <div style={{fontSize:11,color:"#10B981",fontWeight:600}}>AI Conversation Partner · Claude-powered 🤖</div>
         </div>
         <div style={{marginLeft:"auto",fontSize:12,color:T.textSoft}}>{msgs.length} exchanges</div>
       </div>
@@ -3628,7 +3628,7 @@ Tutor:`, 400);
       <Avatar companion={c} size={40} speaking={loading}/>
       <div style={{flex:1}}>
         <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
-        <div style={{fontSize:11,color:T.mint,fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
+        <div style={{fontSize:11,color:"#10B981",fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
       </div>
       <div style={{display:"flex",gap:6}}>
         {[{id:"chat",label:"💬 Chat"},{id:"assessment",label:"📝 Quiz Me"},{id:"plan",label:"📅 Study Plan"}].map(m=>(
