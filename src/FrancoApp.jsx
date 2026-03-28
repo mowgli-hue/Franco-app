@@ -2871,13 +2871,6 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           <div style={{display:"flex",gap:6,justifyContent:"center"}}>
             {slides.map((_,i)=><div key={i} style={{width:i===teachSlide?24:6,height:6,borderRadius:99,background:i===teachSlide?"#0F172A":i<teachSlide?"#94A3B8":"#E2E8F0",transition:"all 0.3s"}}/>)}
           </div>
-          <div style={{background:"#0F172A",borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
-            <Avatar companion={c} size={36}/>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:3}}>{c.name} says</div>
-              <div style={{fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.5,fontStyle:"italic"}}>{companionMsgs[teachSlide]}</div>
-            </div>
-          </div>
           <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
             {slide.type==="intro"&&<>
               <div style={{background:"#0F172A",padding:"18px"}}>
