@@ -2833,7 +2833,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 
   return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
     {/* Top bar with back + progress */}
-    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:52,zIndex:50}}>
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,zIndex:50,marginTop:0}}>
       <div style={{padding:"0 14px",height:46,display:"flex",alignItems:"center",gap:10}}>
         <button onClick={()=>{if(window.confirm("Leave lesson?")){window.speechSynthesis?.cancel();onBack();}}} style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>← Back</button>
         <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
