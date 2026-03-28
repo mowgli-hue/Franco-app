@@ -2833,18 +2833,13 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
 
   return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
     {/* Top bar with back + progress */}
-    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"10px 16px",display:"flex",alignItems:"center",gap:12,position:"sticky",top:52,zIndex:50}}>
-      <button onClick={()=>{if(window.confirm("Leave lesson? Progress won't be saved."))onBack();}}
-        style={{background:"none",border:"1px solid #E2E8F0",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>
-        ← Back
-      </button>
-      <div style={{flex:1}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#0F172A",marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
-        <div style={{height:4,background:"#F1F5F9",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:phase==="teach"?"10%":`${((qIdx+(answered?1:0))/total)*100}%`,background:"#0F172A",borderRadius:99,transition:"width 0.5s"}}/>
-        </div>
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:52,zIndex:50}}>
+      <div style={{padding:"0 14px",height:46,display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={()=>{if(window.confirm("Leave lesson?")){window.speechSynthesis?.cancel();onBack();}}} style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>← Back</button>
+        <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+        <div style={{fontSize:11,fontWeight:600,color:"#94A3B8",flexShrink:0}}>{phase==="teach"?"Lesson":phase==="done"?"Done!":`${qIdx+1}/${total}`}</div>
       </div>
-      {phase==="questions"&&<div style={{fontSize:12,fontWeight:700,color:"#64748B",flexShrink:0}}>{qIdx+1}/{total}</div>}
+      <div style={{height:2,background:"#F1F5F9"}}><div style={{height:"100%",width:phase==="teach"?"8%":phase==="done"?"100%":`${Math.round(((qIdx+(answered?1:0))/total)*100)}%`,background:"#0F172A",transition:"width 0.4s"}}/></div>
     </div>
     {/* Companion hint — collapsible floating bubble */}
     {false&&<div style={{margin:"12px 16px 0",padding:"10px 14px",background:"#0F172A",borderRadius:12,display:"flex",alignItems:"flex-start",gap:10}}>
