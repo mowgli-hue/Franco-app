@@ -2692,10 +2692,16 @@ function SpeakBtn({text, size=14, style={}}){
   const handle=(e)=>{
     e.stopPropagation();
     setSpeaking(true);
-    // Extract just the French word - take text before first ( or space
-    const frWord = text.split("(")[0].split("→")[0].split("=")[0].trim();
-    speakFrench(frWord||text);
-    setTimeout(()=>setSpeaking(false), Math.max(800, (frWord||text).length*80));
+    // If text has (phonetic) in parens, speak that in English
+    // Otherwise speak the French word
+    const parenMatch = text.match(/\(([^)]+)\)/);
+    const frPart = text.split("(")[0].split("→")[0].split("=")[0].trim();
+    if(parenMatch){
+      speakEnglish(parenMatch[1]); // speak "ah" not "A"
+    } else {
+      speakFrench(frPart||text);
+    }
+    setTimeout(()=>setSpeaking(false), 1200);
   };
   return(
     <button onClick={handle} title="Listen in French"
