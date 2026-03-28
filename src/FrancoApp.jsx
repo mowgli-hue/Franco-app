@@ -2840,7 +2840,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
       {phase==="questions"&&<div style={{fontSize:12,fontWeight:700,color:"#64748B",flexShrink:0}}>{qIdx+1}/{total}</div>}
     </div>
     {/* Companion hint — collapsible floating bubble */}
-    {avatarText&&<div style={{margin:"12px 16px 0",padding:"10px 14px",background:"#0F172A",borderRadius:12,display:"flex",alignItems:"flex-start",gap:10}}>
+    {avatarText&&phase==="questions"&&<div style={{margin:"12px 16px 0",padding:"10px 14px",background:"#0F172A",borderRadius:12,display:"flex",alignItems:"flex-start",gap:10}}>
       <Avatar companion={c} size={28} speaking={speaking}/>
       <div style={{fontSize:13,color:"rgba(255,255,255,0.9)",lineHeight:1.5,fontStyle:"italic",flex:1}}>{typing?"...":(avatarText||"")}</div>
     </div>}
