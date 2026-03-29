@@ -2280,7 +2280,7 @@ function PaywallModal({onClose, lessonTitle}){
           {promoStatus==="invalid"&&<div style={{marginTop:6,fontSize:12,color:"#DC2626",fontWeight:600}}>✗ Invalid promo code. Try again.</div>}
         </div>
         <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
-          🚀 Start Premium — {PRICE_DISPLAY}
+          {promoStatus==="valid"?"🎁 Redeem & Start Premium":"🚀 Start Premium — "+PRICE_DISPLAY}
         </button>
         <div style={{textAlign:"center",marginTop:10}}>
           <span style={{fontSize:12,color:T.textSoft}}>3 free lessons included · No credit card for free tier</span>
