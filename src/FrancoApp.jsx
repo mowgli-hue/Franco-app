@@ -2175,8 +2175,12 @@ function SpeechBubble({text,companion,typing}){
 
 // ─── PAYWALL CONFIG ───────────────────────────────────────────────────────────
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51TAGxlLohI268vGqWybDPJOq3kRWcjIQkvcqs7Xe1B0HBqSRCQZmzrsUsTQJXDQdqC0qv2e98NPWzCUeZKkRuBfT000nkN1Cmi";
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00"; // ← paste your buy.stripe.com link here
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00";
 const PRICE_DISPLAY = "$49/month";
+const VALID_PROMO_CODES = {
+  "NEWTON50": { discount: "50%", label: "50% off — Newton Immigration special!" },
+  "STARTNOW": { discount: "discount", label: "Special discount applied!" },
+};
 const FREE_LESSON_IDS = new Set(["f-01","f-02","f-03","f1l1","f1l2","f2l1"]); // first 3 Foundation lessons free
 
 function isLessonFree(lessonId){
@@ -2205,11 +2209,24 @@ function checkStripeSuccess(){
 }
 
 function PaywallModal({onClose, lessonTitle}){
+  const[promoCode,setPromoCode]=useState("");
+  const[promoStatus,setPromoStatus]=useState(null);
+  const[promoInfo,setPromoInfo]=useState(null);
+
+  const checkPromo=(code)=>{
+    const upper=code.trim().toUpperCase();
+    if(VALID_PROMO_CODES[upper]){setPromoStatus("valid");setPromoInfo(VALID_PROMO_CODES[upper]);}
+    else if(upper.length>0){setPromoStatus("invalid");setPromoInfo(null);}
+    else{setPromoStatus(null);setPromoInfo(null);}
+  };
+
   const handleUpgrade=()=>{
-    // Append success redirect param to payment link
-    const link=STRIPE_PAYMENT_LINK.includes("?")
-      ? STRIPE_PAYMENT_LINK+"&client_reference_id=franco&success_url="+encodeURIComponent(window.location.href+"?success=1")
-      : STRIPE_PAYMENT_LINK;
+    let link=STRIPE_PAYMENT_LINK;
+    const upper=promoCode.trim().toUpperCase();
+    if(promoStatus==="valid"&&VALID_PROMO_CODES[upper]){
+      link+=(link.includes("?")?"&":"?")+"prefilled_promo_code="+upper;
+    }
+    link+=(link.includes("?")?"&":"?")+"success_url="+encodeURIComponent(window.location.href+"?success=1");
     window.open(link,"_blank");
   };
 
@@ -2252,6 +2269,16 @@ function PaywallModal({onClose, lessonTitle}){
 
       {/* CTA */}
       <div style={{padding:"16px 28px 24px"}}>
+        <div style={{marginBottom:14}}>
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            <input value={promoCode} onChange={e=>{setPromoCode(e.target.value);checkPromo(e.target.value);}}
+              placeholder="Have a promo code? Enter here"
+              style={{flex:1,padding:"10px 14px",border:`1.5px solid ${promoStatus==="valid"?"#10B981":promoStatus==="invalid"?"#EF4444":"#E2E8F0"}`,borderRadius:10,fontSize:13,fontFamily:"system-ui,sans-serif",outline:"none",color:"#0F172A",background:"#F8FAFC"}}/>
+            <button onClick={()=>checkPromo(promoCode)} style={{padding:"10px 14px",background:"#F1F5F9",border:"1px solid #E2E8F0",borderRadius:10,fontSize:12,fontWeight:700,cursor:"pointer",color:"#0F172A",flexShrink:0}}>Apply</button>
+          </div>
+          {promoStatus==="valid"&&promoInfo&&<div style={{marginTop:6,fontSize:12,color:"#059669",fontWeight:700}}>✅ {promoInfo.label}</div>}
+          {promoStatus==="invalid"&&<div style={{marginTop:6,fontSize:12,color:"#DC2626",fontWeight:600}}>✗ Invalid promo code. Try again.</div>}
+        </div>
         <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
           🚀 Start Premium — {PRICE_DISPLAY}
         </button>
