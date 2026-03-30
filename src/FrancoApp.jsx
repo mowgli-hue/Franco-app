@@ -3764,8 +3764,6 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
       </div>
 
       <div style={{marginBottom:12}}>
-        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
-        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
       </div>
 
       <div style={{marginBottom:4}}>
