@@ -2938,6 +2938,31 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
         </div>
 
         {/* TAP type — easiest, just tap the translation */}
+        {q.type==="match"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"14px 18px",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:4}}>{q.prompt}</div>
+            <div style={{fontSize:11,color:"#94A3B8"}}>Tap a French word then its English meaning</div>
+          </div>
+          <div style={{padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:6}}>French</div>
+              {(q.pairs||[]).map((pair,i)=>{const isSel=selected===i;return <button key={i} onClick={()=>setSelected(selected===i?null:i)} style={{display:"block",width:"100%",marginBottom:6,padding:"10px 12px",borderRadius:10,border:"2px solid "+(isSel?"#2563EB":"#E2E8F0"),background:isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:600,color:isSel?"#2563EB":"#0F172A",cursor:"pointer",textAlign:"left"}}>{pair[0]}</button>;})}
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:6}}>English</div>
+              {(q.pairs||[]).map((pair,i)=>{return <button key={i} onClick={()=>{if(selected===null)return;const frWord=(q.pairs||[])[selected]?.[0];const match=(q.pairs||[]).find(p=>p[0]===frWord&&p[1]===pair[1]);if(match){setAnswered(true);setCorrect(x=>x+1);setXp(x=>x+10);}setSelected(null);}} style={{display:"block",width:"100%",marginBottom:6,padding:"10px 12px",borderRadius:10,border:"2px solid #E2E8F0",background:"#F8FAFC",fontSize:13,color:"#475569",cursor:"pointer",textAlign:"left"}}>{pair[1]}</button>;})}
+            </div>
+          </div>
+          {answered&&<div style={{padding:"10px 18px",background:"#ECFDF5",borderTop:"1px solid #D1FAE5",fontSize:13,fontWeight:700,color:"#059669",textAlign:"center"}}>{q.explain}</div>}
+        </div>}
+        {q.type==="scene"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          {q.story&&<div style={{padding:"14px 18px",background:"#EFF6FF",borderBottom:"1px solid #DBEAFE",fontSize:13,color:"#1E40AF",lineHeight:1.7,fontStyle:"italic",borderLeft:"4px solid #3B82F6"}}>{q.story}</div>}
+          <div style={{padding:"16px 18px",borderBottom:"1px solid #F1F5F9"}}><div style={{fontSize:15,fontWeight:700,color:"#0F172A"}}>{q.prompt}</div></div>
+          <div style={{display:"flex",flexDirection:"column"}}>
+            {(q.options||[]).map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 18px",border:"none",borderTop:"1px solid #F1F5F9",background:isC?"#ECFDF5":isW?"#FEF2F2":isSel?"#EFF6FF":"#fff",cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,fontSize:13,color:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#0F172A",fontWeight:600}}><span style={{width:24,height:24,borderRadius:6,background:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#F1F5F9",color:isC||isW||isSel?"#fff":"#64748B",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}</button>;})}
+          </div>
+        </div>}
+
         {q.type==="tap"&&<>
           <Card>
             <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 6px",letterSpacing:1,display:"flex",alignItems:"center",justifyContent:"center",gap:12}}>
