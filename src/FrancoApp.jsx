@@ -3130,7 +3130,7 @@ function AIHintButton({question, level}){
   const getHint=async()=>{
     if(open){setOpen(false);return;}
     setLoading(true);setOpen(true);
-    const sys=`You are a friendly French teacher helping a Canadian immigrant. Give a SHORT hint in ENGLISH only (2 sentences max). Do NOT give the answer. Do NOT write in French. Be specific to the question and encouraging.`;
+    const sys=`You are a warm French teacher helping a Canadian immigrant. Give a short, encouraging hint (2 sentences max) to help with this question. Don't give the answer directly. Be warm and specific.`;
     const msg=`Question type: ${question.type}\nQuestion: ${question.prompt||question.fr||""}\nLevel: ${level}`;
     const h=await callClaude(sys,msg,120);
     setHint(h);setLoading(false);
@@ -3362,7 +3362,8 @@ Keep responses focused and practical — max 4-5 sentences unless explaining som
     setMsgs(newMsgs);
     setInput("");
     setLoading(true);
-    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("");
+    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("
+");
     const reply = await callClaude(learnerContext, `${history}
 
 Learner: ${text}
@@ -3545,35 +3546,35 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
     {/* More section */}
     <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
       <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px",letterSpacing:0.5}}>More</div>
-      <div>
-      <div>
-        <Row emoji="📈" label="Subscription" onClick={()=>{
-          setAdminTaps(t=>{const n=t+1;if(n===3){setShowAdmin(true);return 0;}return n;});
-          if(adminTaps===0)window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");
-        {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-          <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>🔐 Admin Panel</div>
-              <button onClick={()=>{setShowAdmin(false);setAdminMsg("");}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>✕</button>
-            </div>
-            <div style={{fontSize:12,color:"#64748B",marginBottom:12}}>Grant premium to any user by their email</div>
-            <input value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="user@email.com"
-              style={{width:"100%",padding:"10px 12px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
-            <select value={adminDays} onChange={e=>setAdminDays(e.target.value)}
-              style={{width:"100%",padding:"10px 12px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,marginBottom:12}}>
-              <option value="31">1 month</option>
-              <option value="62">2 months</option>
-              <option value="93">3 months</option>
-              <option value="365">1 year</option>
-              <option value="3650">Lifetime</option>
-            </select>
-            <button onClick={grantPremium} style={{width:"100%",padding:"12px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer",marginBottom:10}}>
-              🎁 Grant Premium
-            </button>
-            {adminMsg&&<div style={{padding:"10px 12px",borderRadius:8,background:adminMsg.startsWith("✅")?"#ECFDF5":"#FEF2F2",fontSize:13,color:adminMsg.startsWith("✅")?"#059669":"#DC2626",fontWeight:600}}>{adminMsg}</div>}
+      <Row emoji="📈" label="Subscription" onClick={()=>{
+        const n=adminTaps+1;
+        setAdminTaps(n);
+        if(n===3){setShowAdmin(true);setAdminTaps(0);}
+        else{window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");}
+      }}/>
+      {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>Admin Panel</div>
+            <button onClick={()=>{setShowAdmin(false);setAdminMsg("");}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>x</button>
           </div>
-        </div>}
-      </div>
+          <div style={{fontSize:12,color:"#64748B",marginBottom:12}}>Grant premium to any user by email</div>
+          <input value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="user@email.com"
+            style={{width:"100%",padding:"10px 12px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+          <select value={adminDays} onChange={e=>setAdminDays(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,marginBottom:12}}>
+            <option value="31">1 month</option>
+            <option value="62">2 months</option>
+            <option value="93">3 months</option>
+            <option value="365">1 year</option>
+            <option value="3650">Lifetime</option>
+          </select>
+          <button onClick={grantPremium} style={{width:"100%",padding:"12px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer",marginBottom:10}}>
+            Grant Premium
+          </button>
+          {adminMsg&&<div style={{padding:"10px 12px",borderRadius:8,background:adminMsg.startsWith("Done")?"#ECFDF5":"#FEF2F2",fontSize:13,color:adminMsg.startsWith("Done")?"#059669":"#DC2626",fontWeight:600}}>{adminMsg}</div>}
+        </div>
+      </div>}
       <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>window.open("https://wa.me/16046355031","_blank")}/>
       <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:admin@junglelabsworld.com","_blank")}/>
       <Row emoji="📱" label="WhatsApp — +1 604 902 8699" onClick={()=>window.open("https://wa.me/16049028699","_blank")}/>
@@ -3631,6 +3632,7 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
       : <button onClick={()=>onAuthNav("landing")} style={{fontSize:12,fontWeight:700,padding:"6px 14px",borderRadius:8,border:"none",background:"#0F172A",color:"#fff",cursor:"pointer",flexShrink:0}}>Sign in</button>
     )}
   </div>;
+}
 }
 
 export default function App(){
