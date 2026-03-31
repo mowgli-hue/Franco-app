@@ -3492,29 +3492,6 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
     }catch(e){setAdminMsg("❌ "+e.message);}
   };
   const[logoTaps,setLogoTaps]=useState(0);
-  const[showAdmin,setShowAdmin]=useState(false);
-  const[adminEmail,setAdminEmail]=useState("");
-  const[adminDays,setAdminDays]=useState("31");
-  const[adminMsg,setAdminMsg]=useState("");
-
-  const grantPremium=async()=>{
-    if(!adminEmail.trim()){setAdminMsg("Enter an email");return;}
-    try{
-      const db=getFirestore();
-      const exp=Date.now()+(parseInt(adminDays||"31")*24*60*60*1000);
-      // Store in Firestore by email
-      const usersRef=collection(db,"premiumUsers");
-      const q=query(usersRef,where("email","==",adminEmail.trim().toLowerCase()));
-      const snap=await getDocs(q);
-      if(!snap.empty){
-        await updateDoc(snap.docs[0].ref,{premium:true,exp,grantedAt:Date.now()});
-      } else {
-        await addDoc(usersRef,{email:adminEmail.trim().toLowerCase(),premium:true,exp,grantedAt:Date.now()});
-      }
-      setAdminMsg("✅ Premium granted to "+adminEmail+" for "+adminDays+" days!");
-      setAdminEmail("");
-    }catch(e){setAdminMsg("Error: "+e.message);}
-  };
   const[logoTaps,setLogoTaps]=useState(0);
   const[showAdmin,setShowAdmin]=useState(false);
   const[adminEmail,setAdminEmail]=useState("");
