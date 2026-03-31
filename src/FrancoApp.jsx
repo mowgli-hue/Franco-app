@@ -496,7 +496,7 @@ const FOUNDATION_LESSONS = [
      fill("You walk into a pharmacy. You say","___","to greet the pharmacist.",["Bonjour","Au revoir","Merci","Non"],0,"Always greet with Bonjour in Quebec! Even basic French shows respect and opens hearts.",2),
      {type:"scene",story:"Amara arrives at Montreal airport. The officer says 'Bonjour Madame, bienvenue au Canada!' Amara smiles and wants to reply.",prompt:"What should Amara say?",options:["Bonjour! Merci!","Au revoir!","Non merci","Je ne sais pas"],correct:0,explain:"Bonjour! Merci! Simple and perfect. Respond to Bonjour with Bonjour. Canadians will love this!",diff:2},
      mcq("Leaving a store you say:",["Bonjour","Merci, bonne journee!","Oui","S'il vous plait"],1,"Merci, bonne journee! = Thank you, have a good day! Perfect way to leave any store in Quebec.",2),
-     wr("Write how you greet someone entering a store",["bonjour","bonjour!","bonjour madame","bonjour monsieur"],"Bonjour! One word that opens every door in Quebec. Greeting people when you enter is the culture — not optional!",1)])
+     wr("Write how you greet someone entering a store",["bonjour","bonjour!","bonjour madame","bonjour monsieur"],"Bonjour! One word that opens every door in Quebec. Greeting people when you enter is the culture — not optional!",1)])]),
 
   mkL("f-02","Nasal Vowels",25,"listening",
     "French has 4 nasal vowels that do not exist in English! Air flows through your nose as you speak. ON (bonjour, bon), AN/EN (France, enfant, dans), IN/AIN (pain, vin, main), UN (brun, un). These appear constantly in everyday Canadian French. Tip: say the vowel and let your voice hum into your nose — do not close your lips!",
