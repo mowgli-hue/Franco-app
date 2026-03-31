@@ -3362,8 +3362,7 @@ Keep responses focused and practical — max 4-5 sentences unless explaining som
     setMsgs(newMsgs);
     setInput("");
     setLoading(true);
-    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("
-");
+    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("");
     const reply = await callClaude(learnerContext, `${history}
 
 Learner: ${text}
