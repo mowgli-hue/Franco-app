@@ -3552,11 +3552,6 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
           if(adminTaps===0)window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");
         }}/>
         {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}><div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}><div style={{fontSize:16,fontWeight:800}}>Admin Panel</div><button onClick={()=>{setShowAdmin(false);setAdminMsg("");}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>x</button></div><input value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="user@email.com" style={{width:"100%",padding:"10px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/><select value={adminDays} onChange={e=>setAdminDays(e.target.value)} style={{width:"100%",padding:"10px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,marginBottom:12}}><option value="31">1 month</option><option value="62">2 months</option><option value="93">3 months</option><option value="365">1 year</option><option value="3650">Lifetime</option></select><button onClick={grantPremium} style={{width:"100%",padding:"12px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",marginBottom:10}}>Grant Premium</button>{adminMsg&&<div style={{padding:"10px",borderRadius:8,fontSize:13,fontWeight:600}}>{adminMsg}</div>}</div></div>}
-      </div>
-          const n=adminTaps+1;
-          setAdminTaps(n);
-          if(n==3||n==4||n==5){setShowAdmin(true);setAdminTaps(0);}
-          else{window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");}
         }}/>
         {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
