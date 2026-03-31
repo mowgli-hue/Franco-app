@@ -3552,7 +3552,7 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
       </div>
           const n=adminTaps+1;
           setAdminTaps(n);
-          if(n>=3){setShowAdmin(true);setAdminTaps(0);}
+          if(n==3||n==4||n==5){setShowAdmin(true);setAdminTaps(0);}
           else{window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");}
         }}/>
         {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
