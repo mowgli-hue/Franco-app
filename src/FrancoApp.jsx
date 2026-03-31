@@ -487,17 +487,16 @@ const wr = (prompt, accepted, explain) =>
 // FOUNDATION — 20 lessons
 // ─────────────────────────────────────────────────────────────────────────────
 const FOUNDATION_LESSONS = [
-  mkL("f-01","The French Alphabet",20,"listening",
-    "French has 26 letters like English but pronounced very differently! E=\'uh\', I=\'ee\', U=\'oo\' with rounded lips, R is guttural (from the throat). H is ALWAYS silent. Getting pronunciation right from day one makes everything easier — and makes a great first impression in Canada!",
-    ["A (ah)","E (uh)","I (ee)","O (oh)","U (oo — round lips!)","R (guttural throat)","H (always silent!)","é = ay","è = open eh","ç = s sound"],
-    [mcq("How is the French letter E pronounced?",["ee like me","ay like say","uh like the","oh like go"],2,"French E = uh — the neutral schwa sound, like the e in the. You hear it in: le, me, te, ce. The most common vowel in French!"),
-     mcq("How do you make the French U sound?",["Say oo with relaxed lips","Round lips for oo but say ee","Say you quickly","Say uh with open mouth"],1,"French U is unique — round lips tight for oo then try to say ee. Feel the tension? Words: lune (moon), rue (street), vu (seen). This sound does not exist in English!"),
-     mcq("Which letter is ALWAYS silent in French?",["R","S","H","L"],2,"H is always silent — no exceptions! hospital = oh-pee-tal, homme = omm, heure = eur. Never pronounce H in French!"),
-     mcq("How is R pronounced in French?",["Like English R","Rolled like Spanish","From back of throat","Like W"],2,"French R is guttural — from the back of your throat like gentle gargling. Try: say ah then add a soft scraping sound. bonjour, rouge, rue. It feels strange at first but comes naturally!"),
-     mcq("The accent e-aigu in cafe makes E sound like:",["uh","ay like say","oh","ee"],1,"Accent aigu e = ay sound! cafe = kaf-AY. Very common: etudiant, medecin, prefere. You will see this accent everywhere in Quebec!"),
-     mcq("How is Paris pronounced?",["PAH-rees","PAH-riss","pah-REE","PAR-is"],2,"The final S in Paris is silent — pah-REE! Most final consonants in French are silent. This makes French sound musical and flowing."),
-     mcq("Bonjour — is the final R pronounced?",["No, it is silent","Yes, guttural R","Yes, like English R","Only in Quebec"],1,"Yes — unlike most final consonants, R IS pronounced! bon-ZHOOR with a guttural R. This detail shows you are serious about French!"),
-     wr("Write the French word for yes",["oui"],"Oui (pronounced wee) — your very first French word! You will use it dozens of times every day in Canada. It starts every conversation.")]),
+  mkL("f-01","Bonjour Canada!",15,"mixed",
+    "Imagine this: you just landed at Montreal airport. The customs officer smiles and says Bonjour! You freeze... what do you say? This happens to every new immigrant. Today you learn the 5 magic words that get you through your first day — and why saying them correctly makes Canadians light up with joy.",
+    ["Bonjour (bohn-ZHOOR) = Hello","Merci (mare-SEE) = Thank you","S'il vous plait = Please","Oui (WEE) = Yes","Non (NOH) = No","Excusez-moi = Excuse me","De rien = You're welcome","Bonne journee = Have a good day"],
+    [mcq("How do you greet someone in Quebec?",["Hola","Bonjour","Hello","Ciao"],1,"Bonjour = Hello or Good day! Used ALL day in Quebec. Always say it when entering any shop or office. One word, massive impact!",1),
+     mcq("The customs officer helps you. You say:",["S'il vous plait","Merci beaucoup","Bonjour","Oui"],1,"Merci beaucoup = Thank you very much! Canadians appreciate this warmth — it shows you care.",1),
+     {type:"match",prompt:"Match the French word to its English meaning",pairs:[["Oui","Yes"],["Non","No"],["Merci","Thank you"],["Bonjour","Hello"],["S'il vous plait","Please"]],explain:"These 5 words are your Day 1 survival kit in Canada!",diff:1},
+     fill("You walk into a pharmacy. You say","___","to greet the pharmacist.",["Bonjour","Au revoir","Merci","Non"],0,"Always greet with Bonjour in Quebec! Even basic French shows respect and opens hearts.",2),
+     {type:"scene",story:"Amara arrives at Montreal airport. The officer says 'Bonjour Madame, bienvenue au Canada!' Amara smiles and wants to reply.",prompt:"What should Amara say?",options:["Bonjour! Merci!","Au revoir!","Non merci","Je ne sais pas"],correct:0,explain:"Bonjour! Merci! Simple and perfect. Respond to Bonjour with Bonjour. Canadians will love this!",diff:2},
+     mcq("Leaving a store you say:",["Bonjour","Merci, bonne journee!","Oui","S'il vous plait"],1,"Merci, bonne journee! = Thank you, have a good day! Perfect way to leave any store in Quebec.",2),
+     wr("Write how you greet someone entering a store",["bonjour","bonjour!","bonjour madame","bonjour monsieur"],"Bonjour! One word that opens every door in Quebec. Greeting people when you enter is the culture — not optional!",1)])
 
   mkL("f-02","Nasal Vowels",25,"listening",
     "French has 4 nasal vowels that do not exist in English! Air flows through your nose as you speak. ON (bonjour, bon), AN/EN (France, enfant, dans), IN/AIN (pain, vin, main), UN (brun, un). These appear constantly in everyday Canadian French. Tip: say the vowel and let your voice hum into your nose — do not close your lips!",
