@@ -3130,7 +3130,7 @@ function AIHintButton({question, level}){
   const getHint=async()=>{
     if(open){setOpen(false);return;}
     setLoading(true);setOpen(true);
-    const sys=`You are a warm French teacher helping a Canadian immigrant. Give a short, encouraging hint (2 sentences max) to help with this question. Don't give the answer directly. Be warm and specific.`;
+    const sys=`You are a friendly French teacher helping a Canadian immigrant. Give a SHORT hint in ENGLISH only (2 sentences max). Do NOT give the answer. Do NOT write in French. Be specific to the question and encouraging.`;
     const msg=`Question type: ${question.type}\nQuestion: ${question.prompt||question.fr||""}\nLevel: ${level}`;
     const h=await callClaude(sys,msg,120);
     setHint(h);setLoading(false);
