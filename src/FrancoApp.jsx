@@ -3167,6 +3167,8 @@ function PracticeScreen({companion}){
   const[matchDone,setMatchDone]=useState([]);
   const[fillSel,setFillSel]=useState(null);
   const[shuffled,setShuffled]=useState([]);
+  const[placed,setPlaced]=useState([]);
+  const[bank,setBank]=useState([]);
   const timerRef=useRef();
   const bottomRef=useRef();
 
@@ -3223,7 +3225,8 @@ Rules:
   // Games section
   const startGame=(g)=>{
     setGameActive(g);setQIdx(0);setReveal(false);setScore(0);
-    setMatchSel(null);setMatchDone([]);setFillSel(null);
+    setMatchSel(null);setMatchDone([]);setFillSel(null);setPlaced([]);
+    if(g.id==="sentence")setBank([...(g.questions?.[0]?.words||[])].sort(()=>Math.random()-0.5));
     if(g.id==="speed"||g.id==="errors"){setTimer(60);setRunning(true);}
   };
 
@@ -3478,8 +3481,6 @@ Rules:
           <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
         </div>
       </div>;
-      const[placed,setPlaced]=useState([]);
-      const[bank,setBank]=useState(()=>[...q.words].sort(()=>Math.random()-0.5));
       const isCorrect=JSON.stringify(placed)===JSON.stringify(q.correct);
       return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
         {backBtn}
@@ -3928,6 +3929,7 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
     )}
   </div>;
 }
+}
 
 export default function App(){
   return <AuthProvider><AppInner/></AuthProvider>;
@@ -4048,6 +4050,7 @@ function AppInner(){
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
+}
 
 export default function App(){
   return <AuthProvider><AppInner/></AuthProvider>;
