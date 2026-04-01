@@ -3953,9 +3953,6 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
 }
 }
 
-export default function App(){
-  return <AuthProvider><AppInner/></AuthProvider>;
-}
 
 function AppInner(){
   const authCtx=useAuth();
