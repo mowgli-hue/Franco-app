@@ -101,6 +101,10 @@ function AuthProvider({children}){
     const unsub = onAuthStateChanged(_firebaseAuth, async u=>{
       setUser(u);
       setInitializing(false);
+      if(u){
+        // Check backend for premium status
+        checkBackendPremium(u.uid);
+      }
       if(u && _firebaseDb){
         // Load cloud data on login
         const data = await loadUserData(u.uid);
@@ -1922,6 +1926,22 @@ function isPremiumUnlocked(){
     return token==="unlocked" && Date.now()<exp;
   }catch{return false;}
 }
+
+const BACKEND_URL="https://clbbackend-production.up.railway.app";
+
+async function checkBackendPremium(userId){
+  try{
+    const res=await fetch(`${BACKEND_URL}/api/subscription/status?userId=${userId}`);
+    const data=await res.json();
+    if(data.status==="pro"||data.subscriptionStatus==="active"){
+      const exp=Date.now()+(7*24*60*60*1000);
+      localStorage.setItem("franco_premium",JSON.stringify({token:"unlocked",exp}));
+      return true;
+    }
+    return false;
+  }catch(e){return false;}
+}
+
 
 // Call this after successful Stripe redirect (add ?success=1 to your Stripe redirect URL)
 function checkStripeSuccess(){
@@ -3929,7 +3949,11 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
     )}
   </div>;
 }
+}
 
+export default function App(){
+  return <AuthProvider><AppInner/></AuthProvider>;
+}
 
 function AppInner(){
   const authCtx=useAuth();
