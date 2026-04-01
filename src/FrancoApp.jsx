@@ -103,7 +103,9 @@ function AuthProvider({children}){
       setInitializing(false);
       if(u){
         // Check backend for premium status
-        checkBackendPremium(u.uid);
+        checkBackendPremium(u.uid).then(isPro=>{
+          if(isPro && !isPremiumUnlocked()) window.location.reload();
+        });
       }
       if(u && _firebaseDb){
         // Load cloud data on login
@@ -3949,7 +3951,11 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
     )}
   </div>;
 }
+}
 
+export default function App(){
+  return <AuthProvider><AppInner/></AuthProvider>;
+}
 
 function AppInner(){
   const authCtx=useAuth();
