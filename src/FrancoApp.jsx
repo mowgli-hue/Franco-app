@@ -3951,7 +3951,6 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
     )}
   </div>;
 }
-}
 
 
 function AppInner(){
