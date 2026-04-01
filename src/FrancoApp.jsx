@@ -3309,6 +3309,302 @@ Rules:
     </div>;
   }
 
+  // ── GAME UI ──
+  if(gameActive){
+    const g=gameActive;
+    const backBtn=<button onClick={()=>{setGameActive(null);clearInterval(timerRef.current);}} style={{background:"none",border:"1.5px solid #E2E8F0",padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,color:"#64748B",fontFamily:"system-ui",marginBottom:16}}>← Back to Games</button>;
+
+    // SPEED RECALL
+    if(g.id==="speed"){
+      const q=g.questions[qIdx%g.questions.length];
+      const done=timer===0||!running;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>⚡ Speed Recall</div>
+          <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <div style={{fontSize:18,fontWeight:800,color:timer<10?"#EF4444":"#059669"}}>⏱ {timer}s</div>
+            <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>Score: {score}</div>
+          </div>
+        </div>
+        {done?<div style={{textAlign:"center",padding:"40px 20px",background:"#fff",borderRadius:16,border:"1px solid #E2E8F0"}}>
+          <div style={{fontSize:52,marginBottom:12}}>🏆</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:800,color:"#0F172A",marginBottom:6}}>Time's up!</div>
+          <div style={{fontSize:16,color:"#64748B",marginBottom:20}}>You scored <strong>{score}</strong> points</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 28px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>:<div>
+          <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",padding:"32px 24px",textAlign:"center",marginBottom:16}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:36,fontWeight:800,color:"#0F172A",marginBottom:8}}>{q.fr}</div>
+            {reveal&&<div style={{fontSize:20,color:"#059669",fontWeight:700,marginTop:12}}>→ {q.en}</div>}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            {!reveal?<button onClick={()=>setReveal(true)} style={{flex:1,padding:"14px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"system-ui"}}>Show Answer</button>
+            :<><button onClick={()=>{setScore(s=>s+10);setQIdx(i=>i+1);setReveal(false);}} style={{flex:1,padding:"14px",background:"#059669",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"system-ui"}}>✓ Got it! +10</button>
+            <button onClick={()=>{setQIdx(i=>i+1);setReveal(false);}} style={{flex:1,padding:"14px",background:"#EF4444",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"system-ui"}}>✗ Missed</button></>}
+          </div>
+        </div>}
+      </div>;
+    }
+
+    // ERROR HUNTER
+    if(g.id==="errors"){
+      const q=(g.questions||[])[qIdx];
+      const done=!q||timer===0;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🧩 Error Hunter</div>
+          <div style={{fontSize:18,fontWeight:800,color:timer<10?"#EF4444":"#059669"}}>⏱ {timer}s · {score}pts</div>
+        </div>
+        {done?<div style={{textAlign:"center",padding:"40px",background:"#fff",borderRadius:16,border:"1px solid #E2E8F0"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎯</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:8}}>Done! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>:<div>
+          <div style={{background:"#EFF6FF",borderRadius:12,padding:"14px 16px",marginBottom:14,fontSize:14,fontWeight:600,color:"#1E40AF"}}>{q.prompt}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[{text:q.answer,correct:true},{text:q.wrong,correct:false}].sort(()=>Math.random()-0.5).map((opt,i)=>
+              <button key={i} onClick={()=>{if(opt.correct){setScore(s=>s+10);}setReveal(true);setTimeout(()=>{setQIdx(idx=>idx+1);setReveal(false);},1500);}}
+                style={{padding:"14px 18px",borderRadius:12,border:"2px solid #E2E8F0",background:reveal?(opt.correct?"#ECFDF5":"#FEF2F2"):"#fff",fontSize:14,fontWeight:600,cursor:reveal?"default":"pointer",color:reveal?(opt.correct?"#059669":"#DC2626"):"#0F172A",textAlign:"left",fontFamily:"system-ui"}}>
+                {opt.text}
+              </button>
+            )}
+          </div>
+          {reveal&&<div style={{marginTop:12,padding:"12px 14px",background:"#F8FAFC",borderRadius:10,fontSize:13,color:"#475569",lineHeight:1.6}}>{q.explain}</div>}
+        </div>}
+      </div>;
+    }
+
+    // WORD MATCH
+    if(g.id==="match"){
+      const pairs=g.pairs||[];
+      const frWords=pairs.map(p=>p.fr);
+      const enWords=[...pairs.map(p=>p.en)].sort(()=>Math.random()-0.5);
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A",marginBottom:6}}>🎯 Word Match</div>
+        <div style={{fontSize:13,color:"#64748B",marginBottom:16}}>Tap a French word, then its English meaning. {matchDone.length}/{pairs.length} matched!</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:8}}>French</div>
+            {frWords.map((fr,i)=>{
+              const isDone=matchDone.includes(fr);
+              const isSel=matchSel===fr;
+              return <button key={i} disabled={isDone} onClick={()=>{
+                if(matchSel&&matchSel!==fr){
+                  const pair=pairs.find(p=>p.fr===matchSel);
+                  setMatchSel(null);
+                } else {setMatchSel(isSel?null:fr);}
+              }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:600,color:isDone?"#059669":isSel?"#2563EB":"#0F172A",cursor:isDone?"default":"pointer",textAlign:"left",textDecoration:isDone?"line-through":"none"}}>
+                {fr}
+              </button>;
+            })}
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:8}}>English</div>
+            {enWords.map((en,i)=>{
+              const matchedPair=pairs.find(p=>p.en===en&&matchDone.includes(p.fr));
+              const isDone=!!matchedPair;
+              return <button key={i} disabled={isDone} onClick={()=>{
+                if(!matchSel) return;
+                const pair=pairs.find(p=>p.fr===matchSel);
+                if(pair&&pair.en===en){
+                  setMatchDone(d=>[...d,matchSel]);
+                  setScore(s=>s+10);
+                  setMatchSel(null);
+                } else {
+                  setMatchSel(null);
+                }
+              }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":"#E2E8F0"}`,background:isDone?"#ECFDF5":"#F8FAFC",fontSize:13,color:isDone?"#059669":"#475569",cursor:isDone?"default":"pointer",textAlign:"left"}}>
+                {en}
+              </button>;
+            })}
+          </div>
+        </div>
+        {matchDone.length===pairs.length&&<div style={{textAlign:"center",padding:"24px",background:"#ECFDF5",borderRadius:12,marginTop:16}}>
+          <div style={{fontSize:32,marginBottom:8}}>🎉</div>
+          <div style={{fontWeight:800,fontSize:18,color:"#059669",marginBottom:12}}>All matched! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"10px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>}
+      </div>;
+    }
+
+    // FILL THE GAP
+    if(g.id==="fill"){
+      const q=(g.questions||[])[qIdx];
+      if(!q) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px",background:"#fff",borderRadius:16}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:8}}>Complete! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>
+      </div>;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>✏️ Fill the Gap</div>
+          <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>{qIdx+1}/{g.questions.length} · {score}pts</div>
+        </div>
+        <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",padding:"24px",marginBottom:16,fontSize:17,fontWeight:600,color:"#0F172A",textAlign:"center"}}>
+          {q.before} <span style={{borderBottom:"2px solid #2563EB",padding:"2px 8px",color:fillSel!==null?(fillSel===q.correct?"#059669":"#DC2626"):"#2563EB",fontStyle:"italic"}}>{fillSel!==null?q.options[fillSel]:"___"}</span> {q.after}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {q.options.map((opt,i)=>{
+            const isSel=fillSel===i;
+            const isC=fillSel!==null&&i===q.correct;
+            const isW=fillSel!==null&&isSel&&i!==q.correct;
+            return <button key={i} disabled={fillSel!==null} onClick={()=>{setFillSel(i);if(i===q.correct)setScore(s=>s+10);}}
+              style={{padding:"12px",borderRadius:10,border:`2px solid ${isC?"#059669":isW?"#EF4444":"#E2E8F0"}`,background:isC?"#ECFDF5":isW?"#FEF2F2":"#F8FAFC",fontSize:14,fontWeight:600,color:isC?"#059669":isW?"#DC2626":"#0F172A",cursor:fillSel!==null?"default":"pointer",fontFamily:"system-ui"}}>
+              {opt}
+            </button>;
+          })}
+        </div>
+        {fillSel!==null&&<>
+          <div style={{marginTop:12,padding:"12px 14px",background:"#F8FAFC",borderRadius:10,fontSize:13,color:"#475569",lineHeight:1.6}}>{q.explain}</div>
+          <button onClick={()=>{setQIdx(i=>i+1);setFillSel(null);}} style={{width:"100%",marginTop:10,padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next →</button>
+        </>}
+      </div>;
+    }
+
+    // BUILD A SENTENCE
+    if(g.id==="sentence"){
+      const q=(g.questions||[])[qIdx];
+      if(!q) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px",background:"#fff",borderRadius:16}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:8}}>Complete! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>
+      </div>;
+      const[placed,setPlaced]=useState([]);
+      const[bank,setBank]=useState(()=>[...q.words].sort(()=>Math.random()-0.5));
+      const isCorrect=JSON.stringify(placed)===JSON.stringify(q.correct);
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🔀 Build a Sentence</div>
+          <div style={{fontSize:14,fontWeight:700}}>{qIdx+1}/{g.questions.length}</div>
+        </div>
+        <div style={{minHeight:56,padding:"12px",background:"#F8FAFC",borderRadius:12,border:`2px dashed ${reveal?isCorrect?"#059669":"#EF4444":"#CBD5E0"}`,display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",marginBottom:14}}>
+          {placed.length===0&&<span style={{color:"#CBD5E0",fontSize:13}}>Tap words to build...</span>}
+          {placed.map((w,i)=><button key={i} onClick={()=>{setPlaced(p=>{const n=[...p];n.splice(i,1);return n;});setBank(b=>[...b,w]);setReveal(false);}}
+            style={{padding:"6px 12px",borderRadius:50,background:"#0F172A",color:"#fff",border:"none",fontWeight:600,fontSize:13,cursor:"pointer"}}>{w}</button>)}
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+          {bank.map((w,i)=><button key={i} onClick={()=>{setPlaced(p=>[...p,w]);setBank(b=>{const n=[...b];n.splice(i,1);return n;});}}
+            style={{padding:"6px 12px",borderRadius:50,background:"#F1F5F9",border:"1.5px solid #E2E8F0",fontWeight:600,fontSize:13,cursor:"pointer",color:"#0F172A"}}>{w}</button>)}
+        </div>
+        {!reveal?<button onClick={()=>setReveal(true)} style={{width:"100%",padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Check</button>
+        :<>
+          <div style={{padding:"12px 14px",background:isCorrect?"#ECFDF5":"#FEF2F2",borderRadius:10,fontSize:13,color:isCorrect?"#059669":"#DC2626",fontWeight:700,marginBottom:8}}>{isCorrect?"✓ Correct!":"✗ "+q.correct.join(" ")}</div>
+          <div style={{padding:"10px 14px",background:"#F8FAFC",borderRadius:10,fontSize:13,color:"#475569",marginBottom:10}}>{q.explain}</div>
+          <button onClick={()=>{if(isCorrect)setScore(s=>s+10);setQIdx(i=>i+1);setPlaced([]);setBank([...(g.questions[qIdx+1]?.words||[])].sort(()=>Math.random()-0.5));setReveal(false);}}
+            style={{width:"100%",padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next →</button>
+        </>}
+      </div>;
+    }
+
+    // FLASHCARD
+    if(g.id==="flashcard"){
+      const card=(g.cards||[])[qIdx];
+      if(!card) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🃏</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:12}}>All cards done!</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Start Over</button>
+        </div>
+      </div>;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🃏 Flashcard Blitz</div>
+          <div style={{fontSize:13,color:"#64748B"}}>{qIdx+1}/{g.cards.length}</div>
+        </div>
+        <div onClick={()=>setReveal(r=>!r)} style={{background:"#fff",borderRadius:20,border:"2px solid #E2E8F0",padding:"48px 24px",textAlign:"center",cursor:"pointer",minHeight:180,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(0,0,0,0.06)"}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:800,color:"#0F172A",marginBottom:8}}>{reveal?card.en:card.fr}</div>
+          <div style={{fontSize:12,color:"#94A3B8"}}>{reveal?"English":"French"} · Tap to flip</div>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16}}>
+          <button onClick={()=>{setQIdx(i=>i+1);setReveal(false);}} style={{flex:1,padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next Card →</button>
+        </div>
+      </div>;
+    }
+
+    // LIGHTNING MATCH
+    if(g.id==="quickmatch"){
+      const pairs=g.pairs||[];
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A",marginBottom:6}}>⚡ Lightning Match</div>
+        <div style={{fontSize:13,color:"#64748B",marginBottom:16}}>{matchDone.length}/{pairs.length} matched · Score: {score}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>{pairs.map((p,i)=>{const isDone=matchDone.includes(p.fr);const isSel=matchSel===p.fr;
+            return <button key={i} disabled={isDone} onClick={()=>{
+              if(matchSel&&matchSel!==p.fr){setMatchSel(null);}else{setMatchSel(isSel?null:p.fr);}
+            }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:600,color:isDone?"#059669":isSel?"#2563EB":"#0F172A",cursor:isDone?"default":"pointer",textDecoration:isDone?"line-through":"none"}}>
+              {p.fr}
+            </button>;})}
+          </div>
+          <div>{[...pairs].sort(()=>Math.random()-0.5).map((p,i)=>{const isDone=matchDone.some(fr=>pairs.find(pp=>pp.fr===fr&&pp.en===p.en));
+            return <button key={i} disabled={isDone} onClick={()=>{
+              if(!matchSel)return;
+              const pair=pairs.find(pp=>pp.fr===matchSel);
+              if(pair&&pair.en===p.en){setMatchDone(d=>[...d,matchSel]);setScore(s=>s+10);setMatchSel(null);}
+              else{setMatchSel(null);}
+            }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":"#E2E8F0"}`,background:isDone?"#ECFDF5":"#F8FAFC",fontSize:13,color:isDone?"#059669":"#475569",cursor:isDone?"default":"pointer"}}>
+              {p.en}
+            </button>;})}
+          </div>
+        </div>
+        {matchDone.length===pairs.length&&<div style={{textAlign:"center",padding:"24px",background:"#ECFDF5",borderRadius:12,marginTop:16}}>
+          <div style={{fontSize:32,marginBottom:8}}>⚡🎉</div>
+          <div style={{fontWeight:800,fontSize:18,color:"#059669",marginBottom:12}}>Lightning fast! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"10px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>}
+      </div>;
+    }
+
+    // SPEAKING CHALLENGE
+    if(g.id==="speaking"){
+      const q=(g.questions||[])[qIdx];
+      if(!q) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎤</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:12}}>All challenges done!</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Start Over</button>
+        </div>
+      </div>;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🎤 Speaking Challenge</div>
+          <div style={{fontSize:13,color:"#64748B"}}>{qIdx+1}/{g.questions.length}</div>
+        </div>
+        <div style={{background:"#0F172A",borderRadius:16,padding:"24px",marginBottom:14,color:"#fff"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",marginBottom:8}}>Your prompt</div>
+          <div style={{fontSize:15,lineHeight:1.7}}>{q.prompt}</div>
+          <div style={{marginTop:12,fontSize:12,color:"rgba(255,255,255,0.5)"}}>⏱ Suggested: {q.time} seconds</div>
+        </div>
+        <button onClick={()=>setReveal(r=>!r)} style={{width:"100%",padding:"13px",background:reveal?"#F8FAFC":"#EFF6FF",color:reveal?"#475569":"#2563EB",border:`1.5px solid ${reveal?"#E2E8F0":"#BFDBFE"}`,borderRadius:12,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui",marginBottom:10}}>
+          {reveal?"Hide sample answer":"Show sample answer"}
+        </button>
+        {reveal&&<>
+          <div style={{padding:"14px 16px",background:"#F8FAFC",borderRadius:12,fontSize:13,lineHeight:1.8,color:"#334155",marginBottom:10,fontStyle:"italic"}}>{q.sample}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+            {q.tips.map((tip,i)=><span key={i} style={{fontSize:12,padding:"4px 10px",background:"#FFFBEB",color:"#92400E",borderRadius:50,border:"1px solid #FCD34D"}}>💡 {tip}</span>)}
+          </div>
+        </>}
+        <button onClick={()=>{setQIdx(i=>i+1);setReveal(false);}} style={{width:"100%",padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next Challenge →</button>
+      </div>;
+    }
+
+    return <div style={{padding:"20px 16px"}}>{backBtn}<div style={{textAlign:"center",padding:"40px",color:"#64748B"}}>Game not found</div></div>;
+  }
+
   return null;
 }
 
@@ -3632,6 +3928,8 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
     )}
   </div>;
 }
+}
+
 export default function App(){
   return <AuthProvider><AppInner/></AuthProvider>;
 }
@@ -3751,4 +4049,7 @@ function AppInner(){
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
+
+export default function App(){
+  return <AuthProvider><AppInner/></AuthProvider>;
 }
