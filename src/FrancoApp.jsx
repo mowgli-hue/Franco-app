@@ -1,5 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+// Custom hook for localStorage state
+function useLocalState(key, defaultValue) {
+  const [state, setState] = useState(() => {
+    try {
+      if (typeof window === "undefined") return defaultValue;
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  const setValue = (value) => {
+    try {
+      setState(value);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+    } catch (error) {
+      console.warn(`Error saving to localStorage:`, error);
+      setState(value);
+    }
+  };
+
+  return [state, setValue];
+}
+
 const T = {
   navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
   mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
