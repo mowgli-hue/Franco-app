@@ -41,7 +41,13 @@ const T = {
     mint:"#34D399",mintLight:"#064E3B",red:"#F87171",redLight:"#7F1D1D",
     gold:"#FBBF24",goldLight:"#78350F",purple:"#A78BFA",purpleLight:"#4C1D95",
     surface:"#0F172A",card:"#1E293B",text:"#F1F5F9",textMid:"#CBD5E1",textSoft:"#64748B",border:"#334155",
-  }
+  },
+  // Shortcut top-level colors (resolve to light-theme values).
+  // These exist so legacy code using T.navy, T.blue, T.surface etc. doesn't break.
+  navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
+  mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
+  gold:"#F59E0B",goldLight:"#FEF3C7",purple:"#8B5CF6",purpleLight:"#EDE9FE",
+  surface:"#F0F4FF",card:"#FFFFFF",text:"#0D1B3E",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
 };
 
 // Enhanced AI Tutors with personalities
