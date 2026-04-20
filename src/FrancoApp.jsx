@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, deleteDoc, collection, addDoc, getDocs, updateDoc, query, where } from "firebase/firestore";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,7 +154,11 @@ function AuthProvider({children}){
       if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured.")  ,{code:"auth/no-config"});
       const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
       await reload(cred.user);
-
+      if(!cred.user.emailVerified){
+        try{ await sendEmailVerification(cred.user); }catch{}
+        await signOut(_firebaseAuth);
+        throw Object.assign(new Error("Email not verified"), {code:"auth/email-not-verified"});
+      }
     },
 
     async register(name, email, password){
@@ -1846,11 +1850,8 @@ function checkStripeSuccess(){
 
 function PaywallModal({onClose, lessonTitle}){
   const handleUpgrade=()=>{
-    // Append success redirect param to payment link
-    const link=STRIPE_PAYMENT_LINK.includes("?")
-      ? STRIPE_PAYMENT_LINK+"&client_reference_id=franco&success_url="+encodeURIComponent(window.location.href+"?success=1")
-      : STRIPE_PAYMENT_LINK;
-    window.open(link,"_blank");
+    // Send to web app for payment (Apple IAP compliant)
+    window.open("https://franco.app?subscribe=1","_blank");
   };
 
   return <div style={{position:"fixed",inset:0,background:"rgba(13,27,62,0.75)",backdropFilter:"blur(6px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
@@ -1893,7 +1894,7 @@ function PaywallModal({onClose, lessonTitle}){
       {/* CTA */}
       <div style={{padding:"16px 28px 24px"}}>
         <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
-          🚀 Start Premium — {PRICE_DISPLAY}
+          🌐 Subscribe at franco.app
         </button>
         <div style={{textAlign:"center",marginTop:10}}>
           <span style={{fontSize:12,color:T.textSoft}}>3 free lessons included · No credit card for free tier</span>
@@ -3528,151 +3529,226 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
   const [msgs,setMsgs] = useState([]);
   const [input,setInput] = useState("");
   const [loading,setLoading] = useState(false);
-  const [mode,setMode] = useState("chat"); // chat | assessment | plan
+  const [mode,setMode] = useState("chat"); // chat | conversation | writing | grammar
+  const [writingText,setWritingText] = useState("");
+  const [showModes,setShowModes] = useState(false);
   const bottomRef = useRef();
   const authCtx = useAuth();
 
-  // Build rich context about the learner
-  const learnerContext = `
-You are ${c.name}, a personal French tutor for Canadian immigrants learning French for CLB/TEF exams.
+  const MODES = [
+    {id:"chat", icon:"💬", label:"Ask Anything", desc:"Questions, tips, explanations"},
+    {id:"conversation", icon:"🗣️", label:"Conversation Practice", desc:"Speak French with your tutor"},
+    {id:"writing", icon:"✍️", label:"Writing Coach", desc:"Submit French text for feedback"},
+    {id:"grammar", icon:"📚", label:"Grammar Drill", desc:"Practice specific grammar rules"},
+  ];
+
+  const systemPrompt = `You are Sophie, an expert French tutor specializing in helping immigrants succeed in Canada. You are warm, patient, encouraging, and deeply knowledgeable about Quebec French, CLB exams, and TEF Canada.
 
 LEARNER PROFILE:
-- Current level: ${level.label} (${level.cefrTag}, ${level.clbTag})
+- Level: ${level.label} (${level.cefrTag})
 - Lessons completed: ${done.length}/${allL.length}
-- Skills completed: Listening ${allL.filter(l=>l.skill==="listening"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="listening").length}, Speaking ${allL.filter(l=>l.skill==="speaking"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="speaking").length}, Writing ${allL.filter(l=>l.skill==="writing"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="writing").length}, Reading ${allL.filter(l=>l.skill==="reading"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="reading").length}
+- Recent lessons: ${done.slice(-5).map(l=>l.title).join(", ")||"None yet"}
 - Next lesson: ${notDone[0]?.title||"All complete!"}
-- Recent lessons: ${done.slice(-3).map(l=>l.title).join(", ")||"None yet"}
 
-YOUR ROLE:
-- Be their dedicated personal tutor, not just a chatbot
-- Give specific, actionable advice based on their actual progress
-- Correct French mistakes immediately and kindly
-- Reference their specific completed lessons when relevant
-- Help them prepare for CLB 5 specifically
-- Be warm, encouraging, and Canadian-context focused
-- Mix French practice INTO the conversation naturally
-- Remember: they are immigrants who NEED this for their life in Canada
+YOUR TEACHING STYLE:
+- Always correct French mistakes gently but clearly, showing the correct form
+- Use emojis sparingly to make learning fun
+- Give concrete Canadian examples (Montreal, Quebec, RAMQ, etc.)
+- Mix English and French at the learner's level
+- Be specific — never give vague advice
+- Reference their actual progress when relevant
+- For CONVERSATION mode: respond mostly in French, gently correct errors, keep conversation natural
+- For WRITING mode: give detailed line-by-line feedback with corrections
+- For GRAMMAR mode: explain rules clearly with multiple examples
+- Keep responses concise (3-5 sentences) unless explaining something complex
+- End with a small challenge or question to keep engagement
 
-TUTORING MODES:
-- General chat: answer questions, practice conversation, explain grammar
-- Assessment: quiz them on weak areas based on their progress
-- Study plan: create a personalized daily study plan
+CURRENT MODE: ${mode === "chat" ? "General tutoring — answer questions and give advice" : mode === "conversation" ? "CONVERSATION PRACTICE — respond in French, correct errors naturally, keep it conversational and fun" : mode === "writing" ? "WRITING COACH — analyze the submitted French text carefully, correct every error, explain each correction" : "GRAMMAR DRILL — focus on grammar rules, give examples, quiz the learner"}
 
-Always respond in a mix of English and French appropriate to their level.
-Keep responses focused and practical — max 4-5 sentences unless explaining something complex.`;
+Remember: These learners NEED French for their lives in Canada — for jobs, citizenship, healthcare. Your teaching matters deeply.`;
 
-  const sendMessage = async(text) => {
+  const sendMessage = async(text, isWritingSubmit=false) => {
     if(!text.trim()||loading) return;
-    const userMsg = {role:"user", text};
+    const displayText = isWritingSubmit ? `Please review my French writing:
+
+"${text}"` : text;
+    const userMsg = {role:"user", text:displayText};
     const newMsgs = [...msgs, userMsg];
     setMsgs(newMsgs);
     setInput("");
+    if(isWritingSubmit) setWritingText("");
     setLoading(true);
-    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("");
-    const reply = await callClaude(learnerContext, `${history}
-
-Learner: ${text}
-
-Tutor:`, 400);
-    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    try{
+      const history = newMsgs.slice(-10).map(m=>`${m.role==="user"?"Learner":"Sophie"}: ${m.text}`).join("\n");
+      const reply = await callClaude(systemPrompt, history+"\nSophie:", 600);
+      setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    }catch(e){
+      setMsgs(m=>[...m,{role:"assistant",text:"Sorry, I had a connection issue. Please try again!"}]);
+    }
     setLoading(false);
     setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
   };
 
-  const quickPrompts = [
-    "What should I focus on today?",
-    "Quiz me on what I've learned",
-    "Make me a study plan for this week",
-    "Explain the passé composé simply",
-    "Practice a job interview in French",
-    "Help me with CLB speaking tips",
-  ];
+  const QUICK_PROMPTS = {
+    chat: [
+      "What should I study today?",
+      "Explain passé composé vs imparfait",
+      "How do I prepare for CLB speaking?",
+      "Give me tips for Quebec French",
+      "Quiz me on vocabulary",
+    ],
+    conversation: [
+      "Parlons de ta journée! (Let\'s talk about your day)",
+      "Practice: job interview in French",
+      "Talk about your life in Canada",
+      "Order food at a Quebec restaurant",
+      "Discuss the weather like a Quebecer",
+    ],
+    writing: [],
+    grammar: [
+      "Drill me on être vs avoir",
+      "Practice subjunctive triggers",
+      "Test me on gender of nouns",
+      "Quiz: adjective agreement",
+      "Practice negation ne...pas",
+    ],
+  };
 
   useEffect(()=>{
-    // Auto-greeting based on progress
+    if(msgs.length > 0) return;
     const greet = async()=>{
       setLoading(true);
       const prompt = done.length===0
-        ? `Greet this new learner warmly. They haven't started yet. Introduce yourself as their personal tutor and ask what brings them to learn French in Canada. Be warm and encouraging.`
-        : `Greet this returning learner. They've completed ${done.length} lessons. Reference their progress briefly, note their next lesson is "${notDone[0]?.title||"all done!"}", and ask how their French is going or what they want to work on today. Keep it short and personal.`;
-      const reply = await callClaude(learnerContext, prompt, 200);
-      setMsgs([{role:"assistant",text:reply}]);
+        ? "Greet this new learner warmly. Introduce yourself as Sophie, their personal French tutor. Tell them you\'re excited to help them learn French for Canada. Ask what brings them to learn French and what their goals are. Be warm and welcoming. Keep it to 3 sentences."
+        : `Greet this returning learner. They\'ve completed ${done.length} lessons. Welcome them back, mention one specific thing about their recent progress (last lesson: ${done[done.length-1]?.title||"getting started"}), and ask what they want to work on today. Be encouraging. 3 sentences.`;
+      const reply = await callClaude(systemPrompt, prompt, 200);
+      setMsgs([{role:"assistant", text:reply}]);
       setLoading(false);
     };
     greet();
   },[]);
 
-  return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:800,margin:"0 auto"}}>
+  useEffect(()=>{
+    if(msgs.length===0) return;
+    // Re-greet when mode changes
+    const modeGreets = {
+      conversation: "Bonjour! 🗣️ Let\'s practice speaking French together. I\'ll respond mostly in French and gently correct any mistakes. What would you like to talk about? / Qu\'est-ce que tu voudrais discuter?",
+      writing: "Welcome to Writing Coach! ✍️ Type or paste any French text below and I\'ll give you detailed feedback — correcting errors, explaining grammar, and helping you write like a native. Ready when you are!",
+      grammar: "Grammar Drill mode activated! 📚 Tell me which grammar point you want to practice, or choose a quick prompt below and I\'ll create targeted exercises just for you.",
+      chat: "Back to general tutoring mode! 💬 What would you like to know or practice?",
+    };
+    setMsgs(m=>[...m,{role:"assistant",text:modeGreets[mode]}]);
+  },[mode]);
+
+  const modeColor = {chat:"#2563EB",conversation:"#059669",writing:"#7C3AED",grammar:"#DC2626"};
+  const currentColor = modeColor[mode];
+
+  return <div style={{display:"flex",flexDirection:"column",height:"100%",background:T.bg,maxWidth:680,margin:"0 auto",width:"100%"}}>
+
     {/* Header */}
-    <div style={{padding:"14px 20px",background:"#fff",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-      <Avatar companion={c} size={40} speaking={loading}/>
-      <div style={{flex:1}}>
-        <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
-        <div style={{fontSize:11,color:T.mint,fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
+    <div style={{background:`linear-gradient(135deg,${T.navy},#1a3a7a)`,padding:"16px 20px",color:"#fff"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+        <div style={{fontSize:36}}>{c.avatar}</div>
+        <div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:800}}>Sophie</div>
+          <div style={{fontSize:12,opacity:0.8}}>Your Personal French Tutor · {level.label}</div>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+          <div style={{background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"4px 10px",fontSize:11,fontWeight:600}}>
+            {done.length}/{allL.length} lessons
+          </div>
+        </div>
       </div>
-      <div style={{display:"flex",gap:6}}>
-        {[{id:"chat",label:"💬 Chat"},{id:"assessment",label:"📝 Quiz Me"},{id:"plan",label:"📅 Study Plan"}].map(m=>(
-          <button key={m.id} onClick={()=>{setMode(m.id);sendMessage(m.id==="assessment"?"Quiz me on my weak areas based on my progress":"Make me a personalized study plan for this week");}}
-            style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${mode===m.id?T.blue:T.border}`,background:mode===m.id?T.blueLight:"transparent",color:mode===m.id?T.blue:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>
-            {m.label}
+
+      {/* Mode selector */}
+      <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+        {MODES.map(m=>(
+          <button key={m.id} onClick={()=>setMode(m.id)} style={{
+            display:"flex",alignItems:"center",gap:5,padding:"6px 12px",
+            background:mode===m.id?"rgba(255,255,255,0.25)":"rgba(255,255,255,0.1)",
+            border:mode===m.id?"2px solid rgba(255,255,255,0.6)":"2px solid transparent",
+            borderRadius:20,color:"#fff",fontSize:12,fontWeight:mode===m.id?700:500,
+            cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+          }}>
+            <span>{m.icon}</span>
+            <span>{m.label}</span>
           </button>
         ))}
       </div>
     </div>
 
-    {/* Progress bar */}
-    <div style={{background:T.surface,padding:"8px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-      <span style={{fontSize:11,color:T.textSoft,fontWeight:600}}>Your progress:</span>
-      <div style={{flex:1,height:4,background:T.border,borderRadius:99,overflow:"hidden"}}>
-        <div style={{height:"100%",width:`${Math.round((done.length/allL.length)*100)}%`,background:`linear-gradient(90deg,${T.blue},${T.mint})`,borderRadius:99}}/>
-      </div>
-      <span style={{fontSize:11,fontWeight:700,color:T.navy}}>{done.length}/{allL.length} lessons</span>
-      <Pill variant="blue">{level.cefrTag}</Pill>
-    </div>
-
     {/* Messages */}
-    <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
-      {msgs.map((m,i)=>(
-        <div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
-          {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
-          <div style={{maxWidth:"78%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.7,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
-            {m.text}
+    <div style={{flex:1,overflowY:"auto",padding:"16px 20px",display:"flex",flexDirection:"column",gap:12}}>
+      {msgs.map((msg,i)=>(
+        <div key={i} style={{display:"flex",flexDirection:msg.role==="user"?"row-reverse":"row",gap:10,alignItems:"flex-start"}}>
+          {msg.role==="assistant"&&<div style={{fontSize:28,flexShrink:0,marginTop:2}}>{c.avatar}</div>}
+          <div style={{
+            maxWidth:"78%",padding:"12px 16px",borderRadius:msg.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
+            background:msg.role==="user"?`linear-gradient(135deg,${currentColor},${T.navy})`:"#fff",
+            color:msg.role==="user"?"#fff":T.text,
+            boxShadow:"0 2px 8px rgba(0,0,0,0.08)",
+            fontSize:14,lineHeight:1.6,whiteSpace:"pre-wrap",
+          }}>
+            {msg.text}
           </div>
         </div>
       ))}
-      {loading&&<div style={{display:"flex",gap:10,marginBottom:16,alignItems:"flex-start"}}>
-        <Avatar companion={c} size={36}/>
-        <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"14px 18px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:5}}>
-          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.blue,animation:`typeDot 1.2s infinite ${i*0.2}s`}}/>)}
+      {loading&&<div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+        <div style={{fontSize:28}}>{c.avatar}</div>
+        <div style={{background:"#fff",padding:"12px 16px",borderRadius:"18px 18px 18px 4px",boxShadow:"0 2px 8px rgba(0,0,0,0.08)"}}>
+          <div style={{display:"flex",gap:4}}>
+            {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:currentColor,animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite`}}/>)}
+          </div>
         </div>
       </div>}
       <div ref={bottomRef}/>
     </div>
 
-    {/* Quick prompts — show when few messages */}
-    {msgs.length<=2&&!loading&&<div style={{padding:"0 20px 12px",display:"flex",gap:8,flexWrap:"wrap"}}>
-      {quickPrompts.map(p=>(
-        <button key={p} onClick={()=>sendMessage(p)}
-          style={{padding:"7px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:50,fontSize:12,fontWeight:600,color:T.navy,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",transition:"all 0.2s"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;e.currentTarget.style.color=T.blue;}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.navy;}}>
-          {p}
-        </button>
+    {/* Quick prompts */}
+    {QUICK_PROMPTS[mode].length>0&&msgs.length<=2&&<div style={{padding:"0 20px 8px",display:"flex",gap:6,overflowX:"auto"}}>
+      {QUICK_PROMPTS[mode].map(p=>(
+        <button key={p} onClick={()=>sendMessage(p)} style={{
+          padding:"6px 12px",background:"#fff",border:`1.5px solid ${currentColor}`,
+          borderRadius:20,color:currentColor,fontSize:12,fontWeight:600,
+          cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,
+        }}>{p}</button>
       ))}
     </div>}
 
-    {/* Input */}
-    <div style={{padding:"14px 20px",background:"#fff",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"flex-end"}}>
-      <textarea value={input} onChange={e=>setInput(e.target.value)}
-        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(input);}}}
-        placeholder={`Ask ${c.name} anything — grammar, practice, study tips...`}
-        style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
-        rows={1}/>
-      <button onClick={()=>sendMessage(input)} disabled={!input.trim()||loading}
-        style={{background:input.trim()&&!loading?T.blue:"#CBD5E0",color:"#fff",border:"none",padding:"12px 20px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",flexShrink:0}}>
-        {loading?"...":"Send →"}
-      </button>
-    </div>
+    {/* Writing mode input */}
+    {mode==="writing"
+      ? <div style={{padding:"12px 20px 20px",background:"#fff",borderTop:`1px solid ${T.border}`}}>
+          <textarea
+            value={writingText}
+            onChange={e=>setWritingText(e.target.value)}
+            placeholder="Type or paste your French text here for detailed feedback..."
+            style={{width:"100%",height:100,padding:"10px 14px",border:`1.5px solid ${T.border}`,borderRadius:12,fontSize:14,fontFamily:"Georgia,serif",resize:"none",outline:"none",boxSizing:"border-box"}}
+          />
+          <button
+            onClick={()=>writingText.trim()&&sendMessage(writingText,true)}
+            disabled={!writingText.trim()||loading}
+            style={{width:"100%",marginTop:8,padding:"12px",background:writingText.trim()?`linear-gradient(135deg,${currentColor},#5B21B6)`:"#E2E8F0",color:writingText.trim()?"#fff":"#94A3B8",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:writingText.trim()?"pointer":"default"}}
+          >
+            ✍️ Get Feedback
+          </button>
+        </div>
+      : <div style={{padding:"12px 20px 20px",background:"#fff",borderTop:`1px solid ${T.border}`,display:"flex",gap:8}}>
+          <input
+            value={input}
+            onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage(input)}
+            placeholder={mode==="conversation"?"Écris en français... (Write in French...)":"Ask Sophie anything..."}
+            style={{flex:1,padding:"12px 16px",border:`1.5px solid ${T.border}`,borderRadius:24,fontSize:14,outline:"none",fontFamily:"system-ui,-apple-system,sans-serif"}}
+          />
+          <button
+            onClick={()=>sendMessage(input)}
+            disabled={!input.trim()||loading}
+            style={{padding:"12px 18px",background:input.trim()?`linear-gradient(135deg,${currentColor},${T.navy})`:"#E2E8F0",color:input.trim()?"#fff":"#94A3B8",border:"none",borderRadius:24,fontWeight:700,fontSize:14,cursor:input.trim()?"pointer":"default"}}
+          >
+            {loading?"...":"Send →"}
+          </button>
+        </div>
+    }
   </div>;
 }
 
@@ -3705,6 +3781,31 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
   const xp=done.length*25;
   const isPremium=isPremiumUnlocked();
   const handleLogout=async()=>{ await logout(); window.location.reload(); };
+  const [showDeleteConfirm,setShowDeleteConfirm]=useState(false);
+  const [deleteLoading,setDeleteLoading]=useState(false);
+  const handleDeleteAccount=async()=>{
+    if(!showDeleteConfirm){setShowDeleteConfirm(true);return;}
+    setDeleteLoading(true);
+    try{
+      const auth=getAuth();
+      const u=auth.currentUser;
+      if(u){
+        const db=getFirestore();
+        try{await deleteDoc(doc(db,"users",u.uid));}catch{}
+        try{await deleteDoc(doc(db,"premiumUsers",u.uid));}catch{}
+        await u.delete();
+      }
+      window.location.reload();
+    }catch(e){
+      if(e.code==="auth/requires-recent-login"){
+        alert("For security, please sign out and sign back in before deleting your account.");
+      }else{
+        alert("Error deleting account: "+e.message);
+      }
+      setDeleteLoading(false);
+      setShowDeleteConfirm(false);
+    }
+  };
   const displayName=user?.displayName||user?.email?.split("@")[0]||null;
 
   const Row=({emoji,label,onClick})=>(
@@ -3736,7 +3837,8 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
       </div>
 
       <div style={{marginBottom:12}}>
-
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
       </div>
 
       <div style={{marginBottom:4}}>
@@ -3754,7 +3856,7 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
         const n=adminTaps+1;
         setAdminTaps(n);
         if(n===3){setShowAdmin(true);setAdminTaps(0);}
-        else{window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");}
+        else{window.open("https://franco.app?subscribe=1","_blank");}
       }}/>
       {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
         <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
@@ -3802,7 +3904,22 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
         </button>
     }
 
-    <div style={{textAlign:"center",fontSize:12,color:T.textSoft}}>Powered by Jungle Labs</div>
+    {!guestMode&&user&&<div style={{marginTop:8,textAlign:"center"}}>
+      {!showDeleteConfirm
+        ? <button onClick={handleDeleteAccount} style={{background:"none",border:"none",color:"#EF4444",fontSize:13,cursor:"pointer",textDecoration:"underline"}}>Delete Account</button>
+        : <div style={{background:"#FEF2F2",borderRadius:12,padding:"12px 16px",border:"1px solid #FECACA"}}>
+            <div style={{fontSize:13,color:"#991B1B",fontWeight:600,marginBottom:8}}>⚠️ Delete your account permanently?</div>
+            <div style={{fontSize:12,color:"#7F1D1D",marginBottom:12}}>This will erase all your progress and cannot be undone.</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setShowDeleteConfirm(false)} style={{flex:1,padding:"8px",background:"#fff",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,cursor:"pointer"}}>Cancel</button>
+              <button onClick={handleDeleteAccount} disabled={deleteLoading} style={{flex:1,padding:"8px",background:"#EF4444",border:"none",borderRadius:8,color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {deleteLoading?"Deleting...":"Yes, Delete"}
+              </button>
+            </div>
+          </div>
+      }
+    </div>}
+    <div style={{textAlign:"center",fontSize:12,color:T.textSoft,marginTop:8}}>Powered by Jungle Labs</div>
   </div>;
 }
 
