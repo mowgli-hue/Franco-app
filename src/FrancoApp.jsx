@@ -2285,7 +2285,7 @@ function WelcomeScreen({onNext}){
     {emoji:"🧑‍🏫",title:"Your AI Teacher is Ready",sub:"A personalized AI companion guides every lesson — giving real-time feedback, encouragement, and explanations."},
   ];
   const s=steps[step];
-  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,flexDirection:"column",padding:32,gap:32,position:"relative",overflow:"hidden"}}>
+  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",width:"100%",background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,flexDirection:"column",padding:32,gap:32,position:"relative",overflow:"hidden"}}>
     <div style={{position:"absolute",top:-80,left:-80,width:300,height:300,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
     <div style={{position:"absolute",bottom:60,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,maxWidth:520,textAlign:"center",zIndex:1}}>
