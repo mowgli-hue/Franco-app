@@ -28,11 +28,493 @@ function useLocalState(key, defaultValue) {
 }
 
 const T = {
-  navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
-  mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
-  gold:"#F59E0B",goldLight:"#FEF3C7",purple:"#8B5CF6",purpleLight:"#EDE9FE",
-  surface:"#F0F4FF",card:"#FFFFFF",text:"#0D1B3E",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
+  // Light theme
+  light: {
+    navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
+    mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
+    gold:"#F59E0B",goldLight:"#FEF3C7",purple:"#8B5CF6",purpleLight:"#EDE9FE",
+    surface:"#F0F4FF",card:"#FFFFFF",text:"#0D1B3E",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
+  },
+  // Dark theme
+  dark: {
+    navy:"#E2E8F0",blue:"#60A5FA",blueMid:"#3B82F6",blueLight:"#1E3A8A",
+    mint:"#34D399",mintLight:"#064E3B",red:"#F87171",redLight:"#7F1D1D",
+    gold:"#FBBF24",goldLight:"#78350F",purple:"#A78BFA",purpleLight:"#4C1D95",
+    surface:"#0F172A",card:"#1E293B",text:"#F1F5F9",textMid:"#CBD5E1",textSoft:"#64748B",border:"#334155",
+  }
 };
+
+// Enhanced AI Tutors with personalities
+const COMPANIONS = [
+  {
+    id: "sophie",
+    name: "Sophie", 
+    emoji: "👩‍🏫",
+    color: "#1A56DB",
+    level: "All levels",
+    style: "Warm & encouraging teacher",
+    personality: "patient",
+    messages: {
+      idle: "Ready to learn! Let's tackle your next lesson.",
+      encourage: "You're doing amazing! Every word you learn gets you closer to your Canadian dreams! 🌟",
+      correct: "Magnifique! That's exactly right!",
+      incorrect: "Don't worry - mistakes help us learn! Let me show you the right way.",
+      motivation: "Remember, every francophone in Canada started exactly where you are now!"
+    }
+  },
+  {
+    id: "jean",
+    name: "Jean-Claude",
+    emoji: "👨‍🎓", 
+    color: "#10B981",
+    level: "Intermediate+",
+    style: "Quebec native & cultural expert",
+    personality: "cultural",
+    messages: {
+      idle: "Salut! Ready to learn some real Québécois French?",
+      encourage: "Tabarnac! You're getting good at this! (That's Quebec slang - use carefully! 😉)",
+      correct: "Parfait! You sound like a real Québécois!",
+      incorrect: "Pas grave! Even natives make mistakes. Let's try again, eh?",
+      motivation: "Learning Quebec French isn't just language - it's culture, histoire, and joie de vivre!"
+    }
+  },
+  {
+    id: "marie",
+    name: "Marie-Claire",
+    emoji: "👩‍💼",
+    color: "#8B5CF6",
+    level: "Professional",
+    style: "Business & workplace expert", 
+    personality: "professional",
+    messages: {
+      idle: "Bonjour! Ready for some professional French practice?",
+      encourage: "Excellent work! You're developing true professional French skills.",
+      correct: "Très professionnel! Perfect for the Canadian workplace.",
+      incorrect: "Let me suggest a more professional way to express that idea.",
+      motivation: "Mastering business French opens doors to leadership positions across Canada!"
+    }
+  },
+  {
+    id: "alex",
+    name: "Alex",
+    emoji: "🧑‍💻",
+    color: "#F59E0B", 
+    level: "Tech & Modern",
+    style: "Young, modern, tech-savvy",
+    personality: "casual",
+    messages: {
+      idle: "Hey! Let's make French learning fun and modern! 🚀",
+      encourage: "You're crushing it! This is totally doable! 💪",
+      correct: "Boom! Nailed it! That was fire! 🔥",
+      incorrect: "No stress! Everyone's learning journey is different. Let's figure this out together!",
+      motivation: "French + Tech skills = unstoppable in the Canadian job market! 💻🇨🇦"
+    }
+  }
+];
+
+// Voice synthesis utility
+const speak = (text, lang = 'fr-CA') => {
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = 0.8;
+    utterance.pitch = 1;
+    
+    // Try to find Canadian French voice, fallback to French
+    const voices = speechSynthesis.getVoices();
+    const frenchVoice = voices.find(voice => 
+      voice.lang.startsWith('fr-CA') || voice.lang.startsWith('fr')
+    );
+    if (frenchVoice) utterance.voice = frenchVoice;
+    
+    speechSynthesis.speak(utterance);
+  }
+};
+
+// Mobile gesture detection utility
+const useSwipe = (onSwipeLeft, onSwipeRight) => {
+  const [touchStart, setTouchStart] = useState(null);
+  const [touchEnd, setTouchEnd] = useState(null);
+
+  const minSwipeDistance = 50;
+
+  const onTouchStart = (e) => {
+    setTouchEnd(null);
+    setTouchStart(e.targetTouches[0].clientX);
+  };
+
+  const onTouchMove = (e) => setTouchEnd(e.targetTouches[0].clientX);
+
+  const onTouchEnd = () => {
+    if (!touchStart || !touchEnd) return;
+    const distance = touchStart - touchEnd;
+    const isLeftSwipe = distance > minSwipeDistance;
+    const isRightSwipe = distance < -minSwipeDistance;
+
+    if (isLeftSwipe && onSwipeLeft) onSwipeLeft();
+    if (isRightSwipe && onSwipeRight) onSwipeRight();
+  };
+
+  return { onTouchStart, onTouchMove, onTouchEnd };
+};
+
+// Pronunciation scoring component
+function PronunciationChallenge({ text, onScore, theme }) {
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [score, setScore] = useState(null);
+  const [feedback, setFeedback] = useState('');
+
+  const startRecording = () => {
+    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+      alert('Speech recognition not supported. Please use Chrome.');
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.lang = 'fr-CA';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsRecording(true);
+    
+    recognition.onresult = (event) => {
+      const spokenText = event.results[0][0].transcript;
+      setTranscript(spokenText);
+      analyzeProunciation(text, spokenText);
+    };
+
+    recognition.onend = () => setIsRecording(false);
+    recognition.start();
+  };
+
+  const analyzeProunciation = async (target, spoken) => {
+    const prompt = `Compare these two French phrases for pronunciation similarity:
+Target: "${target}"
+Spoken: "${spoken}"
+
+Give a score 0-100 and specific pronunciation feedback. Focus on:
+- Word accuracy
+- Canadian French pronunciation
+- Common pronunciation mistakes
+- Constructive tips
+
+Respond with: {"score": 85, "feedback": "Great job! Work on the 'r' sound in 'rouge'."}`;
+
+    try {
+      const result = await callClaude(prompt, '', 200);
+      const analysis = JSON.parse(result.replace(/```json|```/g, '').trim());
+      setScore(analysis.score);
+      setFeedback(analysis.feedback);
+      onScore?.(analysis.score);
+    } catch {
+      setScore(75);
+      setFeedback("Good effort! Keep practicing your pronunciation.");
+    }
+  };
+
+  return (
+    <div style={{
+      background: theme.card,
+      border: `2px solid ${theme.border}`,
+      borderRadius: 16,
+      padding: 20,
+      margin: '16px 0'
+    }}>
+      <div style={{fontSize: 14, fontWeight: 700, color: theme.text, marginBottom: 12}}>
+        🎤 Pronunciation Challenge
+      </div>
+      
+      <div style={{
+        background: theme.blueLight,
+        padding: 12,
+        borderRadius: 12,
+        marginBottom: 16,
+        fontSize: 16,
+        color: theme.navy,
+        fontWeight: 600,
+        textAlign: 'center'
+      }}>
+        "{text}"
+      </div>
+
+      <div style={{display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16}}>
+        <button
+          onClick={startRecording}
+          style={{
+            background: isRecording ? theme.red : theme.blue,
+            color: 'white',
+            border: 'none',
+            borderRadius: 12,
+            padding: '12px 20px',
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            animation: isRecording ? 'pulse 1s infinite' : 'none'
+          }}
+        >
+          {isRecording ? '🔴 Recording...' : '🎤 Try Pronunciation'}
+        </button>
+        
+        <SpeakBtn text={text} theme={theme} size={16} />
+      </div>
+
+      {transcript && (
+        <div style={{marginBottom: 12}}>
+          <div style={{fontSize: 12, color: theme.textSoft, marginBottom: 4}}>You said:</div>
+          <div style={{fontSize: 14, color: theme.text, fontStyle: 'italic'}}>"{transcript}"</div>
+        </div>
+      )}
+
+      {score !== null && (
+        <div style={{
+          background: score >= 80 ? theme.mintLight : score >= 60 ? theme.goldLight : theme.redLight,
+          padding: 12,
+          borderRadius: 12,
+          border: `2px solid ${score >= 80 ? theme.mint : score >= 60 ? theme.gold : theme.red}`
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8
+          }}>
+            <span style={{fontSize: 20}}>
+              {score >= 80 ? '🌟' : score >= 60 ? '👍' : '💪'}
+            </span>
+            <div style={{fontSize: 16, fontWeight: 700, color: theme.text}}>
+              Score: {score}/100
+            </div>
+          </div>
+          <div style={{fontSize: 13, color: theme.text, lineHeight: 1.4}}>
+            {feedback}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Enhanced SpeakBtn with better styling
+function SpeakBtn({text, size = 20, style = {}, theme}) {
+  const [speaking, setSpeaking] = useState(false);
+  
+  const handleSpeak = () => {
+    if (speaking) {
+      speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    
+    setSpeaking(true);
+    speak(text);
+    
+    // Reset after estimated speaking time
+    setTimeout(() => setSpeaking(false), text.length * 60 + 1000);
+  };
+
+  return (
+    <button 
+      onClick={handleSpeak}
+      style={{
+        background: speaking ? '#EF4444' : '#10B981',
+        color: 'white',
+        border: 'none',
+        borderRadius: '50%',
+        width: size + 8,
+        height: size + 8,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+        animation: speaking ? 'pulse 1s infinite' : 'none',
+        ...style
+      }}
+      title={speaking ? 'Stop' : 'Listen'}
+    >
+      {speaking ? '⏹️' : '🔊'}
+    </button>
+  );
+}
+
+// Advanced Learning Analytics
+const LearningAnalytics = ({ stats, progress, theme }) => {
+  const allLessons = Object.values(SYLLABUS).flatMap(l => l.modules.flatMap(m => m.lessons));
+  const completedLessons = allLessons.filter(l => progress[l.id]);
+  
+  // Calculate learning velocity (lessons per day)
+  const daysActive = stats.totalStudyDays || 1;
+  const velocity = completedLessons.length / daysActive;
+  
+  // Identify weak areas
+  const skillProgress = {
+    listening: completedLessons.filter(l => l.skill === 'listening').length,
+    speaking: completedLessons.filter(l => l.skill === 'speaking').length,
+    reading: completedLessons.filter(l => l.skill === 'reading').length,
+    writing: completedLessons.filter(l => l.skill === 'writing').length,
+    mixed: completedLessons.filter(l => l.skill === 'mixed').length
+  };
+  
+  const totalBySkill = {
+    listening: allLessons.filter(l => l.skill === 'listening').length,
+    speaking: allLessons.filter(l => l.skill === 'speaking').length,
+    reading: allLessons.filter(l => l.skill === 'reading').length,
+    writing: allLessons.filter(l => l.skill === 'writing').length,
+    mixed: allLessons.filter(l => l.skill === 'mixed').length
+  };
+  
+  const weakestSkill = Object.entries(skillProgress).reduce((min, [skill, count]) => {
+    const percentage = count / (totalBySkill[skill] || 1);
+    const minPercentage = skillProgress[min] / (totalBySkill[min] || 1);
+    return percentage < minPercentage ? skill : min;
+  }, 'listening');
+  
+  // Predict completion time
+  const remainingLessons = allLessons.length - completedLessons.length;
+  const daysToComplete = velocity > 0 ? Math.ceil(remainingLessons / velocity) : 999;
+  
+  // Study time recommendations
+  const getStudyRecommendation = () => {
+    if (stats.currentStreak < 3) return "Build consistency: Study for 15 minutes daily";
+    if (velocity < 0.5) return "Increase intensity: Try 2 lessons per session";
+    if (stats.perfectScores < stats.lessonsCompleted * 0.3) return "Focus on accuracy: Review before moving forward";
+    return "Great progress! Continue your current pace";
+  };
+
+  return (
+    <div style={{
+      background: theme.card,
+      borderRadius: 16,
+      padding: 20,
+      border: `1px solid ${theme.border}`
+    }}>
+      <div style={{
+        fontSize: 16,
+        fontWeight: 700,
+        color: theme.text,
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8
+      }}>
+        📊 Learning Analytics
+      </div>
+      
+      {/* Progress Overview */}
+      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 16}}>
+        <div style={{textAlign: 'center', padding: 12, background: theme.blueLight, borderRadius: 12}}>
+          <div style={{fontSize: 20, fontWeight: 700, color: theme.blue}}>{completedLessons.length}</div>
+          <div style={{fontSize: 11, color: theme.textSoft}}>Lessons Done</div>
+        </div>
+        <div style={{textAlign: 'center', padding: 12, background: theme.goldLight, borderRadius: 12}}>
+          <div style={{fontSize: 20, fontWeight: 700, color: theme.gold}}>{velocity.toFixed(1)}</div>
+          <div style={{fontSize: 11, color: theme.textSoft}}>Lessons/Day</div>
+        </div>
+        <div style={{textAlign: 'center', padding: 12, background: theme.mintLight, borderRadius: 12}}>
+          <div style={{fontSize: 20, fontWeight: 700, color: theme.mint}}>{stats.currentStreak}</div>
+          <div style={{fontSize: 11, color: theme.textSoft}}>Day Streak</div>
+        </div>
+        <div style={{textAlign: 'center', padding: 12, background: theme.purpleLight, borderRadius: 12}}>
+          <div style={{fontSize: 20, fontWeight: 700, color: theme.purple}}>{daysToComplete > 365 ? '∞' : daysToComplete}</div>
+          <div style={{fontSize: 11, color: theme.textSoft}}>Days to Finish</div>
+        </div>
+      </div>
+
+      {/* Skill Progress */}
+      <div style={{marginBottom: 16}}>
+        <div style={{fontSize: 14, fontWeight: 600, color: theme.text, marginBottom: 8}}>Skill Progress</div>
+        {Object.entries(skillProgress).map(([skill, count]) => {
+          const total = totalBySkill[skill] || 1;
+          const percentage = (count / total) * 100;
+          const isWeakest = skill === weakestSkill;
+          
+          return (
+            <div key={skill} style={{marginBottom: 8}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 4}}>
+                <span style={{
+                  fontSize: 12,
+                  color: theme.text,
+                  textTransform: 'capitalize',
+                  fontWeight: isWeakest ? 700 : 400
+                }}>
+                  {skill} {isWeakest && '⚠️'}
+                </span>
+                <span style={{fontSize: 12, color: theme.textSoft}}>
+                  {count}/{total} ({percentage.toFixed(0)}%)
+                </span>
+              </div>
+              <div style={{
+                height: 6,
+                background: theme.border,
+                borderRadius: 3,
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  width: `${percentage}%`,
+                  background: isWeakest ? theme.red : theme.blue,
+                  transition: 'width 0.5s ease'
+                }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Recommendations */}
+      <div style={{
+        background: theme.blueLight,
+        padding: 12,
+        borderRadius: 12,
+        border: `2px solid ${theme.blue}`
+      }}>
+        <div style={{fontSize: 12, fontWeight: 700, color: theme.blue, marginBottom: 4}}>
+          💡 Recommendation
+        </div>
+        <div style={{fontSize: 13, color: theme.navy, lineHeight: 1.4}}>
+          {getStudyRecommendation()}
+        </div>
+      </div>
+      
+      {weakestSkill && (
+        <div style={{
+          background: theme.redLight,
+          padding: 12,
+          borderRadius: 12,
+          border: `2px solid ${theme.red}`,
+          marginTop: 12
+        }}>
+          <div style={{fontSize: 12, fontWeight: 700, color: theme.red, marginBottom: 4}}>
+            🎯 Focus Area
+          </div>
+          <div style={{fontSize: 13, color: '#991B1B', lineHeight: 1.4}}>
+            Work on your <strong>{weakestSkill}</strong> skills - they're lagging behind your other areas.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+const ACHIEVEMENTS = [
+  {id: 'first_lesson', name: '🌱 First Step', desc: 'Complete your first lesson', requirement: (stats) => stats.lessonsCompleted >= 1},
+  {id: 'week_streak', name: '🔥 Week Warrior', desc: 'Study 7 days in a row', requirement: (stats) => stats.currentStreak >= 7},
+  {id: 'a1_master', name: '📚 A1 Master', desc: 'Complete all A1 lessons', requirement: (stats) => stats.a1Completed >= 20},
+  {id: 'voice_learner', name: '🎤 Voice Learner', desc: 'Complete 5 speaking exercises', requirement: (stats) => stats.speakingDone >= 5},
+  {id: 'night_owl', name: '🦉 Night Owl', desc: 'Study after 9 PM', requirement: (stats) => stats.lateNightSessions >= 1},
+  {id: 'early_bird', name: '🐦 Early Bird', desc: 'Study before 7 AM', requirement: (stats) => stats.earlyMorningSessions >= 1},
+  {id: 'perfectionist', name: '💎 Perfectionist', desc: 'Get 100% on 3 lessons', requirement: (stats) => stats.perfectScores >= 3},
+  {id: 'conversation_starter', name: '💬 Conversation Starter', desc: 'Complete 10 AI conversations', requirement: (stats) => stats.conversationsCompleted >= 10},
+  {id: 'quebec_expert', name: '🍁 Quebec Expert', desc: 'Complete all Quebec culture lessons', requirement: (stats) => stats.quebecLessons >= 5},
+  {id: 'dedication', name: '🏆 Dedication', desc: 'Study 30 days total', requirement: (stats) => stats.totalStudyDays >= 30}
+];
+
+const getCurrentTheme = (isDark) => isDark ? T.dark : T.light;
 // ─────────────────────────────────────────────────────────────────────────────
 // FRANCO — FULL CURRICULUM: 190 LESSONS, BEGINNER → CLB 5 / B1
 // Each lesson: teach text + vocabulary + 3-4 questions (MCQ & write)
@@ -1309,24 +1791,6 @@ const B2_LESSONS = [
 // ─────────────────────────────────────────────────────────────────────────────
 // CLB TEST PREP — 20 LESSONS
 // ─────────────────────────────────────────────────────────────────────────────
-// ─── COMPANIONS ───────────────────────────────────────────────────────────────
-const COMPANIONS = [
-  {
-    id: "sophie",
-    name: "Sophie", 
-    emoji: "👩‍🏫",
-    color: "#1A56DB",
-    level: "All levels",
-    style: "Warm & encouraging teacher",
-    messages: {
-      idle: "Ready to learn! Let's tackle your next lesson.",
-      encourage: "You're doing great! Keep going!",
-      correct: "Excellent! That's exactly right.",
-      incorrect: "Good try! Let me help you with that."
-    }
-  }
-];
-
 const CLB_LESSONS = [
   mkL("clb-01","Understanding the CLB System",20,"reading",
     "The Canadian Language Benchmarks (CLB) measure English/French ability for newcomers. 12 levels across 4 skills: Listening, Speaking, Reading, Writing. CLB 1-4 = basic, CLB 5-8 = intermediate, CLB 9-12 = advanced. For Canadian immigration: Express Entry often requires CLB 7 in all 4 skills (NCLC equivalent for French). TEF Canada = the main French test used for immigration.",
@@ -1675,8 +2139,15 @@ const GAMES = [
     ]
   },
 ];
-function Pill({children,variant="blue",style={}}){
-  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:"#92400E",border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
+function Pill({children,variant="blue",style={},theme}){
+  const t = theme || T.light; // fallback to light theme
+  const v={
+    blue:{background:t.blueLight,color:t.navy},
+    gold:{background:t.goldLight,color:"#92400E",border:`1.5px solid ${t.gold}`},
+    mint:{background:t.mintLight,color:"#065F46"},
+    red:{background:t.redLight,color:"#991B1B"},
+    purple:{background:t.purpleLight,color:"#5B21B6"}
+  }[variant]||{};
   return <span style={{fontSize:12,fontWeight:700,padding:"5px 12px",borderRadius:50,display:"inline-flex",alignItems:"center",gap:5,...v,...style}}>{children}</span>;
 }
 
@@ -2934,20 +3405,56 @@ function ProfileScreen({companion,progress,startLevel,onReset}){
   </div>;
 }
 
-function TopBar({screen,onNavigate,companion,progress}){
+function TopBar({screen,onNavigate,companion,progress,isDark,onToggleDark,theme,stats,unlockedAchievements}){
   const xp=Object.keys(progress).length*25;
   const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
-  return <div style={{background:T.card,borderBottom:`1px solid ${T.border}`,padding:"0 28px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 8px rgba(0,0,0,0.06)"}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:T.navy,marginRight:4}}>Franco</div>
+  
+  return <div style={{background:theme.card,borderBottom:`1px solid ${theme.border}`,padding:"0 28px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:`0 1px 8px ${isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.06)'}`}}>
+    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:theme.navy,marginRight:4}}>Franco</div>
     <div style={{fontSize:16,marginRight:12}}>🍁</div>
     <div style={{flex:1}}/>
+    
     <div style={{display:"flex",gap:4}}>
-      {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 16px",borderRadius:10,border:"none",background:screen===n.id?T.blueLight:"transparent",color:screen===n.id?T.blue:T.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
+      {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 16px",borderRadius:10,border:"none",background:screen===n.id?theme.blueLight:"transparent",color:screen===n.id?theme.blue:theme.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
     </div>
+    
     <div style={{flex:1}}/>
+    
     <div style={{display:"flex",alignItems:"center",gap:10}}>
-      <Pill variant="gold">⭐ {xp} XP</Pill>
-      <div style={{width:36,height:36,borderRadius:"50%",background:T.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
+      {/* Streak display */}
+      {stats.currentStreak > 1 && (
+        <div style={{background:theme.goldLight,color:theme.gold,padding:"4px 8px",borderRadius:8,fontSize:12,fontWeight:700}}>
+          🔥 {stats.currentStreak}
+        </div>
+      )}
+      
+      {/* Achievement count */}
+      {unlockedAchievements.length > 0 && (
+        <div style={{background:theme.purpleLight,color:theme.purple,padding:"4px 8px",borderRadius:8,fontSize:12,fontWeight:700}}>
+          🏆 {unlockedAchievements.length}
+        </div>
+      )}
+      
+      {/* Dark mode toggle */}
+      <button 
+        onClick={onToggleDark}
+        style={{
+          background: 'none',
+          border: `1px solid ${theme.border}`,
+          borderRadius: 8,
+          padding: 8,
+          cursor: 'pointer',
+          fontSize: 16,
+          transition: 'all 0.2s',
+          color: theme.text
+        }}
+        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {isDark ? '☀️' : '🌙'}
+      </button>
+      
+      <Pill variant="gold" theme={theme}>⭐ {xp} XP</Pill>
+      <div style={{width:36,height:36,borderRadius:"50%",background:theme.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
     </div>
   </div>;
 }
@@ -2957,33 +3464,84 @@ export default function App(){
   const[companion,setCompanion]=useLocalState("franco_companion",null);
   const[startLevel,setStartLevel]=useLocalState("franco_level","foundation");
   const[progress,setProgress]=useLocalState("franco_progress",{});
+  const[isDark,setIsDark]=useLocalState("franco_dark_mode",false);
+  const[stats,setStats]=useLocalState("franco_stats",{
+    lessonsCompleted: 0,
+    currentStreak: 0,
+    speakingDone: 0,
+    conversationsCompleted: 0,
+    perfectScores: 0,
+    totalStudyDays: 0,
+    a1Completed: 0,
+    quebecLessons: 0,
+    lateNightSessions: 0,
+    earlyMorningSessions: 0,
+    lastStudyDate: null
+  });
+  const[unlockedAchievements,setUnlockedAchievements]=useLocalState("franco_achievements",[]);
   const[activeLesson,setActiveLesson]=useState(null);
-  const[paywallLesson,setPaywallLesson]=useState(null); // lesson blocked by paywall
+  const[paywallLesson,setPaywallLesson]=useState(null);
+  const[showAchievement,setShowAchievement]=useState(null);
+
+  // Get current theme
+  const theme = getCurrentTheme(isDark);
 
   // Check if returning from Stripe payment
   useEffect(()=>{checkStripeSuccess();},[]);
+
+  // Update streak on app load
+  useEffect(()=>{
+    const today = new Date().toDateString();
+    const lastStudy = stats.lastStudyDate;
+    if (lastStudy && lastStudy !== today) {
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      if (lastStudy === yesterday) {
+        // Continued streak
+        setStats(prev => ({...prev, currentStreak: prev.currentStreak + 1, lastStudyDate: today}));
+      } else {
+        // Reset streak
+        setStats(prev => ({...prev, currentStreak: 1, lastStudyDate: today}));
+      }
+    } else if (!lastStudy) {
+      setStats(prev => ({...prev, currentStreak: 1, lastStudyDate: today}));
+    }
+  }, []);
+
+  // Check for new achievements
+  const checkAchievements = (newStats) => {
+    ACHIEVEMENTS.forEach(achievement => {
+      if (!unlockedAchievements.includes(achievement.id) && achievement.requirement(newStats)) {
+        setUnlockedAchievements(prev => [...prev, achievement.id]);
+        setShowAchievement(achievement);
+        setTimeout(() => setShowAchievement(null), 4000);
+      }
+    });
+  };
 
   useEffect(()=>{
     const s=document.createElement("style");
     s.textContent=`
       @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
       *{box-sizing:border-box;margin:0;padding:0;}
-      body{background:${T.surface};}
+      body{background:${theme.surface};color:${theme.text};}
       @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-        @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
-        @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
-        @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+      @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+      @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+      @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+      @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
       @keyframes ring{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.03)}}
       @keyframes wave{0%,100%{transform:scaleY(.4);opacity:.5}50%{transform:scaleY(1);opacity:1}}
       @keyframes typeDot{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
-      ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
+      @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
+      @keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
+      ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:${theme.border};border-radius:3px}
     `;
     document.head.appendChild(s);
     return()=>document.head.removeChild(s);
-  },[]);
+  },[isDark]);
 
   const handleOnboard=(comp,lev)=>{setCompanion(comp);setStartLevel(lev);setScreen("dashboard");};
+  
   const handleStartLesson=(lesson,level)=>{
     // Check if lesson requires premium
     if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){
@@ -2991,19 +3549,101 @@ export default function App(){
       return;
     }
     setActiveLesson({lesson,level});setScreen("lesson");
+    
+    // Update stats for time-based achievements
+    const hour = new Date().getHours();
+    const newStats = {...stats};
+    if (hour >= 21 || hour <= 6) {
+      newStats.lateNightSessions = (newStats.lateNightSessions || 0) + 1;
+    }
+    if (hour >= 5 && hour <= 7) {
+      newStats.earlyMorningSessions = (newStats.earlyMorningSessions || 0) + 1;
+    }
+    setStats(newStats);
+    checkAchievements(newStats);
   };
-  const handleLessonComplete=(lessonId)=>{setProgress(p=>({...p,[lessonId]:true}));setScreen("hub");setActiveLesson(null);};
+  
+  const handleLessonComplete=(lessonId, score = null)=>{
+    setProgress(p=>({...p,[lessonId]:true}));
+    
+    // Update comprehensive stats
+    const newStats = {
+      ...stats,
+      lessonsCompleted: stats.lessonsCompleted + 1,
+      lastStudyDate: new Date().toDateString()
+    };
+    
+    if (lessonId.startsWith('a1')) newStats.a1Completed = stats.a1Completed + 1;
+    if (lessonId.includes('quebec') || lessonId.includes('canada')) newStats.quebecLessons = stats.quebecLessons + 1;
+    if (score === 100) newStats.perfectScores = stats.perfectScores + 1;
+    
+    setStats(newStats);
+    checkAchievements(newStats);
+    setScreen("hub");
+    setActiveLesson(null);
+  };
+
   const showNav=!["welcome","onboarding","lesson"].includes(screen);
 
-  return <div style={{fontFamily:"'DM Sans',sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
-    {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress}/>}
-    {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
-    {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
-    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen}/>}
-    {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
-    {screen==="practice"&&<PracticeScreen companion={companion}/>}
-    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}}/>}
-    {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
+  return <div style={{fontFamily:"'DM Sans',sans-serif",background:theme.surface,minHeight:"100vh",color:theme.text}}>
+    {/* Enhanced TopBar with dark mode toggle */}
+    {showNav&&<TopBar 
+      screen={screen} 
+      onNavigate={setScreen} 
+      companion={companion} 
+      progress={progress}
+      isDark={isDark}
+      onToggleDark={()=>setIsDark(!isDark)}
+      theme={theme}
+      stats={stats}
+      unlockedAchievements={unlockedAchievements}
+    />}
+    
+    {/* Achievement notification */}
+    {showAchievement && <AchievementNotification achievement={showAchievement} theme={theme} />}
+    
+    {/* Screen routing */}
+    {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")} theme={theme}/>}
+    {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard} theme={theme}/>}
+    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} theme={theme} stats={stats}/>}
+    {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson} theme={theme}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")} theme={theme}/>}
+    {screen==="practice"&&<PracticeScreen companion={companion} theme={theme} onConversationComplete={(score)=>{
+      const newStats = {...stats, conversationsCompleted: stats.conversationsCompleted + 1};
+      setStats(newStats);
+      checkAchievements(newStats);
+    }}/>}
+    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setStats({lessonsCompleted:0,currentStreak:0,speakingDone:0,conversationsCompleted:0,perfectScores:0,totalStudyDays:0,a1Completed:0,quebecLessons:0,lateNightSessions:0,earlyMorningSessions:0,lastStudyDate:null});setScreen("dashboard");}} theme={theme} stats={stats} unlockedAchievements={unlockedAchievements}/>}
+    
+    {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)} theme={theme}/>}
   </div>;
+}
+
+// Achievement notification component
+function AchievementNotification({achievement, theme}) {
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 20,
+      right: 20,
+      background: `linear-gradient(135deg, ${theme.gold}, ${theme.goldLight})`,
+      color: theme.text,
+      padding: '16px 20px',
+      borderRadius: 16,
+      boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+      animation: 'slideInRight 0.5s ease-out',
+      zIndex: 1000,
+      maxWidth: 300,
+      border: `2px solid ${theme.gold}`
+    }}>
+      <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+        <span style={{fontSize: 24}}>{achievement.emoji}</span>
+        <div>
+          <div style={{fontWeight: 700, fontSize: 14, marginBottom: 2}}>Achievement Unlocked!</div>
+          <div style={{fontSize: 13, opacity: 0.9}}>{achievement.name}</div>
+          <div style={{fontSize: 11, opacity: 0.8, marginTop: 2}}>{achievement.desc}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
