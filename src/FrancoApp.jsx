@@ -3476,7 +3476,8 @@ export default function App(){
     quebecLessons: 0,
     lateNightSessions: 0,
     earlyMorningSessions: 0,
-    lastStudyDate: null
+    lastStudyDate: null,
+    totalXP: 0
   });
   const[unlockedAchievements,setUnlockedAchievements]=useLocalState("franco_achievements",[]);
   const[activeLesson,setActiveLesson]=useState(null);
@@ -3507,6 +3508,13 @@ export default function App(){
     }
   }, []);
 
+  // Safety check for totalXP
+  useEffect(() => {
+    if (typeof stats.totalXP === 'undefined' || stats.totalXP === null) {
+      setStats(prev => ({...prev, totalXP: prev.lessonsCompleted * 25 || 0}));
+    }
+  }, []);
+
   // Check for new achievements
   const checkAchievements = (newStats) => {
     ACHIEVEMENTS.forEach(achievement => {
@@ -3523,7 +3531,9 @@ export default function App(){
     s.textContent=`
       @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
       *{box-sizing:border-box;margin:0;padding:0;}
-      body{background:${theme.surface};color:${theme.text};}
+      body{background:${theme.surface} !important;color:${theme.text} !important;transition: all 0.3s ease;}
+      html{background:${theme.surface} !important;}
+      #root{background:${theme.surface} !important;min-height:100vh;}
       @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
       @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
       @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
@@ -3538,7 +3548,7 @@ export default function App(){
     `;
     document.head.appendChild(s);
     return()=>document.head.removeChild(s);
-  },[isDark]);
+  },[isDark, theme]);
 
   const handleOnboard=(comp,lev)=>{setCompanion(comp);setStartLevel(lev);setScreen("dashboard");};
   
@@ -3577,6 +3587,9 @@ export default function App(){
     if (lessonId.includes('quebec') || lessonId.includes('canada')) newStats.quebecLessons = stats.quebecLessons + 1;
     if (score === 100) newStats.perfectScores = stats.perfectScores + 1;
     
+    // Calculate totalXP
+    newStats.totalXP = (newStats.lessonsCompleted * 25) + (newStats.perfectScores * 50) + (newStats.currentStreak * 10);
+    
     setStats(newStats);
     checkAchievements(newStats);
     setScreen("hub");
@@ -3613,7 +3626,7 @@ export default function App(){
       setStats(newStats);
       checkAchievements(newStats);
     }}/>}
-    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setStats({lessonsCompleted:0,currentStreak:0,speakingDone:0,conversationsCompleted:0,perfectScores:0,totalStudyDays:0,a1Completed:0,quebecLessons:0,lateNightSessions:0,earlyMorningSessions:0,lastStudyDate:null});setScreen("dashboard");}} theme={theme} stats={stats} unlockedAchievements={unlockedAchievements}/>}
+    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setStats({lessonsCompleted:0,currentStreak:0,speakingDone:0,conversationsCompleted:0,perfectScores:0,totalStudyDays:0,a1Completed:0,quebecLessons:0,lateNightSessions:0,earlyMorningSessions:0,lastStudyDate:null,totalXP:0});setScreen("dashboard");}} theme={theme} stats={stats} unlockedAchievements={unlockedAchievements}/>}
     
     {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)} theme={theme}/>}
   </div>;
