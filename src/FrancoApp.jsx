@@ -2365,6 +2365,8 @@ function DashboardScreen({companion,startLevel,progress,onNavigate}){
   const doneL=Object.keys(progress).length;
   const pct=Math.round((doneL/allL.length)*100);
   const xp=doneL*25;
+  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
+  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
   const skills=[{name:"Listening 🎧",pct:74,color:T.blue},{name:"Speaking 🗣",pct:58,color:T.mint},{name:"Writing ✍",pct:65,color:T.gold},{name:"Reading 📖",pct:81,color:T.purple}];
   return <div style={{padding:"28px 32px",maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
