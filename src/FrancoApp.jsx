@@ -105,8 +105,14 @@ function AuthProvider({children}){
   const[reviewSchedule,setReviewSchedule]=useState({});
 
   useEffect(()=>{
-    if(!_firebaseAuth){ setInitializing(false); return; }
+    // On iOS we ship guest-only and don't initialize Firebase auth — avoids
+    // the Capacitor + WebView hang where onAuthStateChanged never fires.
+    if(IS_IOS_APP){ setUser(null); setInitializing(false); return; }
+    // Safety: if Firebase doesn't resolve in 4s, unblock UI anyway.
+    const safety = setTimeout(()=>setInitializing(false), 4000);
+    if(!_firebaseAuth){ clearTimeout(safety); setInitializing(false); return; }
     const unsub = onAuthStateChanged(_firebaseAuth, async u=>{
+      clearTimeout(safety);
       setUser(u);
       setInitializing(false);
       if(u){
@@ -4611,6 +4617,24 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
       }}>Delete my account</button>
     )}
 
+    {/* DELETE ALL DATA — for iOS guest-only mode (no account, but can still
+         clear local progress). Also good for any guest-mode user. */}
+    {(guestMode || IS_IOS_APP) && (
+      <button onClick={()=>{
+        if(window.confirm("Delete all your data?\\n\\nThis will permanently erase your progress, lessons completed, XP, streak, and any saved settings on this device. This cannot be undone.")){
+          try {
+            ["franco_progress","franco_companion","franco_level","franco_premium","franco_screen","franco_guest","franco_auth_screen","franco_streak","franco_xp","franco_achievements","franco_stats","franco_dark_mode"].forEach(k=>localStorage.removeItem(k));
+          } catch {}
+          window.location.reload();
+        }
+      }} style={{
+        width:"100%",padding:"13px",background:"transparent",
+        color:"#DC2626",border:"1.5px solid #FCA5A5",borderRadius:14,
+        fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,
+        cursor:"pointer",marginBottom:12
+      }}>Delete all my data</button>
+    )}
+
     {showDelete && (
       <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
         <form onSubmit={handleDeleteAccount} style={{background:"#fff",borderRadius:16,maxWidth:400,width:"100%",overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
@@ -4658,7 +4682,7 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
     {id:"practice",label:"Practice",emoji:"⚡"},
     {id:"profile",label:"Profile",emoji:"👤"},
   ];
-  return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+  return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",paddingTop:"env(safe-area-inset-top)",display:"flex",alignItems:"center",minHeight:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
     {/* Logo */}
     <div style={{fontSize:18,fontWeight:800,color:"#0F172A",fontFamily:"Georgia,serif",marginRight:16,flexShrink:0}}>Franco 🍁</div>
     {/* Nav */}
@@ -4775,8 +4799,11 @@ function AppInner(){
     </div>
   );
 
-  // Auth screens (not logged in and not guest)
-  const isAuthed = !!user || guestMode;
+  // Auth screens (not logged in and not guest).
+  // On iOS we ship guest-only — never show auth screens. App Store guideline
+  // 5.1.1(v) only applies when account creation is offered, so by skipping
+  // the auth screens entirely on iOS we sidestep that whole requirement.
+  const isAuthed = !!user || guestMode || IS_IOS_APP;
   if(!isAuthed){
     if(authScreen==="login") return <LoginScreen onNavigate={goAuth} prefillEmail={authParams.prefillEmail||""} notice={authParams.notice||""}/>;
     if(authScreen==="register") return <RegisterScreen onNavigate={goAuth}/>;
@@ -4795,7 +4822,11 @@ function AppInner(){
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
     {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
-    {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
+    {/* Belt-and-suspenders: on iOS the Stripe PaywallModal is NEVER rendered.
+        App Store guideline 3.1.1 forbids external payment links for digital
+        subscriptions. paywallLesson should already be null on iOS (set in
+        handleStartLesson), but this extra guard prevents any leak. */}
+    {!IS_IOS_APP && paywallLesson && <PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
 }
 
