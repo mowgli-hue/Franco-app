@@ -1,526 +1,510 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext, useMemo } from "react";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, sendEmailVerification, signOut, reload, updateProfile, deleteUser, EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+// Detect iOS Capacitor wrapper. Used to bypass external Stripe paywall on iOS
+// (App Store guideline 3.1.1) and to determine which UI affordances to show.
+const IS_IOS_APP = (() => {
+  try {
+    return typeof window !== "undefined" &&
+      window.Capacitor?.getPlatform?.() === "ios";
+  } catch { return false; }
+})();
+import { getFirestore, doc, setDoc, getDoc, onSnapshot, deleteDoc, collection, addDoc, getDocs, updateDoc, query, where } from "firebase/firestore";
 
-// Custom hook for localStorage state
-function useLocalState(key, defaultValue) {
-  const [state, setState] = useState(() => {
-    try {
-      if (typeof window === "undefined") return defaultValue;
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : defaultValue;
-    } catch {
-      return defaultValue;
-    }
-  });
 
-  const setValue = (value) => {
-    try {
-      setState(value);
-      if (typeof window !== "undefined") {
-        localStorage.setItem(key, JSON.stringify(value));
-      }
-    } catch (error) {
-      console.warn(`Error saving to localStorage:`, error);
-      setState(value);
-    }
-  };
+// ─────────────────────────────────────────────────────────────────────────────
+// FIREBASE AUTH SETUP
+// ─────────────────────────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            (import.meta.env.VITE_FIREBASE_API_KEY            || "").trim(),
+  authDomain:        (import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        || "").trim(),
+  projectId:         (import.meta.env.VITE_FIREBASE_PROJECT_ID         || "").trim(),
+  storageBucket:     (import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     || "").trim(),
+  messagingSenderId: (import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID|| "").trim(),
+  appId:             (import.meta.env.VITE_FIREBASE_APP_ID             || "").trim(),
+};
 
-  return [state, setValue];
+const hasFirebaseConfig = Object.values(FIREBASE_CONFIG).every(v=>v.trim().length>0);
+let _firebaseApp = null;
+let _firebaseAuth = null;
+let _firebaseDb = null;
+if(hasFirebaseConfig){
+  try{
+    _firebaseApp = getApps().length ? getApp() : initializeApp(FIREBASE_CONFIG);
+    _firebaseAuth = getAuth(_firebaseApp);
+    _firebaseDb = getFirestore(_firebaseApp);
+  }catch(e){ console.error("[firebase] init failed",e); }
 }
 
-const T = {
-  // Light theme
-  light: {
-    navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
-    mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
-    gold:"#F59E0B",goldLight:"#FEF3C7",purple:"#8B5CF6",purpleLight:"#EDE9FE",
-    surface:"#F0F4FF",card:"#FFFFFF",text:"#0D1B3E",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
-  },
-  // Dark theme
-  dark: {
-    navy:"#E2E8F0",blue:"#60A5FA",blueMid:"#3B82F6",blueLight:"#1E3A8A",
-    mint:"#34D399",mintLight:"#064E3B",red:"#F87171",redLight:"#7F1D1D",
-    gold:"#FBBF24",goldLight:"#78350F",purple:"#A78BFA",purpleLight:"#4C1D95",
-    surface:"#0F172A",card:"#1E293B",text:"#F1F5F9",textMid:"#CBD5E1",textSoft:"#64748B",border:"#334155",
-  },
-  // Shortcut top-level colors (resolve to light-theme values).
-  // These exist so legacy code using T.navy, T.blue, T.surface etc. doesn't break.
-  navy:"#0D1B3E",blue:"#1A56DB",blueMid:"#3B82F6",blueLight:"#DBEAFE",
-  mint:"#10B981",mintLight:"#D1FAE5",red:"#EF4444",redLight:"#FEE2E2",
-  gold:"#F59E0B",goldLight:"#FEF3C7",purple:"#8B5CF6",purpleLight:"#EDE9FE",
-  surface:"#F0F4FF",card:"#FFFFFF",text:"#0D1B3E",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
-};
+// ─── FIRESTORE USER DATA ──────────────────────────────────────────────────────
+async function saveUserData(userId, data){
+  if(!_firebaseDb||!userId) return;
+  try{
+    await setDoc(doc(_firebaseDb,"users",userId), data, {merge:true});
+  }catch(e){ console.warn("Firestore save failed",e); }
+}
 
-// Enhanced AI Tutors with personalities
-const COMPANIONS = [
-  {
-    id: "sophie",
-    name: "Sophie", 
-    emoji: "👩‍🏫",
-    color: "#1A56DB",
-    level: "All levels",
-    style: "Warm & encouraging teacher",
-    personality: "patient",
-    messages: {
-      idle: "Ready to learn! Let's tackle your next lesson.",
-      encourage: "You're doing amazing! Every word you learn gets you closer to your Canadian dreams! 🌟",
-      correct: "Magnifique! That's exactly right!",
-      incorrect: "Don't worry - mistakes help us learn! Let me show you the right way.",
-      motivation: "Remember, every francophone in Canada started exactly where you are now!"
-    }
-  },
-  {
-    id: "jean",
-    name: "Jean-Claude",
-    emoji: "👨‍🎓", 
-    color: "#10B981",
-    level: "Intermediate+",
-    style: "Quebec native & cultural expert",
-    personality: "cultural",
-    messages: {
-      idle: "Salut! Ready to learn some real Québécois French?",
-      encourage: "Tabarnac! You're getting good at this! (That's Quebec slang - use carefully! 😉)",
-      correct: "Parfait! You sound like a real Québécois!",
-      incorrect: "Pas grave! Even natives make mistakes. Let's try again, eh?",
-      motivation: "Learning Quebec French isn't just language - it's culture, histoire, and joie de vivre!"
-    }
-  },
-  {
-    id: "marie",
-    name: "Marie-Claire",
-    emoji: "👩‍💼",
-    color: "#8B5CF6",
-    level: "Professional",
-    style: "Business & workplace expert", 
-    personality: "professional",
-    messages: {
-      idle: "Bonjour! Ready for some professional French practice?",
-      encourage: "Excellent work! You're developing true professional French skills.",
-      correct: "Très professionnel! Perfect for the Canadian workplace.",
-      incorrect: "Let me suggest a more professional way to express that idea.",
-      motivation: "Mastering business French opens doors to leadership positions across Canada!"
-    }
-  },
-  {
-    id: "alex",
-    name: "Alex",
-    emoji: "🧑‍💻",
-    color: "#F59E0B", 
-    level: "Tech & Modern",
-    style: "Young, modern, tech-savvy",
-    personality: "casual",
-    messages: {
-      idle: "Hey! Let's make French learning fun and modern! 🚀",
-      encourage: "You're crushing it! This is totally doable! 💪",
-      correct: "Boom! Nailed it! That was fire! 🔥",
-      incorrect: "No stress! Everyone's learning journey is different. Let's figure this out together!",
-      motivation: "French + Tech skills = unstoppable in the Canadian job market! 💻🇨🇦"
-    }
+async function loadUserData(userId){
+  if(!_firebaseDb||!userId) return null;
+  try{
+    const snap = await getDoc(doc(_firebaseDb,"users",userId));
+    return snap.exists()?snap.data():null;
+  }catch(e){ console.warn("Firestore load failed",e); return null; }
+}
+
+// ─── SPACED REPETITION ENGINE ─────────────────────────────────────────────────
+// SM-2 algorithm: calculates next review date based on performance
+function calcNextReview(prevInterval, prevEF, quality){
+  // quality: 0-5 (0=blackout, 5=perfect)
+  const ef = Math.max(1.3, prevEF + 0.1 - (5-quality)*(0.08+(5-quality)*0.02));
+  let interval;
+  if(quality<3){ interval=1; }
+  else if(!prevInterval){ interval=1; }
+  else if(prevInterval===1){ interval=6; }
+  else{ interval=Math.round(prevInterval*ef); }
+  const nextDate = new Date();
+  nextDate.setDate(nextDate.getDate()+interval);
+  return {interval, ef, nextDate:nextDate.toISOString(), quality};
+}
+
+function isDueForReview(reviewData){
+  if(!reviewData?.nextDate) return false;
+  return new Date(reviewData.nextDate) <= new Date();
+}
+
+function mapAuthError(error){
+  const code = error?.code || "";
+  switch(code){
+    case "auth/invalid-email":          return "Please enter a valid email address.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":         return "Invalid email or password.";
+    case "auth/user-not-found":         return "No account found with this email.";
+    case "auth/email-not-verified":     return "Please verify your email before logging in. A new verification email has been sent.";
+    case "auth/email-already-verified": return "Email is already verified. You can login now.";
+    case "auth/email-already-in-use":   return "This email is already registered.";
+    case "auth/weak-password":          return "Password must be at least 6 characters.";
+    case "auth/too-many-requests":      return "Too many attempts. Please try again later.";
+    case "auth/network-request-failed": return "Network error. Check your connection.";
+    case "auth/operation-not-allowed":  return "Email/password sign-in is disabled. Check Firebase console.";
+    case "auth/unauthorized-domain":    return "This domain is not authorized in Firebase Auth. Add it in Firebase Console → Authentication → Settings → Authorized domains.";
+    default:
+      if(error?.message) return `Authentication failed: ${error.message}`;
+      return "Authentication failed. Check your Firebase configuration.";
   }
-];
+}
 
-// Voice synthesis utility
-const speak = (text, lang = 'fr-CA') => {
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.rate = 0.8;
-    utterance.pitch = 1;
-    
-    // Try to find Canadian French voice, fallback to French
-    const voices = speechSynthesis.getVoices();
-    const frenchVoice = voices.find(voice => 
-      voice.lang.startsWith('fr-CA') || voice.lang.startsWith('fr')
-    );
-    if (frenchVoice) utterance.voice = frenchVoice;
-    
-    speechSynthesis.speak(utterance);
-  }
-};
+// ─── AUTH CONTEXT ─────────────────────────────────────────────────────────────
+const AuthContext = createContext(null);
 
-// Mobile gesture detection utility
-const useSwipe = (onSwipeLeft, onSwipeRight) => {
-  const [touchStart, setTouchStart] = useState(null);
-  const [touchEnd, setTouchEnd] = useState(null);
+function AuthProvider({children}){
+  const[user,setUser]=useState(undefined);
+  const[initializing,setInitializing]=useState(true);
+  const[cloudProgress,setCloudProgress]=useState(null);
+  const[cloudStreak,setCloudStreak]=useState(0);
+  const[cloudXP,setCloudXP]=useState(0);
+  const[reviewSchedule,setReviewSchedule]=useState({});
 
-  const minSwipeDistance = 50;
+  useEffect(()=>{
+    if(!_firebaseAuth){ setInitializing(false); return; }
+    const unsub = onAuthStateChanged(_firebaseAuth, async u=>{
+      setUser(u);
+      setInitializing(false);
+      if(u){
+        // Check backend for premium status
+        checkBackendPremium(u.uid).then(isPro=>{
+          if(isPro && !isPremiumUnlocked()) window.location.reload();
+        });
+      }
+      if(u && _firebaseDb){
+        // Load cloud data on login
+        const data = await loadUserData(u.uid);
+        if(data){
+          if(data.progress) setCloudProgress(data.progress);
+          if(data.streak) setCloudStreak(data.streak);
+          if(data.xp) setCloudXP(data.xp);
+          if(data.reviewSchedule) setReviewSchedule(data.reviewSchedule);
+        }
+      }
+    });
+    return unsub;
+  },[]);
 
-  const onTouchStart = (e) => {
-    setTouchEnd(null);
-    setTouchStart(e.targetTouches[0].clientX);
-  };
+  const value = useMemo(()=>({
+    user,
+    initializing,
+    firebaseReady: !!_firebaseAuth,
+    cloudProgress, cloudStreak, cloudXP, reviewSchedule,
+    async saveProgress(progress, xp, streak, reviews){
+      if(!user||!_firebaseDb) return;
+      const today=new Date().toISOString().split("T")[0];
+      await saveUserData(user.uid,{
+        progress, xp, streak,
+        reviewSchedule:reviews||{},
+        lastActive:today,
+        updatedAt:new Date().toISOString()
+      });
+      setCloudProgress(progress);
+      setCloudXP(xp);
+      setCloudStreak(streak);
+      if(reviews) setReviewSchedule(reviews);
+    },
+    async updateReview(lessonId, quality){
+      if(!user||!_firebaseDb) return;
+      const prev=reviewSchedule[lessonId]||{};
+      const next=calcNextReview(prev.interval||0, prev.ef||2.5, quality);
+      const updated={...reviewSchedule,[lessonId]:next};
+      setReviewSchedule(updated);
+      await saveUserData(user.uid,{reviewSchedule:updated});
+      return next;
+    },
 
-  const onTouchMove = (e) => setTouchEnd(e.targetTouches[0].clientX);
+    async login(email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured.")  ,{code:"auth/no-config"});
+      const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
+      await reload(cred.user);
+      if(!cred.user.emailVerified){
+        try{ await sendEmailVerification(cred.user); }catch{}
+        await signOut(_firebaseAuth);
+        throw Object.assign(new Error("Email not verified"), {code:"auth/email-not-verified"});
+      }
+    },
 
-  const onTouchEnd = () => {
-    if (!touchStart || !touchEnd) return;
-    const distance = touchStart - touchEnd;
-    const isLeftSwipe = distance > minSwipeDistance;
-    const isRightSwipe = distance < -minSwipeDistance;
+    async register(name, email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const cred = await createUserWithEmailAndPassword(_firebaseAuth, email, password);
+      if(name.trim()) await updateProfile(cred.user,{displayName:name.trim()});
+      try{ await sendEmailVerification(cred.user); }catch{}
+      await signOut(_firebaseAuth);
+    },
 
-    if (isLeftSwipe && onSwipeLeft) onSwipeLeft();
-    if (isRightSwipe && onSwipeRight) onSwipeRight();
-  };
+    async resendVerification(email, password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const cred = await signInWithEmailAndPassword(_firebaseAuth, email, password);
+      await reload(cred.user);
+      if(cred.user.emailVerified){
+        await signOut(_firebaseAuth);
+        throw Object.assign(new Error("Already verified"),{code:"auth/email-already-verified"});
+      }
+      await sendEmailVerification(cred.user);
+      await signOut(_firebaseAuth);
+    },
 
-  return { onTouchStart, onTouchMove, onTouchEnd };
-};
+    async logout(){
+      if(_firebaseAuth) await signOut(_firebaseAuth);
+    },
 
-// Pronunciation scoring component
-function PronunciationChallenge({ text, onScore, theme }) {
-  const [isRecording, setIsRecording] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [score, setScore] = useState(null);
-  const [feedback, setFeedback] = useState('');
-
-  const startRecording = () => {
-    if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      alert('Speech recognition not supported. Please use Chrome.');
-      return;
+    // Account deletion — required by App Store guideline 5.1.1(v).
+    // Re-authenticates with the provided password (Firebase requires recent
+    // login for sensitive ops), deletes the Firestore user doc if present,
+    // then deletes the Firebase Auth user, and finally wipes local progress.
+    async deleteAccount(password){
+      if(!_firebaseAuth) throw Object.assign(new Error("Firebase not configured."),{code:"auth/no-config"});
+      const u = _firebaseAuth.currentUser;
+      if(!u) throw Object.assign(new Error("No signed-in user."),{code:"auth/no-user"});
+      // Step 1: re-authenticate so deleteUser() doesn't fail with auth/requires-recent-login.
+      const cred = EmailAuthProvider.credential(u.email||"", password||"");
+      await reauthenticateWithCredential(u, cred);
+      // Step 2: delete Firestore user doc (best-effort — user data won't leak even if this fails).
+      if(_firebaseDb){
+        try { await deleteDoc(doc(_firebaseDb, "users", u.uid)); } catch(e) { console.warn("[deleteAccount] firestore cleanup failed", e); }
+      }
+      // Step 3: delete the Firebase Auth user.
+      await deleteUser(u);
+      // Step 4: wipe local progress so it doesn't leak to whoever signs in next.
+      try {
+        ["franco_progress","franco_companion","franco_level","franco_premium","franco_screen","franco_guest","franco_auth_screen"].forEach(k=>localStorage.removeItem(k));
+      } catch {}
     }
+  }),[user, initializing]);
 
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    
-    recognition.lang = 'fr-CA';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
 
-    recognition.onstart = () => setIsRecording(true);
-    
-    recognition.onresult = (event) => {
-      const spokenText = event.results[0][0].transcript;
-      setTranscript(spokenText);
-      analyzeProunciation(text, spokenText);
-    };
+function useAuth(){
+  const ctx = useContext(AuthContext);
+  if(!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
+}
 
-    recognition.onend = () => setIsRecording(false);
-    recognition.start();
-  };
+// ─── AUTH LANDING SCREEN ─────────────────────────────────────────────────────
+function AuthLandingScreen({onNavigate, onGuest}){
+  const[hovered,setHovered]=useState(null);
+  const features=[
+    {id:"speaking", icon:"🗣️", text:"AI speaking practice"},
+    {id:"clb",      icon:"🎯", text:"CLB + TEF aligned sessions"},
+    {id:"canada",   icon:"🍁", text:"Canadian context scenarios"},
+    {id:"ai",       icon:"🤖", text:"Adaptive feedback and coaching"},
+  ];
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",flexDirection:"column",alignItems:"center",padding:"40px 24px",gap:40,overflowY:"auto"}}>
+      {/* Hero */}
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,maxWidth:560,width:"100%",textAlign:"center",animation:"slideUp 0.5s ease"}}>
+        {/* Avatar */}
+        <div style={{width:102,height:102,borderRadius:"50%",background:"#EAF2FF",border:"1.5px solid #BFDBFE",display:"flex",alignItems:"center",justifyContent:"center",fontSize:46,position:"relative",animation:"float 3s ease-in-out infinite",boxShadow:"0 8px 32px rgba(26,86,219,0.12)"}}>
+          👩‍🏫
+          <span style={{position:"absolute",top:-10,right:-8,fontSize:22,animation:"float 2.5s ease-in-out infinite 0.5s"}}>👋</span>
+        </div>
+        {/* Speech bubble */}
+        <div style={{border:"1.5px solid #BFDBFE",borderRadius:14,background:"#fff",padding:"10px 18px",maxWidth:400,boxShadow:"0 2px 8px rgba(0,0,0,0.04)"}}>
+          <span style={{fontSize:13,color:"#0D1B3E",fontStyle:"italic"}}>Bonjour! I'm your AI coach for Canadian French training.</span>
+        </div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:30,fontWeight:900,color:"#0B1220",lineHeight:1.2,marginTop:8}}>French Training for Canada</div>
+        <div style={{fontSize:15,color:"#475569",lineHeight:1.65}}>Structured daily sessions to improve CLB performance for immigration goals.</div>
 
-  const analyzeProunciation = async (target, spoken) => {
-    const prompt = `Compare these two French phrases for pronunciation similarity:
-Target: "${target}"
-Spoken: "${spoken}"
-
-Give a score 0-100 and specific pronunciation feedback. Focus on:
-- Word accuracy
-- Canadian French pronunciation
-- Common pronunciation mistakes
-- Constructive tips
-
-Respond with: {"score": 85, "feedback": "Great job! Work on the 'r' sound in 'rouge'."}`;
-
-    try {
-      const result = await callClaude(prompt, '', 200);
-      const analysis = JSON.parse(result.replace(/```json|```/g, '').trim());
-      setScore(analysis.score);
-      setFeedback(analysis.feedback);
-      onScore?.(analysis.score);
-    } catch {
-      setScore(75);
-      setFeedback("Good effort! Keep practicing your pronunciation.");
-    }
-  };
-
-  return (
-    <div style={{
-      background: theme.card,
-      border: `2px solid ${theme.border}`,
-      borderRadius: 16,
-      padding: 20,
-      margin: '16px 0'
-    }}>
-      <div style={{fontSize: 14, fontWeight: 700, color: theme.text, marginBottom: 12}}>
-        🎤 Pronunciation Challenge
-      </div>
-      
-      <div style={{
-        background: theme.blueLight,
-        padding: 12,
-        borderRadius: 12,
-        marginBottom: 16,
-        fontSize: 16,
-        color: theme.navy,
-        fontWeight: 600,
-        textAlign: 'center'
-      }}>
-        "{text}"
-      </div>
-
-      <div style={{display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16}}>
-        <button
-          onClick={startRecording}
-          style={{
-            background: isRecording ? theme.red : theme.blue,
-            color: 'white',
-            border: 'none',
-            borderRadius: 12,
-            padding: '12px 20px',
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            animation: isRecording ? 'pulse 1s infinite' : 'none'
-          }}
-        >
-          {isRecording ? '🔴 Recording...' : '🎤 Try Pronunciation'}
+        {/* CTA buttons */}
+        <button onClick={()=>onNavigate("login")}
+          style={{marginTop:16,width:"100%",maxWidth:340,padding:"15px 32px",background:"#1A56DB",color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 4px 20px rgba(26,86,219,0.3)",transition:"all 0.2s"}}
+          onMouseEnter={e=>e.currentTarget.style.background="#1547c0"}
+          onMouseLeave={e=>e.currentTarget.style.background="#1A56DB"}>
+          Start Training
         </button>
-        
-        <SpeakBtn text={text} theme={theme} size={16} />
+
+        <button onClick={onGuest}
+          style={{marginTop:8,padding:"11px 28px",background:"#EFF6FF",color:"#1A56DB",border:"1.5px solid #BFDBFE",borderRadius:999,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.background="#E2ECFF";}}
+          onMouseLeave={e=>{e.currentTarget.style.background="#EFF6FF";}}>
+          Try as Guest
+        </button>
+
+        <span onClick={()=>onNavigate("login")} style={{fontSize:13,color:"#64748B",cursor:"pointer",marginTop:4,textDecoration:"underline"}}>Already registered? Sign in</span>
+        <span style={{fontSize:12,color:"#94A3B8",marginTop:4}}>Used by learners preparing for Canadian immigration pathways</span>
       </div>
 
-      {transcript && (
-        <div style={{marginBottom: 12}}>
-          <div style={{fontSize: 12, color: theme.textSoft, marginBottom: 4}}>You said:</div>
-          <div style={{fontSize: 14, color: theme.text, fontStyle: 'italic'}}>"{transcript}"</div>
-        </div>
-      )}
-
-      {score !== null && (
-        <div style={{
-          background: score >= 80 ? theme.mintLight : score >= 60 ? theme.goldLight : theme.redLight,
-          padding: 12,
-          borderRadius: 12,
-          border: `2px solid ${score >= 80 ? theme.mint : score >= 60 ? theme.gold : theme.red}`
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 8
-          }}>
-            <span style={{fontSize: 20}}>
-              {score >= 80 ? '🌟' : score >= 60 ? '👍' : '💪'}
-            </span>
-            <div style={{fontSize: 16, fontWeight: 700, color: theme.text}}>
-              Score: {score}/100
-            </div>
+      {/* Feature cards */}
+      <div style={{width:"100%",maxWidth:560}}>
+        {features.map(f=>(
+          <div key={f.id}
+            onMouseEnter={()=>setHovered(f.id)} onMouseLeave={()=>setHovered(null)}
+            style={{background:hovered===f.id?"#F6FAFF":"#fff",border:`1.5px solid ${hovered===f.id?"#BFDBFE":"#D7E3F8"}`,borderRadius:14,padding:"16px 20px",display:"flex",alignItems:"center",gap:14,marginBottom:10,transition:"all 0.2s",cursor:"default"}}>
+            <span style={{fontSize:20}}>{f.icon}</span>
+            <span style={{fontSize:14,fontWeight:600,color:"#0D1B3E"}}>{f.text}</span>
           </div>
-          <div style={{fontSize: 13, color: theme.text, lineHeight: 1.4}}>
-            {feedback}
-          </div>
+        ))}
+        <div style={{textAlign:"center",marginTop:20}}>
+          <div style={{fontSize:13,fontWeight:600,color:"#475569"}}>🇨🇦 Powered by Newton Immigration</div>
+          <div style={{fontSize:12,color:"#94A3B8",marginTop:4}}>Built by licensed Canadian immigration professionals.</div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-// Enhanced SpeakBtn with better styling
-function SpeakBtn({text, size = 20, style = {}, theme}) {
-  const [speaking, setSpeaking] = useState(false);
-  
-  const handleSpeak = () => {
-    if (speaking) {
-      speechSynthesis.cancel();
-      setSpeaking(false);
-      return;
-    }
-    
-    setSpeaking(true);
-    speak(text);
-    
-    // Reset after estimated speaking time
-    setTimeout(() => setSpeaking(false), text.length * 60 + 1000);
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+function LoginScreen({onNavigate, prefillEmail="", notice=""}){
+  const{login,resendVerification,firebaseReady}=useAuth();
+  const[email,setEmail]=useState(prefillEmail);
+  const[password,setPassword]=useState("");
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+  const[resending,setResending]=useState(false);
+  const[infoMsg,setInfoMsg]=useState(notice||"");
+
+  const canSubmit = email.trim()&&password.trim()&&!loading;
+
+  const validate=()=>{
+    const e={};
+    if(!email.trim()) e.email="Email is required";
+    else if(!/^\S+@\S+\.\S+$/.test(email.trim())) e.email="Enter a valid email address";
+    if(!password.trim()) e.password="Password is required";
+    setErrors(e);
+    return Object.keys(e).length===0;
   };
 
-  return (
-    <button 
-      onClick={handleSpeak}
-      style={{
-        background: speaking ? '#EF4444' : '#10B981',
-        color: 'white',
-        border: 'none',
-        borderRadius: '50%',
-        width: size + 8,
-        height: size + 8,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        transition: 'all 0.2s',
-        animation: speaking ? 'pulse 1s infinite' : 'none',
-        ...style
-      }}
-      title={speaking ? 'Stop' : 'Listen'}
-    >
-      {speaking ? '⏹️' : '🔊'}
+  const handleLogin=async()=>{
+    if(!validate()) return;
+    try{
+      setLoading(true); setInfoMsg("");
+      await login(email.trim(), password);
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setLoading(false); }
+  };
+
+  const handleResend=async()=>{
+    if(!validate()) return;
+    try{
+      setResending(true); setInfoMsg("");
+      await resendVerification(email.trim(), password);
+      setInfoMsg("Verification email sent! Please check inbox/spam, then login.");
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setResending(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Welcome back</div>
+          <div style={{fontSize:14,color:"#475569",marginTop:6}}>Sign in to continue your structured French training.</div>
+        </div>
+
+        {!firebaseReady&&(
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+            ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable login. You can still <span onClick={()=>onNavigate("guest")} style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}}>continue as guest</span>.
+          </div>
+        )}
+
+        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+          <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
+          <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Enter password" error={errors.password}/>
+
+          {infoMsg&&<div style={{fontSize:13,color:"#059669",background:"#D1FAE5",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{infoMsg}</div>}
+          {errors.submit&&<div style={{fontSize:13,color:"#991B1B",background:"#FEE2E2",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{errors.submit}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <AuthBtn label="Login" onClick={handleLogin} disabled={!canSubmit} loading={loading} primary/>
+            <AuthBtn label="Register" onClick={()=>onNavigate("register")} variant="outline" disabled={loading}/>
+            <AuthBtn label="Resend Verification Email" onClick={handleResend} variant="text" disabled={loading||resending} loading={resending}/>
+            <AuthBtn label="← Back" onClick={()=>onNavigate("landing")} variant="text" disabled={loading}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REGISTER SCREEN ──────────────────────────────────────────────────────────
+function RegisterScreen({onNavigate}){
+  const{register,firebaseReady}=useAuth();
+  const[name,setName]=useState("");
+  const[email,setEmail]=useState("");
+  const[password,setPassword]=useState("");
+  const[confirm,setConfirm]=useState("");
+  const[errors,setErrors]=useState({});
+  const[loading,setLoading]=useState(false);
+
+  const canSubmit = name.trim()&&email.trim()&&password.trim()&&confirm.trim()&&!loading;
+
+  const handleRegister=async()=>{
+    const e={};
+    if(!name.trim()) e.name="Full name is required";
+    if(!email.trim()) e.email="Email is required";
+    else if(!/^\S+@\S+\.\S+$/.test(email.trim())) e.email="Enter a valid email address";
+    if(!password.trim()) e.password="Password is required";
+    else if(password.length<6) e.password="Password must be at least 6 characters";
+    if(!confirm.trim()) e.confirm="Please confirm your password";
+    else if(confirm!==password) e.confirm="Passwords do not match";
+    setErrors(e);
+    if(Object.keys(e).length>0) return;
+
+    try{
+      setLoading(true);
+      await register(name, email.trim(), password);
+      onNavigate("login", {prefillEmail:email.trim(), notice:"Verification email sent! Please verify your email, then login."});
+    }catch(err){
+      setErrors(p=>({...p,submit:mapAuthError(err)}));
+    }finally{ setLoading(false); }
+  };
+
+  return(
+    <div style={{minHeight:"100vh",background:"#F7FAFF",display:"flex",alignItems:"center",justifyContent:"center",padding:"32px 24px"}}>
+      <div style={{width:"100%",maxWidth:440,animation:"slideUp 0.4s ease"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#0D1B3E"}}>Create your account</div>
+          <div style={{fontSize:14,color:"#475569",marginTop:6}}>Start your AI-guided French training for Canada.</div>
+        </div>
+
+        {!firebaseReady&&(
+          <div style={{background:"#FEF3C7",border:"1.5px solid #FCD34D",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#92400E"}}>
+            ⚠️ Firebase is not configured. Add your <code>.env</code> keys to enable registration.
+          </div>
+        )}
+
+        <div style={{background:"#fff",borderRadius:20,padding:"28px 28px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)"}}>
+          <AuthInput label="Full name" value={name} onChange={v=>{setName(v);setErrors(p=>({...p,name:undefined,submit:undefined}));}} placeholder="Your full name" error={errors.name}/>
+          <AuthInput label="Email" type="email" value={email} onChange={v=>{setEmail(v);setErrors(p=>({...p,email:undefined,submit:undefined}));}} placeholder="you@example.com" error={errors.email}/>
+          <AuthInput label="Password" type="password" value={password} onChange={v=>{setPassword(v);setErrors(p=>({...p,password:undefined,submit:undefined}));}} placeholder="Create a password (min. 6 chars)" error={errors.password}/>
+          <AuthInput label="Confirm password" type="password" value={confirm} onChange={v=>{setConfirm(v);setErrors(p=>({...p,confirm:undefined,submit:undefined}));}} placeholder="Re-enter your password" error={errors.confirm}/>
+
+          {errors.submit&&<div style={{fontSize:13,color:"#991B1B",background:"#FEE2E2",borderRadius:8,padding:"9px 12px",marginBottom:14}}>{errors.submit}</div>}
+
+          <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:8}}>
+            <AuthBtn label="Create Account" onClick={handleRegister} disabled={!canSubmit} loading={loading} primary/>
+            <AuthBtn label="Already have an account? Login" onClick={()=>onNavigate("login")} variant="outline" disabled={loading}/>
+            <AuthBtn label="← Back" onClick={()=>onNavigate("landing")} variant="text" disabled={loading}/>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH SHARED COMPONENTS ───────────────────────────────────────────────────
+function AuthInput({label,type="text",value,onChange,placeholder,error}){
+  const[show,setShow]=useState(false);
+  const isPass=type==="password";
+  return(
+    <div style={{marginBottom:16}}>
+      <label style={{display:"block",fontSize:13,fontWeight:700,color:"#0D1B3E",marginBottom:6}}>{label}</label>
+      <div style={{position:"relative"}}>
+        <input type={isPass&&show?"text":type} value={value}
+          onChange={e=>onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{width:"100%",padding:"12px 14px",paddingRight:isPass?44:14,borderRadius:10,border:`1.5px solid ${error?"#EF4444":"#E2E8F0"}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:"#0D1B3E",outline:"none",background:"#fff",boxSizing:"border-box",transition:"border-color 0.2s"}}
+          onFocus={e=>e.target.style.borderColor="#1A56DB"}
+          onBlur={e=>e.target.style.borderColor=error?"#EF4444":"#E2E8F0"}
+        />
+        {isPass&&<button type="button" onClick={()=>setShow(s=>!s)}
+          style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94A3B8",padding:0}}>
+          {show?"🙈":"👁️"}
+        </button>}
+      </div>
+      {error&&<div style={{fontSize:12,color:"#EF4444",marginTop:4}}>{error}</div>}
+    </div>
+  );
+}
+
+function AuthBtn({label,onClick,disabled,loading,primary,variant="primary"}){
+  const styles={
+    primary:{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"},
+    outline:{background:"transparent",color:"#1A56DB",border:"1.5px solid #BFDBFE"},
+    text:{background:"transparent",color:"#64748B",border:"none"},
+  }[variant]||{};
+  if(primary) Object.assign(styles,{background:disabled?"#CBD5E0":"#1A56DB",color:"#fff",border:"none"});
+  return(
+    <button onClick={onClick} disabled={disabled||loading}
+      style={{padding:"12px 20px",borderRadius:12,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled||loading?"not-allowed":"pointer",opacity:disabled&&!loading?0.6:1,transition:"all 0.2s",...styles}}>
+      {loading?"Loading...":label}
     </button>
   );
 }
 
-// Advanced Learning Analytics
-const LearningAnalytics = ({ stats, progress, theme }) => {
-  const allLessons = Object.values(SYLLABUS).flatMap(l => l.modules.flatMap(m => m.lessons));
-  const completedLessons = allLessons.filter(l => progress[l.id]);
-  
-  // Calculate learning velocity (lessons per day)
-  const daysActive = stats.totalStudyDays || 1;
-  const velocity = completedLessons.length / daysActive;
-  
-  // Identify weak areas
-  const skillProgress = {
-    listening: completedLessons.filter(l => l.skill === 'listening').length,
-    speaking: completedLessons.filter(l => l.skill === 'speaking').length,
-    reading: completedLessons.filter(l => l.skill === 'reading').length,
-    writing: completedLessons.filter(l => l.skill === 'writing').length,
-    mixed: completedLessons.filter(l => l.skill === 'mixed').length
-  };
-  
-  const totalBySkill = {
-    listening: allLessons.filter(l => l.skill === 'listening').length,
-    speaking: allLessons.filter(l => l.skill === 'speaking').length,
-    reading: allLessons.filter(l => l.skill === 'reading').length,
-    writing: allLessons.filter(l => l.skill === 'writing').length,
-    mixed: allLessons.filter(l => l.skill === 'mixed').length
-  };
-  
-  const weakestSkill = Object.entries(skillProgress).reduce((min, [skill, count]) => {
-    const percentage = count / (totalBySkill[skill] || 1);
-    const minPercentage = skillProgress[min] / (totalBySkill[min] || 1);
-    return percentage < minPercentage ? skill : min;
-  }, 'listening');
-  
-  // Predict completion time
-  const remainingLessons = allLessons.length - completedLessons.length;
-  const daysToComplete = velocity > 0 ? Math.ceil(remainingLessons / velocity) : 999;
-  
-  // Study time recommendations
-  const getStudyRecommendation = () => {
-    if (stats.currentStreak < 3) return "Build consistency: Study for 15 minutes daily";
-    if (velocity < 0.5) return "Increase intensity: Try 2 lessons per session";
-    if (stats.perfectScores < stats.lessonsCompleted * 0.3) return "Focus on accuracy: Review before moving forward";
-    return "Great progress! Continue your current pace";
-  };
+// Mobile detection hook
+function useIsMobile(){
+  const[m,setM]=useState(typeof window!=="undefined"&&window.innerWidth<640);
+  useEffect(()=>{
+    const h=()=>setM(window.innerWidth<640);
+    window.addEventListener("resize",h);
+    return()=>window.removeEventListener("resize",h);
+  },[]);
+  return m;
+}
 
-  return (
-    <div style={{
-      background: theme.card,
-      borderRadius: 16,
-      padding: 20,
-      border: `1px solid ${theme.border}`
-    }}>
-      <div style={{
-        fontSize: 16,
-        fontWeight: 700,
-        color: theme.text,
-        marginBottom: 16,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8
-      }}>
-        📊 Learning Analytics
-      </div>
-      
-      {/* Progress Overview */}
-      <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 16}}>
-        <div style={{textAlign: 'center', padding: 12, background: theme.blueLight, borderRadius: 12}}>
-          <div style={{fontSize: 20, fontWeight: 700, color: theme.blue}}>{completedLessons.length}</div>
-          <div style={{fontSize: 11, color: theme.textSoft}}>Lessons Done</div>
-        </div>
-        <div style={{textAlign: 'center', padding: 12, background: theme.goldLight, borderRadius: 12}}>
-          <div style={{fontSize: 20, fontWeight: 700, color: theme.gold}}>{velocity.toFixed(1)}</div>
-          <div style={{fontSize: 11, color: theme.textSoft}}>Lessons/Day</div>
-        </div>
-        <div style={{textAlign: 'center', padding: 12, background: theme.mintLight, borderRadius: 12}}>
-          <div style={{fontSize: 20, fontWeight: 700, color: theme.mint}}>{stats.currentStreak}</div>
-          <div style={{fontSize: 11, color: theme.textSoft}}>Day Streak</div>
-        </div>
-        <div style={{textAlign: 'center', padding: 12, background: theme.purpleLight, borderRadius: 12}}>
-          <div style={{fontSize: 20, fontWeight: 700, color: theme.purple}}>{daysToComplete > 365 ? '∞' : daysToComplete}</div>
-          <div style={{fontSize: 11, color: theme.textSoft}}>Days to Finish</div>
-        </div>
-      </div>
+// Persists state to localStorage so progress survives page refresh
+function useLocalState(key, defaultVal){
+  const[state,setState]=useState(()=>{
+    try{
+      const stored=localStorage.getItem(key);
+      return stored!==null?JSON.parse(stored):defaultVal;
+    }catch{return defaultVal;}
+  });
+  const setter=(val)=>{
+    setState(prev=>{
+      const next=typeof val==="function"?val(prev):val;
+      try{localStorage.setItem(key,JSON.stringify(next));}catch{}
+      return next;
+    });
+  };
+  return[state,setter];
+}
 
-      {/* Skill Progress */}
-      <div style={{marginBottom: 16}}>
-        <div style={{fontSize: 14, fontWeight: 600, color: theme.text, marginBottom: 8}}>Skill Progress</div>
-        {Object.entries(skillProgress).map(([skill, count]) => {
-          const total = totalBySkill[skill] || 1;
-          const percentage = (count / total) * 100;
-          const isWeakest = skill === weakestSkill;
-          
-          return (
-            <div key={skill} style={{marginBottom: 8}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: 4}}>
-                <span style={{
-                  fontSize: 12,
-                  color: theme.text,
-                  textTransform: 'capitalize',
-                  fontWeight: isWeakest ? 700 : 400
-                }}>
-                  {skill} {isWeakest && '⚠️'}
-                </span>
-                <span style={{fontSize: 12, color: theme.textSoft}}>
-                  {count}/{total} ({percentage.toFixed(0)}%)
-                </span>
-              </div>
-              <div style={{
-                height: 6,
-                background: theme.border,
-                borderRadius: 3,
-                overflow: 'hidden'
-              }}>
-                <div style={{
-                  height: '100%',
-                  width: `${percentage}%`,
-                  background: isWeakest ? theme.red : theme.blue,
-                  transition: 'width 0.5s ease'
-                }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Recommendations */}
-      <div style={{
-        background: theme.blueLight,
-        padding: 12,
-        borderRadius: 12,
-        border: `2px solid ${theme.blue}`
-      }}>
-        <div style={{fontSize: 12, fontWeight: 700, color: theme.blue, marginBottom: 4}}>
-          💡 Recommendation
-        </div>
-        <div style={{fontSize: 13, color: theme.navy, lineHeight: 1.4}}>
-          {getStudyRecommendation()}
-        </div>
-      </div>
-      
-      {weakestSkill && (
-        <div style={{
-          background: theme.redLight,
-          padding: 12,
-          borderRadius: 12,
-          border: `2px solid ${theme.red}`,
-          marginTop: 12
-        }}>
-          <div style={{fontSize: 12, fontWeight: 700, color: theme.red, marginBottom: 4}}>
-            🎯 Focus Area
-          </div>
-          <div style={{fontSize: 13, color: '#991B1B', lineHeight: 1.4}}>
-            Work on your <strong>{weakestSkill}</strong> skills - they're lagging behind your other areas.
-          </div>
-        </div>
-      )}
-    </div>
-  );
+const T = {
+  navy:"#0F172A",blue:"#2563EB",blueMid:"#3B82F6",blueLight:"#EFF6FF",
+  mint:"#059669",mintLight:"#ECFDF5",red:"#DC2626",redLight:"#FEF2F2",
+  gold:"#D97706",goldLight:"#FFFBEB",purple:"#7C3AED",purpleLight:"#F5F3FF",
+  surface:"#F8FAFC",card:"#FFFFFF",text:"#0F172A",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
 };
-const ACHIEVEMENTS = [
-  {id: 'first_lesson', name: '🌱 First Step', desc: 'Complete your first lesson', requirement: (stats) => stats.lessonsCompleted >= 1},
-  {id: 'week_streak', name: '🔥 Week Warrior', desc: 'Study 7 days in a row', requirement: (stats) => stats.currentStreak >= 7},
-  {id: 'a1_master', name: '📚 A1 Master', desc: 'Complete all A1 lessons', requirement: (stats) => stats.a1Completed >= 20},
-  {id: 'voice_learner', name: '🎤 Voice Learner', desc: 'Complete 5 speaking exercises', requirement: (stats) => stats.speakingDone >= 5},
-  {id: 'night_owl', name: '🦉 Night Owl', desc: 'Study after 9 PM', requirement: (stats) => stats.lateNightSessions >= 1},
-  {id: 'early_bird', name: '🐦 Early Bird', desc: 'Study before 7 AM', requirement: (stats) => stats.earlyMorningSessions >= 1},
-  {id: 'perfectionist', name: '💎 Perfectionist', desc: 'Get 100% on 3 lessons', requirement: (stats) => stats.perfectScores >= 3},
-  {id: 'conversation_starter', name: '💬 Conversation Starter', desc: 'Complete 10 AI conversations', requirement: (stats) => stats.conversationsCompleted >= 10},
-  {id: 'quebec_expert', name: '🍁 Quebec Expert', desc: 'Complete all Quebec culture lessons', requirement: (stats) => stats.quebecLessons >= 5},
-  {id: 'dedication', name: '🏆 Dedication', desc: 'Study 30 days total', requirement: (stats) => stats.totalStudyDays >= 30}
-];
-
-const getCurrentTheme = (isDark) => isDark ? T.dark : T.light;
 // ─────────────────────────────────────────────────────────────────────────────
 // FRANCO — FULL CURRICULUM: 190 LESSONS, BEGINNER → CLB 5 / B1
 // Each lesson: teach text + vocabulary + 3-4 questions (MCQ & write)
@@ -539,759 +523,393 @@ const wr = (prompt, accepted, explain) =>
 // FOUNDATION — 20 lessons
 // ─────────────────────────────────────────────────────────────────────────────
 const FOUNDATION_LESSONS = [
-  mkL("f-01","The French Alphabet",15,"listening",
-    "French has 26 letters like English but pronounced very differently! Key differences: E='uh', I='ee', U='oo' (lips rounded), R is guttural (throat). The letter H is always silent. Learning correct pronunciation NOW makes everything easier later.",
-    ["A (ah)","E (uh)","I (ee)","O (oh)","U (oo — round lips)","R (guttural, throat)","H (always silent)","accent aigu é","accent grave è","accent circumflex ê"],
-    [mcq("How is the French letter 'E' pronounced?",["ee (like 'me')","ay (like 'say')","uh (like 'the')","oh (like 'go')"],2,"French 'E' = 'uh' — the neutral schwa sound. Very different from English! Hear it in: le, me, te, ce."),
-     mcq("The French 'U' sound is made by:",["saying 'oo' with relaxed lips","rounding lips as if saying 'oo' but saying 'ee'","saying 'you'","saying 'uh'"],1,"French U is unique! Round your lips for 'oo' but say 'ee'. Try: lune, rue, vu. This sound doesn't exist in English!"),
-     mcq("Which letter is ALWAYS silent in French?",["R","S","H","L"],2,"H is always silent: hôpital = 'opital', homme = 'omm', heure = 'eur'. Never pronounce H in French — ever!"),
-     wr("Write the French word for 'yes'",["oui"],"Oui (pronounced 'wee') — your very first French word! You'll use this dozens of times every day in Canada.")]),
-
-  mkL("f-02","Nasal Vowels",20,"listening",
-    "French has 4 nasal vowels where air passes through your nose — they don't exist in English! ON (bonjour, bon, son), AN/EN (France, enfant, dans), IN/AIN (pain, vin, main), UN (brun, lundi). Practice each one: say the vowel while humming through your nose.",
-    ["on → bon, son, mon","an/en → France, enfant, dans","in/ain → pain, vin, main","un → brun, lundi","nasal = nose resonance"],
-    [mcq("'Bonjour' contains which nasal?",["AN","IN","ON","UN"],2,"ON nasal — the most common! Feel the resonance in your nose. All these words use ON: bon, son, mon, ton, long, pont."),
-     mcq("The word 'pain' (bread) uses which nasal?",["ON","AN","IN/AIN","UN"],2,"IN/AIN nasal — sounds like 'an' in English 'and' but nasalized. Other IN words: vin (wine), main (hand), matin (morning)."),
-     mcq("'Enfant' (child) contains which nasal?",["ON","AN/EN","IN","UN"],1,"AN/EN nasal — sounds like 'awn'. Very frequent: France, dans, grand, temps, enfant, comment."),
-     wr("Write the French word for 'good' (masculine)",["bon"],"Bon — your first nasal word! The ON sound: open mouth slightly, air through nose. Used in: Bonjour, Bonne nuit, Bon appétit!")]),
-
-  mkL("f-03","Accents & Special Characters",15,"reading",
-    "French uses 5 accents that change pronunciation and meaning! Accent aigu (é) = 'ay' sound: étudiant, café. Accent grave (è) = open 'eh': père, mère. Accent circumflex (ê) = often 'eh': être, fête. Cédille (ç) = 's' sound before a/o/u: français, garçon. Tréma (ë/ï) = pronounce both vowels: Noël, naïf.",
-    ["é (aigu) = ay sound","è (grave) = open eh","ê (circumflex) = eh/ay","ç (cédille) = s sound","ë/ï (tréma) = separate vowels","à/où (grave on a/u = meaning only)"],
-    [mcq("The accent in 'café' (é) makes the E sound like:",["uh","ay","oh","ee"],1,"Accent aigu (é) = 'ay' sound! café = 'kafay'. Other é words: étudiant, préféré, répéter, médecin. Very common!"),
-     mcq("'Français' has a ç because:",["it's decorative","ç makes the C sound like 'S' before A","ç makes the C sound like 'K'","it's always used before ç"],1,"Cédille (ç) = the C makes an 'S' sound before a, o, u. Without ç: 'francais' would be pronounced 'frankay'. With ç: 'fransay' ✓"),
-     mcq("'À' (with accent grave) vs 'a' (no accent) — what's the difference?",["pronunciation only","meaning only — à=to/at, a=has","both pronunciation and meaning","no difference"],1,"'À' = to/at (preposition): Je vais à Montréal. 'A' = has (verb avoir): Il a un rendez-vous. The accent distinguishes meaning, not sound!"),
-     wr("Write the French word for 'French' (the language/adjective)",["français","le français"],"Français — with the ç! Without it: 'francais' would sound wrong. In Canada, 'Je parle français' is one of the most important sentences you'll ever say!")]),
-
-  mkL("f-04","Liaison & Silent Letters",15,"listening",
-    "Most final consonants in French are SILENT: vous='voo', est='ay', Paris='pah-REE'. BUT when the next word starts with a vowel, silent consonants can come back — this is LIAISON! Vous êtes → 'vouz-êtes', les amis → 'layz-amee', ils ont → 'eelz-on'. Liaison makes French sound smooth and musical.",
-    ["silent final consonants: s,t,d,x,z,p","liaison with vowels: s→z, x→z, d→t","obligatory: les/des/mes + vowel","forbidden: et + vowel (no liaison!)","c'est = 'say'","est = 'ay'"],
-    [mcq("'Vous êtes' is pronounced:",["voo ay-tuh","vooz ay-tuh","voos ay-tuh","voo ay"],1,"Liaison: silent S in 'vous' becomes Z before 'êtes' (starts with vowel). Result: 'vouz-êtes'. This is what makes French sound flowing and natural!"),
-     mcq("'Paris' is pronounced:",["pah-rees","pah-ris","pah-ree","pah-ri"],2,"Final S in Paris is silent! Pah-REE. Most final consonants are silent in French. Exceptions: words ending in C, R, F, L (think: CaReFuL) are usually pronounced."),
-     mcq("'Et' (and) followed by a vowel — do you make liaison?",["Yes — 'et' always links","No — 'et' never links","Only in fast speech","Only in formal writing"],1,"'Et' NEVER makes liaison! 'Et elle' = 'ay el' (NOT 'ayt-el'). This is one of the most important liaison rules to avoid a common mistake."),
-     wr("How is 'c'est' (it is) pronounced?",["say","c'est"],"C'est = 'say'. The T is silent and E contracts. One of the most common French expressions — you'll use it dozens of times a day: C'est bon, C'est ici, C'est combien?")]),
-
-  mkL("f-05","Essential Greetings",20,"speaking",
-    "Greetings are the foundation of every interaction in Canada! Bonjour = used ALL day (not just morning). Bonsoir = evening (after ~6pm). Salut = hi, ONLY with close friends — never with strangers. Au revoir = goodbye. À bientôt = see you soon. Always greet FIRST in Quebec — it's considered rude not to.",
-    ["Bonjour (all day)","Bonsoir (evening)","Salut (informal only!)","Au revoir","À bientôt (see you soon)","Bonne journée (have a good day)","Bonne soirée (have a good evening)","Bonne nuit (good night — before sleep)"],
-    [mcq("You enter a bank at 2pm. You say:",["Bonsoir","Salut","Bonjour","Bonne nuit"],2,"'Bonjour' is used from morning until about 6-7pm. It means 'good day' not just 'good morning'. Always greet first in Quebec — cashiers, doctors, strangers expect it!"),
-     mcq("Your close friend texts 'Salut!' — this means:",["Good evening!","Goodbye!","Hi! (informal)","Please!"],2,"Salut = casual hi/bye with friends. NEVER use with strangers, bosses, or in professional settings. Always use Bonjour with anyone you don't know well!"),
-     mcq("When leaving any shop or appointment, you say:",["Bonjour","Salut","Au revoir","Bonsoir"],2,"Au revoir = goodbye (literally 'until we see again'). Always say this leaving stores, clinics, offices. Quebec culture values this basic politeness — it's always noticed!"),
-     wr("Write 'have a good day' in French",["bonne journée"],"Bonne journée — said when parting during the day! Cashiers say it to you, you say it back. 'Bonne soirée' = have a good evening. A small phrase that goes a long way in Canada!")]),
-
-  mkL("f-06","Introducing Yourself",25,"speaking",
-    "The most important phrases for Canada: Je m'appelle [name] (My name is — literally 'I call myself'), J'ai X ans (I am X years old — French uses AVOIR not être for age!), Je viens de [city/country] (I come from), J'habite à [city] (I live in). These come up at EVERY first meeting, medical appointment, and government office.",
-    ["Je m'appelle...","J'ai ... ans (age uses avoir!)","Je viens de... (I come from)","J'habite à... (I live in)","Enchanté(e) (nice to meet you)","Comment vous appelez-vous? (formal)","Tu t'appelles comment? (informal)"],
-    [mcq("'My name is Sofia' in French:",["Je suis Sofia","J'ai Sofia","Je m'appelle Sofia","J'habite Sofia"],2,"Je m'appelle = 'I call myself'. THE standard French introduction. Never say 'Mon nom est Sofia' — it sounds like you're reading from a textbook!"),
-     mcq("'J'ai 30 ans' means:",["I have 30 things","I am 30 years old","I lived 30 years","I want 30"],1,"French uses AVOIR (to have) for age! J'ai 30 ans = I am 30. NEVER 'Je suis 30 ans' — that's a very common error for English speakers. You 'have' years in French!"),
-     mcq("To say WHERE you are FROM:",["J'habite à","Je vais à","Je viens de","Je suis à"],2,"Je viens de = I come from (origin). J'habite à = I currently live in. Different! 'Je viens du Maroc, mais j'habite à Montréal' = I'm from Morocco but I live in Montreal."),
-     wr("Say 'I live in Ottawa'",["j'habite à ottawa","j'habite à Ottawa"],"J'habite à Ottawa — habiter à + city = to live in. Essential for any introduction! Vous habitez à...? (formal) or Tu habites à...? (informal) to ask someone else.")]),
-
-  mkL("f-07","Numbers 1–20",20,"listening",
-    "Numbers 1-10: un, deux, trois, quatre, cinq, six, sept, huit, neuf, dix. Numbers 11-16 are unique words: onze, douze, treize, quatorze, quinze, seize. 17-19 compound: dix-sept, dix-huit, dix-neuf. 20 = vingt. Critical for prices, addresses, ages, times, phone numbers — everything in daily Canadian life!",
-    ["un(1) deux(2) trois(3)","quatre(4) cinq(5) six(6)","sept(7) huit(8) neuf(9)","dix(10) onze(11) douze(12)","treize(13) quatorze(14) quinze(15)","seize(16) dix-sept(17) dix-huit(18)","dix-neuf(19) vingt(20)"],
-    [mcq("'Huit' means:",["six","seven","eight","nine"],2,"Huit = eight. Pronounced 'weet' — H is silent! Don't confuse with sept (7) or neuf (9). Tip: think of an octopus (8 legs) = huit!"),
-     mcq("17 in French:",["septem","seize","dix-sept","dix-neuf"],2,"Dix-sept = 17 (ten-seven). From 17: dix-sept, dix-huit, dix-neuf — all compound. Then vingt (20). Simple pattern once you know 1-16!"),
-     mcq("A price tag says 'quinze dollars' — how much?",["$14","$15","$16","$50"],1,"Quinze = 15. You'll see prices everywhere in Canada — understanding numbers is true survival French. Cinq=5, quinze=15, cinquante=50. Don't confuse!"),
-     wr("Write 'twelve' in French",["douze"],"Douze = 12. Numbers 11-16 are unique words you must memorize: onze, douze, treize, quatorze, quinze, seize. No shortcuts — just practice!")]),
-
-  mkL("f-08","Numbers 20–100 & Prices",20,"listening",
-    "After 20, French is logical: vingt (20), trente (30), quarante (40), cinquante (50), soixante (60). Then it gets interesting: 70=soixante-dix (60+10), 80=quatre-vingts (4×20), 90=quatre-vingt-dix (4×20+10). Cent=100. For prices: 'C'est combien?' (How much?), 'Ça coûte X dollars' (It costs X dollars).",
-    ["vingt(20) trente(30) quarante(40)","cinquante(50) soixante(60)","soixante-dix(70) quatre-vingts(80)","quatre-vingt-dix(90) cent(100)","C'est combien? (How much?)","Ça coûte... (It costs...)","X dollars et X cents"],
-    [mcq("80 in French:",["huitante","octante","quatre-vingts","quatre-vingt"],2,"Quatre-vingts = 4×20 = 80! Historical counting system. Note: the 's' disappears before another number: quatre-vingt-cinq (85). In Quebec it's always quatre-vingts — Swiss/Belgian say huitante."),
-     mcq("70 in French:",["septante","soixante-dix","soixante-douze","sept-vingt"],1,"Soixante-dix = sixty-ten = 70! So 71=soixante-et-onze, 75=soixante-quinze, 79=soixante-dix-neuf. Yes, it's complicated — but Canadians use this system!"),
-     mcq("A store sign says 'quatre-vingt-quinze dollars'. The price is:",["$75","$85","$95","$80"],2,"Quatre-vingts + quinze = 80+15 = 95. So $95! Shopping in Quebec requires knowing these numbers. Practice counting to 100 every day!"),
-     wr("How do you ask 'How much does it cost?'",["c'est combien","c'est combien?","combien ça coûte","combien ca coute"],"C'est combien? or Combien ça coûte? — both work perfectly! Use these at any store, market, restaurant, or taxi in Canada. Essential survival French!")]),
-
-  mkL("f-09","Telling Time",20,"listening",
-    "Time in French: Il est + number + heures. Il est 9h = It's 9 o'clock. Il est midi = It's noon. Il est minuit = It's midnight. For minutes: Il est 9h15 (9:15), Il est 9h30 (9:30). Formal 24h clock is common in Canada: 14h = 2pm, 20h = 8pm. 'À quelle heure...?' = At what time...?",
-    ["Il est... heures (It is... o'clock)","Il est midi (noon)","Il est minuit (midnight)","et quart (quarter past)","et demie (half past)","moins le quart (quarter to)","du matin (am)","de l'après-midi (pm)","À quelle heure? (At what time?)"],
-    [mcq("'Il est trois heures' means:",["It is Thursday","It is 3 minutes","It is 3 o'clock","It is the 3rd"],2,"Il est + number + heures = It is X o'clock. Il est trois heures = 3:00. For half past: Il est trois heures et demie = 3:30!"),
-     mcq("'À quelle heure est le rendez-vous?' means:",["Where is the appointment?","What time is the appointment?","Who has the appointment?","Why is there an appointment?"],1,"À quelle heure = at what time? Essential for any appointment in Canada! 'Mon rendez-vous est à quatorze heures' (2pm in 24h time)."),
-     mcq("14h in 12-hour time is:",["4pm","2pm","1pm","3pm"],1,"24h clock: subtract 12 for pm hours. 14-12=2pm. Canada uses 24h time officially: bus schedules, medical appointments, official documents. Learn it!"),
-     wr("Say 'It is half past seven' in French",["il est sept heures et demie","il est 7h30"],"Il est sept heures et demie = 7:30. Et demie = half past. Et quart = quarter past. Moins le quart = quarter to. 'Mon cours est à sept heures et demie du matin!'")]),
-
-  mkL("f-10","Days, Months & Seasons",20,"reading",
-    "Days (NOT capitalized in French!): lundi, mardi, mercredi, jeudi, vendredi, samedi, dimanche. Months: janvier, février, mars, avril, mai, juin, juillet, août, septembre, octobre, novembre, décembre. Seasons: le printemps (spring), l'été (summer), l'automne (fall), l'hiver (winter). Dates: le 15 mars 2025.",
-    ["lundi(Mon) mardi(Tue) mercredi(Wed)","jeudi(Thu) vendredi(Fri) samedi(Sat)","dimanche(Sun)","aujourd'hui(today) demain(tomorrow) hier(yesterday)","cette semaine(this week) ce mois-ci(this month)","en hiver/été/automne/au printemps"],
-    [mcq("Days and months in French are written:",["With capital letters","In lowercase","In ALL CAPS","With accents always"],1,"Lowercase in French! lundi, janvier — not capitalized like English. A very common mistake. Days, months, languages, and nationalities are all lowercase in French."),
-     mcq("'Demain' means:",["yesterday","today","tomorrow","next week"],2,"Demain = tomorrow. Hier = yesterday. Aujourd'hui = today. Three essential words for scheduling appointments, meetings, and plans in Canada!"),
-     mcq("'L'hiver canadien' refers to:",["spring","summer","fall","winter"],3,"L'hiver = winter. Canadian winters are famous! You'll need: Il fait froid (it's cold), Il neige (it's snowing), Il fait -20°C. 'En hiver' = in winter (no article with seasons after 'en')!"),
-     wr("Write today's day in French (any day)",["lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"],"Good! Remember: lowercase in French. 'Aujourd'hui c'est [day].' You'll use this constantly for scheduling and conversation.")]),
-
-  mkL("f-11","Politeness Essentials",15,"speaking",
-    "Politeness is highly valued in Quebec culture — always greet, always thank, always excuse yourself! S'il vous plaît = please (formal, with strangers). S'il te plaît = please (informal, friends). Merci = thank you. De rien / Avec plaisir = you're welcome. Pardon = excuse me (minor). Excusez-moi = excuse me (stopping someone). Je suis désolé(e) = I'm sorry.",
-    ["S'il vous plaît (formal please)","S'il te plaît (informal please)","Merci / Merci beaucoup","De rien (you're welcome)","Avec plaisir (with pleasure)","Pardon (minor excuse me)","Excusez-moi (stopping someone)","Je suis désolé(e) (I'm sorry)"],
-    [mcq("Stopping a stranger to ask directions, you say:",["S'il te plaît","De rien","Excusez-moi, s'il vous plaît","Pardon mon ami"],2,"Excusez-moi, s'il vous plaît — to get a stranger's attention. Always formal (vous) with strangers! Pardon is for minor accidents (bumping into someone)."),
-     mcq("The cashier says 'Merci!' You respond:",["Bonjour","Salut","De rien","S'il vous plaît"],2,"De rien = you're welcome (literally 'it's nothing'). Also: 'Avec plaisir' (with pleasure) or 'Je vous en prie' (formal). All three are heard in Quebec every day."),
-     wr("Write 'I'm sorry' in French (sincere apology)",["je suis désolé","je suis désolée","je suis desole"],"Je suis désolé(e) — the -e at the end is for women. Pardon is for small things, je suis désolé(e) for genuine apologies. Important cultural note: Canadians appreciate sincere apologies!")]),
-
-  mkL("f-12","Survival Phrases",20,"speaking",
-    "These 8 phrases will get you through ANY difficult moment as a beginner! 1) Je ne comprends pas (I don't understand). 2) Pouvez-vous répéter? (Can you repeat?). 3) Plus lentement, s'il vous plaît (Slower please). 4) Je parle un peu français (I speak a little French). 5) Parlez-vous anglais? (Do you speak English?). 6) Comment dit-on...? (How do you say...?). 7) Qu'est-ce que ça veut dire? (What does that mean?). 8) Je ne sais pas (I don't know).",
-    ["Je ne comprends pas","Pouvez-vous répéter?","Plus lentement SVP","Je parle un peu français","Parlez-vous anglais?","Comment dit-on...?","Qu'est-ce que ça veut dire?","Je ne sais pas (I don't know)"],
-    [mcq("You didn't understand. You say:",["Merci beaucoup","Pouvez-vous répéter, s'il vous plaît?","Au revoir","Bonjour"],1,"Pouvez-vous répéter? = Can you repeat? Your most important beginner phrase! Say it confidently — everyone will appreciate that you're trying. Add s'il vous plaît always."),
-     mcq("'Je parle un peu français' tells people to:",["speak faster","speak French only","slow down and be patient","stop speaking"],2,"Un peu = a little. This phrase signals: I'm learning, please be patient! Canadians are generally very encouraging to people learning French. Use it proudly!"),
-     mcq("'Plus lentement' means:",["more quickly","one more time","more slowly","a little louder"],2,"Plus lentement = more slowly. Plus = more, lentement = slowly. You'll need this constantly when talking with native speakers who naturally speak fast!"),
-     wr("Write 'I don't understand' in French",["je ne comprends pas","je ne comprend pas"],"Je ne comprends pas — one of the most important phrases ever! The S at the end of 'comprends' is silent. Say it clearly and without embarrassment — learning means not understanding yet!")]),
-
-  mkL("f-13","Colors & Basic Adjectives",20,"reading",
-    "Colors in French (and they agree with noun gender!): rouge (red), bleu/bleue (blue), vert/verte (green), jaune (yellow — no change), noir/noire (black), blanc/blanche (white), orange (orange — no change), rose (pink — no change), gris/grise (grey). Adjectives usually come AFTER the noun in French: une voiture rouge (a red car), un chat noir (a black cat).",
-    ["rouge (red — no change)","bleu/bleue (blue)","vert/verte (green)","jaune (yellow — no change)","noir/noire (black)","blanc/blanche (white)","grand/grande (big)","petit/petite (small)","beau/belle (beautiful)","nouveau/nouvelle (new)"],
-    [mcq("'Une maison blanche' means:",["a black house","a big house","a white house","a new house"],2,"Blanche = feminine form of blanc (add -he). Maison is feminine → blanche. Blanc/blanche is one of the irregular color adjectives — must memorize the feminine form!"),
-     mcq("A car ('la voiture') is red. You say:",["une rouge voiture","une voiture rouge","un voiture rouge","une voiture rouges"],1,"Une voiture rouge — adjective AFTER the noun in French! (Exception: grand, petit, beau, nouveau, jeune, vieux, bon, mauvais come BEFORE). Rouge has no feminine change — it already ends in 'e'!"),
-     mcq("'Petit' becomes ___ for feminine nouns:",["petite","petits","peti","petit"],0,"Petit → petite (add -e, and now pronounce the T!). 'Un petit café' (T silent) vs 'Une petite maison' (T pronounced). The added -e changes the pronunciation!"),
-     wr("Write 'a big city' in French (city = la ville)",["une grande ville"],"Une grande ville — grand → grande (add -e) for feminine. La ville is feminine. Grande comes BEFORE the noun (it's one of the exceptions!). Montréal est une grande ville!")]),
-
-  mkL("f-14","Family Vocabulary",20,"speaking",
-    "Essential family words: la mère/maman (mother/mom), le père/papa (father/dad), le frère (brother), la sœur (sister), le fils (son), la fille (daughter/girl), les grands-parents (grandparents), le grand-père (grandfather), la grand-mère (grandmother), le mari (husband), la femme (wife/woman), les enfants (children), célibataire (single), marié(e) (married).",
-    ["la mère (mother)","le père (father)","le frère (brother)","la sœur (sister)","le fils (son)","la fille (daughter/girl)","les enfants (children)","le mari (husband)","la femme (wife/woman)","célibataire (single)","marié(e) (married)"],
-    [mcq("'J'ai deux sœurs et un frère' means:",["I have two brothers and a sister","I have two sisters and a brother","I have two children","I have two parents and a brother"],1,"J'ai deux sœurs et un frère — a perfect A1 sentence! Sœur=sister (note the oe ligature), frère=brother. These come up constantly in introductions and CLB speaking tasks."),
-     mcq("'La femme' can mean:",["only wife","only woman","wife OR woman","only daughter"],2,"La femme = both 'the woman' AND 'the wife' depending on context! 'Ma femme' = my wife. 'Une femme' = a woman. Context makes it clear — just like English 'partner'."),
-     mcq("'Marié(e)' means:",["single","divorced","married","widowed"],2,"Marié(e) = married. The (e) is for women: 'Je suis marié' (man) / 'Je suis mariée' (woman). Célibataire = single. Divorcé(e) = divorced. You'll be asked your status on Canadian forms!"),
-     wr("Say 'I have one brother and two children'",["j'ai un frère et deux enfants","j ai un frère et deux enfants"],"J'ai un frère et deux enfants — 'enfants' is plural (children). 'Un enfant' (a child) → 'des enfants' (children/some children). Perfect family introduction sentence!")]),
-
-  mkL("f-15","House & Home Vocabulary",20,"reading",
-    "For renting and describing your home in Canada: l'appartement (apartment), la maison (house), la chambre (bedroom), le salon (living room), la cuisine (kitchen), la salle de bain (bathroom), les toilettes (WC/toilet — separate from bathroom in Quebec often!), le balcon (balcony), le sous-sol (basement), le couloir (hallway), la fenêtre (window), la porte (door).",
-    ["l'appartement (apartment)","la maison (house)","la chambre (bedroom)","le salon (living room)","la cuisine (kitchen)","la salle de bain (bathroom)","les toilettes (WC)","le balcon (balcony)","le loyer (rent)","les charges (utilities)"],
-    [mcq("'J'ai un appartement de 3 chambres' means:",["I have a 3-floor apartment","I have a 3-bedroom apartment","I have a 3-bathroom apartment","I have 3 apartments"],1,"Chambres = bedrooms! In Canadian French housing ads: '3½' means 3 rooms + bathroom (Quebec system). '3 chambres' = 3 bedrooms is standard French."),
-     mcq("'La salle de bain' is:",["the dining room","the living room","the bathroom","the kitchen"],2,"La salle de bain = bathroom (with shower/bath). Les toilettes = WC/toilet (often separate room in Quebec apartments!). When apartment hunting, always check both: 'Est-ce qu'il y a une salle de bain et des toilettes séparées?'"),
-     wr("Write 'I'm looking for an apartment' in French",["je cherche un appartement","je cherche un appartement."],"Je cherche un appartement — one of the most useful sentences for newcomers! Add details: 'Je cherche un appartement de 2 chambres à louer, avec un loyer maximum de 1200$ par mois.'")]),
-
-  mkL("f-16","Weather & Seasons",15,"speaking",
-    "Canada has dramatic weather — you NEED these phrases! Il fait chaud (it's hot), Il fait froid (it's cold), Il fait beau (it's nice out), Il pleut (it's raining), Il neige (it's snowing), Il y a du vent (it's windy), Il y a des nuages (it's cloudy). Temperature: Il fait -10 degrés (It's -10 degrees). Canadian seasons are extreme — knowing weather vocab is practical!",
-    ["Il fait chaud/froid (hot/cold)","Il fait beau/mauvais (nice/bad)","Il pleut (it's raining)","Il neige (it's snowing)","Il y a du vent (windy)","Il y a des nuages (cloudy)","Il fait X degrés (X degrees)","Celsius in Canada!"],
-    [mcq("'Il neige' means:",["it's raining","it's cold","it's snowing","it's windy"],2,"Il neige = it's snowing. Neiger = to snow (impersonal verb, always il). Il pleut = it's raining. In Quebec: snow from November to April! 'Il neige beaucoup aujourd'hui' = It's snowing a lot today."),
-     mcq("'Il fait -15 degrés' — you should wear:",["a t-shirt","light jacket","heavy winter coat","shorts"],2,"Canada uses Celsius! -15°C is very cold — you need a heavy coat, boots, and layers. 'Il fait très froid' = it's very cold. Quebec winters average -15 to -20°C. This is real Canadian survival knowledge!"),
-     wr("Say 'It's nice out today' in French",["il fait beau aujourd'hui","il fait beau","il fait beau aujourd hui"],"Il fait beau aujourd'hui — a perfect small talk sentence! Weather is THE most common small talk topic in Canada. Say this to start any friendly conversation at work, in the elevator, or at a bus stop.")]),
-
-  mkL("f-17","Body Parts & Health Basics",20,"speaking",
-    "Essential for any medical appointment! La tête (head), le visage (face), les yeux/l'œil (eyes/eye), les oreilles/l'oreille (ears/ear), le nez (nose), la bouche (mouth), le cou (neck), les épaules (shoulders), le dos (back), la poitrine (chest), le ventre (stomach), les bras (arms), les mains (hands), les jambes (legs), les pieds (feet). J'ai mal à = I have pain in.",
-    ["la tête (head)","les yeux (eyes)","le nez (nose)","la bouche (mouth)","le cou (neck)","le dos (back)","le ventre (stomach/belly)","la jambe (leg)","le pied (foot)","J'ai mal à... (I have pain in...)"],
-    [mcq("'J'ai mal au dos' means:",["I have a headache","I have a stomachache","I have a backache","I have a toothache"],2,"Mal au dos = backache. Pattern: J'ai mal à + body part. 'À + le' = 'au', 'à + la' = 'à la', 'à + les' = 'aux'. J'ai mal aux pieds (my feet hurt), J'ai mal à la gorge (sore throat)."),
-     mcq("'Les yeux' is the plural of:",["le yeu","l'eil","l'œil","l'eye"],2,"L'œil (singular) → les yeux (plural) — completely irregular! One of the most irregular plurals in French. 'J'ai mal aux yeux' = my eyes hurt. A doctor will ask: 'Montrez-moi vos yeux.'"),
-     wr("Say 'I have a stomachache' in French",["j'ai mal au ventre","j'ai mal à l'estomac","j ai mal au ventre"],"J'ai mal au ventre — mal à + le ventre = mal au ventre. Most common complaint at the pharmacy! You can also say 'J'ai mal à l'estomac' (more formal/anatomical). Both understood everywhere.")]),
-
-  mkL("f-18","Countries & Nationalities",15,"reading",
-    "Common countries: le Canada, la France, le Maroc, l'Algérie, la Tunisie, le Sénégal, le Congo, Haïti, le Vietnam, la Chine, le Mexique, le Brésil, les États-Unis. Nationalities agree with gender: canadien/canadienne, français/française, marocain/marocaine. Important: nationalities are LOWERCASE in French! 'Je suis canadien' not 'Je suis Canadien'.",
-    ["Je viens de... (I come from)","Je suis + nationality (I am...)","canadien/canadienne","français/française","marocain/marocaine","algérien/algérienne","haïtien/haïtienne","américain/américaine","Les nationalités = lowercase!"],
-    [mcq("'Je suis française' — the speaker is:",["a French man","a French woman","from France (unknown gender)","French Canadian"],1,"Française = feminine form of français. The -e ending shows the speaker is a woman. 'Je suis français' (man), 'Je suis française' (woman). Nationalities agree with gender AND are lowercase!"),
-     mcq("'Je viens du Maroc' — 'du' is used because:",["Maroc is masculine","Maroc is feminine","Maroc is plural","Maroc starts with M"],0,"Du = de + le (masculine singular). Maroc = le Maroc (masculine). 'Je viens de la France' OR 'Je viens de France' (both work). Countries with 'le/les' use du/des: je viens du Canada, du Mexique."),
-     wr("Say 'I am Canadian' (as a woman)",["je suis canadienne"],"Je suis canadienne — with double N and E for feminine. A man says: je suis canadien. You'll use this constantly in Canada! It's also an identity statement — saying it proudly matters.")]),
-
-  mkL("f-19","Shopping Basics",20,"speaking",
-    "Shopping vocabulary for Canada: Je cherche... (I'm looking for...), Avez-vous...? (Do you have...?), C'est combien? / Ça coûte combien? (How much?), En quelle taille? (What size?), C'est trop cher (It's too expensive), Pouvez-vous m'aider? (Can you help me?), À la caisse (at the checkout), Payer par carte (pay by card), En espèces (in cash).",
-    ["Je cherche... (I'm looking for)","Avez-vous...? (Do you have?)","C'est combien? (How much?)","C'est trop cher (too expensive)","En quelle taille? (What size?)","Payer par carte (pay by card)","En espèces (cash)","Le reçu (receipt)","La caisse (checkout/register)"],
-    [mcq("'Je cherche une pharmacie' means:",["I found a pharmacy","I'm looking for a pharmacy","I left the pharmacy","I need a pharmacist"],0,"Je cherche = I'm looking for. Chercher = to look for/search. 'Je cherche un médecin, un appartement, du travail' — one of the most useful A1 verbs for newcomers in Canada!"),
-     mcq("To ask if they have a product, you say:",["Avez-vous ce produit?","Où est ce produit?","Je veux ce produit","C'est combien?"],0,"Avez-vous...? = Do you have...? Formal and correct. Informal: Vous avez...? (rising intonation). Essential for any store, pharmacy, or service counter in Canada!"),
-     wr("Ask 'Can you help me?' politely in French",["pouvez-vous m'aider","pouvez-vous m'aider?","pouvez vous m'aider"],"Pouvez-vous m'aider? — your emergency phrase at any store, clinic, or office! Pouvez-vous = Can you (formal). M'aider = help me. Add s'il vous plaît: 'Pouvez-vous m'aider, s'il vous plaît?'")]),
-
-  mkL("f-20","Foundation Review & Assessment",25,"integrated",
-    "Time to review everything from Foundation! This assessment covers: pronunciation, greetings, numbers, time, days/months, polite phrases, colors, family, body parts, shopping. You should now be able to: introduce yourself, understand basic questions, say numbers up to 100, describe simple things, and navigate basic survival situations in Canada.",
-    ["Complete review of all Foundation topics","Introduction: Je m'appelle... J'ai... ans...","Numbers 1-100 fluently","Time: Il est... heures...","Days and months","Colors and adjectives","Family vocabulary","Body parts and J'ai mal à...","Shopping and service phrases"],
-    [mcq("Complete the introduction: 'Je m'appelle Maria, ___ 28 ans et je viens du Brésil.'",["suis","ai","vais","es"],1,"J'ai 28 ans — avoir for age! Je m'appelle, J'ai X ans, Je viens de, J'habite à — the 4-sentence self-introduction you should know perfectly after Foundation!"),
-     mcq("'Il est quatre-vingt-cinq dollars' means the price is:",["$95","$85","$75","$80"],1,"Quatre-vingts + cinq = 85. But note: no 's' on quatre-vingt before cinq! Quatre-vingts (80 standalone) → quatre-vingt-cinq (85). The 's' disappears before another number."),
-     mcq("You bump into someone by accident. You say:",["Bonjour!","De rien","Pardon!","Merci"],2,"Pardon! for minor accidents and brief interruptions. Je suis désolé(e) for more serious apologies. De rien = you're welcome (response to merci, not an apology)!"),
-     wr("Introduce yourself in one sentence (name, age, origin, current city)",["je m'appelle","j'ai","je viens","j'habite"],"Perfect! A complete introduction: 'Je m'appelle [name], j'ai [X] ans, je viens de [country] et j'habite à [city].' Practice saying this out loud until it's automatic — you'll use it hundreds of times in Canada!")])
+  {
+    id:"f-01", title:"Bonjour Canada!", unit:"Unit 1: First Day in Canada",
+    mins:15, skill:"mixed", cefrTag:"Pre-A1", recap:null,
+    teach:"Imagine this: you just landed at Montreal airport. The customs officer smiles and says Bonjour! You freeze... what do you say? This happens to every new immigrant. Today you learn the 5 magic words that get you through your first day in Canada — and why saying them correctly makes Canadians light up with joy.",
+    vocab:["Bonjour (bohn-ZHOOR) = Hello / Good day","Merci (mare-SEE) = Thank you","S'il vous plaît (seel-voo-PLAY) = Please","Oui (WEE) = Yes","Non (NOH) = No","Excusez-moi (ex-koo-ZAY-mwah) = Excuse me","De rien (duh ree-AHN) = You're welcome","Bonne journée (bun zhoor-NAY) = Have a good day"],
+    questions:[
+      {type:"tap",fr:"Bonjour",opts:["Hello","Goodbye","Thank you","Please"],correct:0,explain:"Bonjour = Hello or Good day! Used ALL day in Quebec — morning, afternoon, evening. Always say it when entering any shop or office. One word, massive impact.",diff:1},
+      {type:"tap",fr:"Merci",opts:["Please","Sorry","Thank you","Yes"],correct:2,explain:"Merci = Thank you! Canadians love hearing it. Always say it after any service — at the cashier, doctor, bus driver. Short, warm, and powerful.",diff:1},
+      {type:"match",prompt:"Match the French word to its English meaning",pairs:[["Oui","Yes"],["Non","No"],["Merci","Thank you"],["Bonjour","Hello"],["S'il vous plaît","Please"]],explain:"These 5 words are your Day 1 survival kit in Canada! Oui and Non are the most basic — practice them out loud right now.",diff:1},
+      {type:"fill",before:"You walk into a pharmacy. You say",blank:"___",after:"to greet the pharmacist.",options:["Bonjour","Au revoir","Merci","Non"],correct:0,explain:"Always greet with Bonjour when entering any store or office in Quebec! It's considered rude not to. Even if your French is basic, this one word shows respect and opens hearts.",diff:1},
+      {type:"mcq",prompt:"The customs officer helps you find your luggage. What do you say?",options:["S'il vous plaît","Merci beaucoup","Bonjour","Oui"],correct:1,explain:"Merci beaucoup = Thank you very much! Even better than just merci. Canadians appreciate this warmth — it shows you care about the interaction.",diff:2},
+      {type:"scene",story:"Amara arrives at Montreal airport. The officer says 'Bonjour Madame, bienvenue au Canada!' Amara smiles and wants to reply.",prompt:"What should Amara say?",options:["Bonjour! Merci!","Au revoir!","Non merci","Je ne sais pas"],correct:0,explain:"Bonjour! Merci! — Simple and perfect. Respond to Bonjour with Bonjour. Add Merci to show gratitude for the welcome. Canadians will love this!",diff:2},
+      {type:"order",prompt:"Build the phrase: Have a good day please",words:["Bonne","journée","s'il","vous","plaît"],answer:["Bonne","journée","s'il","vous","plaît"],explain:"Bonne journée s'il vous plaît — say this leaving any store or office. The staff will be delighted. Small phrase, big impression!",diff:2},
+      {type:"write",prompt:"Write how you greet someone when entering a store in French",accepted:["bonjour","bonjour!","bonjour madame","bonjour monsieur","bonjour messieurs dames"],explain:"Bonjour! One word that opens every door in Quebec. In Canada, greeting people when you enter is part of the culture — not optional. You're already sounding Canadian!",diff:2}
+    ]
+  },
+  {
+    id:"f-02", title:"Sounds of French", unit:"Unit 1: First Day in Canada",
+    mins:20, skill:"listening", cefrTag:"Pre-A1", recap:["f-01"],
+    teach:"Your taxi driver from the airport is chatting away and you can't understand a word. Why? French sounds completely different from how it looks! But here's the secret: just 3 rules unlock everything. Rule 1: E says 'uh' not 'ee'. Rule 2: R comes from your throat like a soft gargle. Rule 3: H is always totally silent. Master these 3 today and you'll understand 30% more French immediately.",
+    vocab:["E = 'uh' sound (le, me, te, de)","É = 'ay' sound (café, étudiant, médecin)","R = guttural throat sound (rouge, merci, bonjour)","H = ALWAYS silent (hôpital, homme, heure)","OU = 'oo' sound (bonjour, vous, pour)","U = round lips + say 'ee' (tu, rue, lune)","ON = nasal buzz (bon, mon, son, bonjour)","AN = nasal (dans, grand, France, enfant)"],
+    questions:[
+      {type:"tap",fr:"café",opts:["kaf-AY","KAF-ee","KAY-fay","kaf-EE"],correct:0,explain:"Café = kaf-AY! The accent on é always makes the 'ay' sound. You'll see cafés everywhere in Quebec — now you know how to say it like a local!",diff:1},
+      {type:"tap",fr:"hôpital",opts:["HOH-pee-tal","oh-pee-TAL","hoh-PEE-tal","hoh-spee-tal"],correct:1,explain:"oh-pee-TAL! H is silent — we start with 'oh'. The accent on ô makes a longer O. In Quebec you'll need this word. Knowing it correctly helps in emergencies!",diff:1},
+      {type:"match",prompt:"Match each letter to how it sounds in French",pairs:[["E","uh (like the)"],["É","ay (like say)"],["R","guttural throat"],["H","always silent"],["OU","oo (like moon)"]],explain:"These 5 sound rules unlock French pronunciation completely. Once you know them you can read ANY French word out loud!",diff:2},
+      {type:"fill",before:"The French letter H is always",blank:"___",after:"— you never say it out loud.",options:["silent","loud","guttural","nasal"],correct:0,explain:"H is ALWAYS silent in French — no exceptions! hôpital = oh-pee-tal, homme = omm, heure = ur. This is one of the most common mistakes English speakers make. Now you know!",diff:1},
+      {type:"mcq",prompt:"How do you say 'bonjour' correctly?",options:["BON-joor","bon-ZHOOR","BON-jour","bohn-JUR"],correct:1,explain:"bon-ZHOOR! The J makes a 'zh' sound (like the s in measure). The R is guttural — from the back of your throat. The most important word in French — say it right!",diff:2},
+      {type:"mcq",prompt:"The French U sound (like in 'tu' = you) is made by:",options:["Saying oo normally","Rounding lips for oo then saying ee","Saying you fast","Opening mouth wide"],correct:1,explain:"French U is unique — it doesn't exist in English! Round your lips tight for oo then try to say ee. The tension between them IS the French U. Tu, rue, lune. Practice this and you'll impress every Quebecker!",diff:3},
+      {type:"scene",story:"Priya calls the hospital (hôpital) in Montreal. The receptionist answers in French. Priya needs to say she has an appointment (rendez-vous).",prompt:"How does Priya pronounce 'hôpital'?",options:["HOH-pee-tal","oh-pee-TAL","hoh-SPEE-tal","hoh-pee-TAL"],correct:1,explain:"oh-pee-TAL — H is silent, ô makes a long O. In emergencies, pronouncing it correctly helps the person understand you immediately. This lesson could literally save your life!",diff:2},
+      {type:"speak",prompt:"Say these 3 words out loud focusing on the French sounds: bonjour, merci, café",sampleAnswer:"bonjour merci cafe",accepted:["bonjour","merci","café","cafe"],explain:"Bon-ZHOOR, mare-SEE, kaf-AY! Say them every morning this week and they become automatic. Your French accent is forming right now!",diff:3}
+    ]
+  },
+  {
+    id:"f-03", title:"Who Are You?", unit:"Unit 1: First Day in Canada",
+    mins:20, skill:"speaking", cefrTag:"Pre-A1", recap:["f-01","f-02"],
+    teach:"At every government office, doctor, school registration, job interview — they always ask 'Comment vous appelez-vous?' (What's your name?). Today you learn the 4 sentences that introduce you completely in French. By the end of this lesson you can handle any first meeting in Quebec: name, age, origin, city. These 4 sentences will serve you for years.",
+    vocab:["Je m'appelle... = My name is... (literally: I call myself)","J'ai X ans = I am X years old (literally: I have X years!)","Je viens de... = I come from...","J'habite à... = I live in...","Je suis... = I am... (for nationality/profession)","Enchanté(e) = Nice to meet you","Comment vous appelez-vous? = What is your name?","D'où venez-vous? = Where are you from?"],
+    questions:[
+      {type:"tap",fr:"Je m'appelle",opts:["My name is","I am from","I live in","Nice to meet you"],correct:0,explain:"Je m'appelle = My name is (literally 'I call myself'). Always use this for your name — never 'Je suis [name]'. This is the first phrase in every French introduction!",diff:1},
+      {type:"tap",fr:"J'ai 30 ans",opts:["I have 30 years","I am 30 years old","I am 30","I live 30 years"],correct:1,explain:"J'ai 30 ans = I am 30 years old! In French, age uses AVOIR (to have) — literally 'I have 30 years'. Never say 'Je suis 30 ans'. This surprises English speakers every time!",diff:1},
+      {type:"match",prompt:"Match the French phrase to its meaning",pairs:[["Je m'appelle Sara","My name is Sara"],["J'ai 28 ans","I am 28 years old"],["Je viens d'Inde","I come from India"],["J'habite à Montréal","I live in Montreal"],["Enchanté!","Nice to meet you!"]],explain:"Put these together and you have a complete French introduction! Practice saying all 5 about yourself right now.",diff:1},
+      {type:"fill",before:"Je",blank:"___",after:"à Montréal. (I live in Montreal)",options:["suis","m'appelle","habite","viens"],correct:2,explain:"J'habite à = I live in. Habiter uses 'à' before city names: J'habite à Montréal, J'habite à Toronto, J'habite à Québec. This phrase appears on virtually every form you'll fill in Canada!",diff:2},
+      {type:"mcq",prompt:"How do you say 'I am 25 years old' in French?",options:["Je suis 25 ans","J'ai 25 ans","J'habite 25 ans","J'ai 25 années"],correct:1,explain:"J'ai 25 ans! French uses AVOIR (to have) for age. 'Je suis 25 ans' is a very common mistake — it sounds wrong to French speakers. J'ai = I have. J'ai 25 ans. Perfect!",diff:2},
+      {type:"order",prompt:"Build the sentence: I come from India",words:["Je","viens","d'Inde"],answer:["Je","viens","d'Inde"],explain:"Je viens d'Inde! Notice: de + Inde = d'Inde (elision). Before a vowel sound, 'de' becomes 'd'. Je viens d'Inde, de France, du Canada, du Maroc.",diff:2},
+      {type:"scene",story:"Ravi is at his first day of French class. The teacher says 'Présentez-vous!' (Introduce yourself!). Ravi is 28, from India, lives in Montreal.",prompt:"Which introduction is correct?",options:["Je m'appelle Ravi. J'ai 28 ans. Je viens d'Inde. J'habite à Montréal.","Je suis Ravi. Je suis 28 ans. Je suis d'Inde. Je suis à Montréal.","Mon nom est Ravi. J'ai 28. Inde. Montréal.","Bonjour, Ravi, 28, India, Montreal."],correct:0,explain:"Perfect introduction! Je m'appelle (not je suis for names), J'ai 28 ans (not je suis), Je viens d'Inde (with d' before vowel), J'habite à Montréal. All 4 phrases correct — memorize this pattern!",diff:2},
+      {type:"write",prompt:"Introduce yourself in French: write your name, age, where you're from, and where you live",accepted:["je m'appelle","j'ai","ans","je viens","j'habite"],explain:"You just introduced yourself in French! This exact introduction works at government offices, schools, job interviews, and meeting neighbours. You're ready for real Canadian life!",diff:3}
+    ]
+  },
+  {
+    id:"f-04", title:"Numbers That Matter", unit:"Unit 1: First Day in Canada",
+    mins:20, skill:"listening", cefrTag:"Pre-A1", recap:["f-02","f-03"],
+    teach:"Your first bill arrives in Quebec. The cashier says 'Vingt-trois dollars' — how much? You need to fill out a form with your phone number. The doctor asks your age. Numbers are everywhere in daily Canadian life and getting them wrong causes real problems. Today you learn 1-31 (enough for dates, ages, addresses, and prices) in the most memorable way possible.",
+    vocab:["1-10: un, deux, trois, quatre, cinq, six, sept, huit, neuf, dix","11-16: onze, douze, treize, quatorze, quinze, seize","17-19: dix-sept, dix-huit, dix-neuf","20: vingt | 21: vingt et un | 22: vingt-deux","30: trente | 31: trente et un","100: cent | 1000: mille","premier/première = first (1st)","deuxième = second | troisième = third"],
+    questions:[
+      {type:"tap",fr:"trois",opts:["2","3","4","13"],correct:1,explain:"Trois = 3! Pronounced 'twah'. You'll hear this constantly: trois dollars, trois personnes, trois heures. The S is silent — it's 'twah' not 'twas'.",diff:1},
+      {type:"tap",fr:"vingt",opts:["12","20","21","200"],correct:1,explain:"Vingt = 20! Pronounced 'van' (the T and G are silent). Vingt et un = 21, vingt-deux = 22. Vingt appears constantly in prices and ages.",diff:1},
+      {type:"match",prompt:"Match the French number to its value",pairs:[["cinq","5"],["dix","10"],["quinze","15"],["vingt","20"],["trente","30"]],explain:"Cinq (5), dix (10), quinze (15), vingt (20), trente (30) — these multiples of 5 are the most useful numbers to know first!",diff:1},
+      {type:"mcq",prompt:"The cashier says 'Vingt-trois dollars s'il vous plaît'. How much is it?",options:["$13","$20","$23","$32"],correct:2,explain:"Vingt (20) + trois (3) = vingt-trois = 23! In Quebec, prices are said this way. Knowing your numbers means you'll never be overcharged or confused at checkout.",diff:2},
+      {type:"fill",before:"Mon numéro de téléphone est cinq, un, quatre,",blank:"___",after:", sept, huit, neuf, zéro.",options:["deux","trois","cinq","six"],correct:1,explain:"Trois = 3! Phone numbers in Quebec are said digit by digit. Practice saying your own phone number in French — it comes up at every appointment and registration.",diff:2},
+      {type:"scene",story:"Sara is at the government office. The agent says 'Quel est votre code postal? (What's your postal code?)' Sara's postal code is H3A 2T6.",prompt:"How does Sara say the numbers 3 and 2 in French?",options:["trois et deux","three and two","trente et vingt","trois, deux"],correct:3,explain:"Trois, deux — postal codes and phone numbers are said digit by digit, not as full numbers. H trois A deux T six. Now practice your own postal code!",diff:2},
+      {type:"order",prompt:"Say the price: twenty-five dollars",words:["vingt","et","cinq","dollars"],answer:["vingt","cinq","dollars"],explain:"Vingt-cinq dollars! Note: 21, 31, 41... use 'et un' (vingt et un). But 22-29 just hyphenate: vingt-deux, vingt-cinq. No 'et' for 22-29!",diff:3},
+      {type:"write",prompt:"Write the number 23 in French words",accepted:["vingt-trois","vingt trois"],explain:"Vingt-trois! The hyphen is important in writing. Vingt (20) + trois (3). Numbers 17-19 use dix-sept, dix-huit, dix-neuf — literally ten-seven, ten-eight, ten-nine. French numbers are very logical once you see the pattern!",diff:2}
+    ]
+  },
+  {
+    id:"f-05", title:"Your New Home", unit:"Unit 2: Finding a Home",
+    mins:25, skill:"mixed", cefrTag:"Pre-A1", recap:["f-03","f-04"],
+    teach:"Finding an apartment in Quebec is one of the first big challenges for immigrants. The landlord calls and asks questions in French. You need to understand: how many rooms, what floor, how much per month. Today's lesson is based on a real scenario — Sara calls about an apartment she saw on Kijiji. By the end you'll know the vocabulary to find your first home in French Canada.",
+    vocab:["un appartement = an apartment","un loyer = rent","une chambre = a bedroom","la salle de bain = bathroom","la cuisine = kitchen","le salon = living room","au premier étage = on the first floor","C'est combien? = How much is it?","C'est disponible quand? = When is it available?","Je suis intéressé(e) = I am interested"],
+    questions:[
+      {type:"tap",fr:"un loyer",opts:["a bedroom","a bathroom","rent","a kitchen"],correct:2,explain:"Un loyer = rent! Every apartment listing in Quebec mentions the loyer. 'Le loyer est de 1200$ par mois' = The rent is $1200 per month. You'll see this word constantly.",diff:1},
+      {type:"tap",fr:"la salle de bain",opts:["the living room","the bathroom","the bedroom","the kitchen"],correct:1,explain:"La salle de bain = the bathroom (literally 'the room of bath'). A key word for apartment hunting! '1 salle de bain' or '2 salles de bain' — always check!",diff:1},
+      {type:"match",prompt:"Match the French room name to English",pairs:[["le salon","living room"],["la cuisine","kitchen"],["une chambre","a bedroom"],["la salle de bain","bathroom"],["le balcon","balcony"]],explain:"These are the 5 main rooms of any Quebec apartment! Knowing them lets you understand any listing on Kijiji, Marketplace, or through an agent.",diff:1},
+      {type:"fill",before:"Sara asks: C'est",blank:"___",after:"par mois? (How much per month?)",options:["combien","quand","où","disponible"],correct:0,explain:"C'est combien? = How much is it? The most useful question for any transaction in Quebec. Combien means 'how much' or 'how many'. Essential for shopping, rent, services!",diff:2},
+      {type:"mcq",prompt:"The landlord says 'L'appartement a deux chambres et un salon'. What does this mean?",options:["The apartment has 2 bathrooms and a kitchen","The apartment has 2 bedrooms and a living room","The apartment has 2 floors and a balcony","The apartment has 2 kitchens and a room"],correct:1,explain:"Deux chambres = 2 bedrooms, un salon = a living room! Chambres always means bedrooms in apartment context. Now you can understand any apartment listing in Quebec!",diff:2},
+      {type:"scene",story:"Sara calls about an apartment. The landlord says 'Bonjour, l'appartement est au deuxième étage, loyer 1100$ par mois, disponible le 1er juillet.'",prompt:"What did Sara just learn about the apartment?",options:["2nd floor, $1100/month, available July 1st","1st floor, $1100/month, available June 1st","2nd floor, $1000/month, available July 1st","3rd floor, $1100/month, available July 1st"],correct:0,explain:"Deuxième étage = 2nd floor, 1100$ par mois = $1100 per month, disponible le 1er juillet = available July 1st. You just understood a real phone conversation in French — incredible progress!",diff:3},
+      {type:"order",prompt:"Build Sara's question: How much is the rent?",words:["C'est","combien","le","loyer?"],answer:["C'est","combien","le","loyer?"],explain:"C'est combien le loyer? — a natural, perfect question any Quebecer would understand immediately. Practice saying it out loud — you'll use this in real life very soon!",diff:2},
+      {type:"write",prompt:"Write how you would say you are interested in an apartment in French",accepted:["je suis intéressé","je suis intéressée","je suis interesse","intéressé","interested"],explain:"Je suis intéressé(e)! The (e) at the end is added if you're a woman — intéressée. This phrase works on the phone, by email, or in person. Simple and professional!",diff:3}
+    ]
+  },
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// A1 — 40 LESSONS
-// ─────────────────────────────────────────────────────────────────────────────
+
 const A1_LESSONS = [
-  mkL("a1-01","Être — To Be (Full)",25,"speaking",
-    "Être is the most important verb in French. MEMORIZE all 6 forms: Je suis, Tu es, Il/Elle/On est, Nous sommes, Vous êtes, Ils/Elles sont. Uses: identity (Je suis médecin), nationality (Elle est canadienne), location with en/au (Nous sommes au Canada), description (C'est difficile). Note: NO article before professions after être! 'Je suis infirmière' NOT 'Je suis une infirmière'.",
-    ["Je suis","Tu es","Il/Elle/On est","Nous sommes","Vous êtes","Ils/Elles sont","profession: pas d'article!","C'est = it is"],
-    [mcq("'Elle ___ médecin.' Complete correctly.",["suis","es","est","sont"],2,"Elle → est. Il/Elle/On always takes EST. No article before profession: 'Elle est médecin' not 'Elle est une médecin'. This rule applies to all professions after être!"),
-     mcq("'Nous ___ au Canada depuis 2 ans.'",["es","est","êtes","sommes"],3,"Nous → sommes. 'Nous sommes au Canada depuis 2 ans' = We have been in Canada for 2 years. Depuis + present tense = ongoing since!"),
-     mcq("'Vous ___ bienvenu(e)s!' (You are welcome!)",["suis","es","est","êtes"],3,"Vous → êtes. Works for one person (formal) or many people. 'Vous êtes bienvenu(e)s au Canada!' — a phrase you'll hear and use often!"),
-     wr("Say 'I am a nurse' (female speaker)",["je suis infirmière"],"Je suis infirmière — NO 'une'! After être with professions: no article. Man: je suis infirmier. This applies to all jobs: médecin, professeur, ingénieur, etc.")]),
+  mkL("a1-01","At the Grocery Store",25,"speaking",
+    "You walk into IGA or Metro — Quebec's biggest grocery stores. Everything is in French! The signs, the labels, the cashier. Today you learn how to navigate grocery shopping completely in French. This comes up every single week of your life in Canada. After this lesson you can find what you need, ask for help, and pay — all in French.",
+    ["les légumes = vegetables","les fruits = fruits","la viande = meat","le pain = bread","le lait = milk","les oeufs = eggs","Où sont les...? = Where are the...?","Combien ça coûte? = How much does it cost?","Je voudrais... = I would like...","C'est tout = That's all"],
+    [mcq("You need milk. You ask:",["Où sont les oeufs?","Où est le lait?","Je voudrais du pain","Combien ça coûte?"],1,"Où est le lait? = Where is the milk? Lait = milk. Always use 'où est' for single items and 'où sont' for plural items. The staff will point you right to it!",1),
+     mcq("The cashier asks 'C'est tout?' What does this mean?",["How are you?","Is that everything?","How much?","Do you have a card?"],1,"C'est tout? = Is that everything? / That's all? You will hear this at EVERY checkout in Quebec. Reply 'Oui c'est tout' or just 'Oui merci'!",1),
+     {type:"match",prompt:"Match the French food item to English",pairs:[["le lait","milk"],["le pain","bread"],["les oeufs","eggs"],["la viande","meat"],["les légumes","vegetables"]],explain:"These 5 items are in every shopping cart! Learn them and you can read any grocery list or recipe in French.",diff:1},
+     {type:"fill",before:"Excusez-moi, où sont",blank:"___",after:"s'il vous plaît? (Where are the vegetables?)",options:["le lait","les légumes","la viande","le pain"],correct:1,explain:"Où sont les légumes? = Where are the vegetables? Use 'les' for plural items and 'le/la' for singular. Les légumes, les fruits, les oeufs — all plural!",diff:2},
+     mcq("How do you politely ask for something in French?",["Je veux du pain","Je voudrais du pain s'il vous plaît","Donnez-moi du pain","Pain s'il vous plaît"],1,"Je voudrais = I would like (conditional tense — polite form). Much more polite than 'je veux' which means I want. Always use 'je voudrais' in stores and restaurants!",2),
+     {type:"scene",story:"Amara is at IGA. She needs eggs but can't find them. A store employee walks by.",prompt:"What should Amara say?",options:["Excusez-moi, où sont les oeufs s'il vous plaît?","Je veux oeufs!","Où est le oeufs?","Donnez-moi les oeufs"],correct:0,explain:"Excusez-moi, où sont les oeufs s'il vous plaît? Perfect! Excusez-moi to get attention, où sont for plural items, s'il vous plaît for politeness. This works in any Quebec store!",diff:2},
+     {type:"order",prompt:"Build the sentence: I would like some bread please",words:["Je","voudrais","du","pain","s'il","vous","plaît"],answer:["Je","voudrais","du","pain","s'il","vous","plaît"],explain:"Je voudrais du pain s'il vous plaît — perfect polite request! Du = some (partitive article for masculine nouns). Je voudrais de la viande, du lait, du pain.",diff:2},
+     wr("Write how you ask where the milk is in French",["où est le lait","ou est le lait","où est le lait s'il vous plaît"],"Où est le lait? Simple and perfect! Lait is masculine so use 'le'. Où est le lait s'il vous plaît adds politeness. You are ready to shop in any Quebec grocery store!",2)]),
 
-  mkL("a1-02","Avoir — To Have (Full)",25,"speaking",
-    "Avoir is essential for possession AND many fixed expressions! Forms: J'ai, Tu as, Il/Elle/On a, Nous avons, Vous avez, Ils/Elles ont. Key expressions using avoir (not être!): J'ai faim (hungry), J'ai soif (thirsty), J'ai chaud/froid (hot/cold), J'ai peur (afraid), J'ai besoin de (need), J'ai X ans (age), J'ai un rendez-vous (appointment).",
-    ["J'ai","Tu as","Il/Elle/On a","Nous avons","Vous avez","Ils/Elles ont","J'ai faim/soif/chaud/froid","J'ai besoin de (I need)","J'ai peur (I'm afraid)"],
-    [mcq("'J'ai 35 ans' — what does 'ai' come from?",["être","faire","avoir","aller"],2,"Avoir (to have) is used for age in French! J'ai 35 ans = I am 35. NEVER 'Je suis 35 ans' — one of the most common errors English speakers make!"),
-     mcq("'J'ai faim' means:",["I have food","I am happy","I am hungry","I have a family"],2,"J'ai faim = I am hungry (literally 'I have hunger'). French uses avoir for physical states: faim(hungry), soif(thirsty), chaud(hot), froid(cold), peur(fear), honte(shame), raison(right), tort(wrong)!"),
-     mcq("'Vous ___ des enfants?' (Do you have children?)",["as","a","avez","ont"],2,"Vous → avez. 'Vous avez des enfants?' — a very common question in Canada for newcomers registering with healthcare, schools, social services. Always use 'des' for plural indefinite!"),
-     wr("Say 'I have an appointment at 3pm'",["j'ai un rendez-vous à 15h","j'ai un rendez-vous à 3h","j'ai un rendez-vous à trois heures","j'ai un rendez-vous a 15h"],"J'ai un rendez-vous à 15h (or à trois heures de l'après-midi). This sentence is used at EVERY clinic, government office, and professional meeting in Canada!")]),
+  mkL("a1-02","At the Pharmacy",25,"speaking",
+    "Getting sick in Canada and not knowing French is scary. But with today's vocabulary, you can walk into any Pharmaprix or Jean Coutu — Quebec's most common pharmacies — explain your symptoms, understand the pharmacist, and get the right medicine. This lesson is important. It could make a real difference when you need help.",
+    ["J'ai mal à... = I have pain in/at...","J'ai de la fièvre = I have a fever","une ordonnance = a prescription","un médicament = a medicine/medication","une allergie = an allergy","Je suis allergique à... = I am allergic to...","Ça fait combien de temps? = How long has it been?","depuis hier = since yesterday","deux fois par jour = twice a day","Avez-vous...? = Do you have...?"],
+    [mcq("You have a headache. You say:",["J'ai mal à la tête","J'ai mal au ventre","J'ai de la fièvre","Je suis allergique"],0,"J'ai mal à la tête = I have a headache (literally I have pain at the head). J'ai mal au dos = back pain, J'ai mal à la gorge = sore throat. This pattern works for any body part!",1),
+     mcq("The pharmacist asks for your ordonnance. What do they want?",["Your health card","Your prescription","Your allergies","Your address"],1,"Une ordonnance = a prescription! The pharmacist needs it to give you certain medications. Always bring your ordonnance from the doctor. In Quebec this is required for many medicines.",1),
+     {type:"match",prompt:"Match the symptom to English",pairs:[["J'ai de la fièvre","I have a fever"],["J'ai mal à la gorge","I have a sore throat"],["Je suis allergique","I am allergic"],["une ordonnance","a prescription"],["deux fois par jour","twice a day"]],explain:"These phrases will help you communicate with any pharmacist or doctor in Canada. Knowing them could make a real difference to your health!",diff:1},
+     {type:"fill",before:"Je suis allergique",blank:"___",after:"la pénicilline. (I am allergic to penicillin)",options:["à","de","au","en"],correct:0,explain:"Je suis allergique à = I am allergic to. Always followed by à (or au/aux/à la depending on the noun). Je suis allergique au gluten, à la pénicilline, aux noix. Very important to know!",diff:2},
+     mcq("The pharmacist says 'Prenez un comprimé deux fois par jour'. What should you do?",["Take one tablet once a day","Take two tablets twice a day","Take one tablet twice a day","Take two tablets once a day"],2,"Prenez = take (formal command), un comprimé = one tablet, deux fois par jour = twice a day. So: one tablet, twice daily. Understanding dosage instructions is crucial for your health!",2),
+     {type:"scene",story:"Ravi wakes up with a fever and sore throat. He goes to Pharmaprix. The pharmacist asks 'Qu'est-ce qui ne va pas?' (What's wrong?)",prompt:"What should Ravi say?",options:["J'ai de la fièvre et j'ai mal à la gorge","Je suis une ordonnance","J'ai mal une pharmacie","Deux fois par jour merci"],correct:0,explain:"J'ai de la fièvre et j'ai mal à la gorge — perfect! Two symptoms clearly explained. The pharmacist now knows exactly what to recommend. You just had a real medical conversation in French!",diff:2},
+     {type:"order",prompt:"Build: I have had a sore throat since yesterday",words:["J'ai","mal","à","la","gorge","depuis","hier"],answer:["J'ai","mal","à","la","gorge","depuis","hier"],explain:"J'ai mal à la gorge depuis hier — since yesterday. Depuis = since/for. Depuis hier = since yesterday, depuis 3 jours = for 3 days. Ça fait combien de temps? = How long has it been?",diff:3},
+     wr("Write how you tell a pharmacist you have a fever",["j'ai de la fièvre","j'ai fièvre","j'ai une fièvre","de la fièvre"],"J'ai de la fièvre! Note the 'de la' before fièvre — this is the partitive article. You have now mastered one of the most important health phrases for life in Canada!",2)]),
 
-  mkL("a1-03","Regular -ER Verbs",30,"writing",
-    "80% of French verbs are -ER verbs — all follow the same pattern! Remove -er, add endings: je→-e, tu→-es, il/elle→-e, nous→-ons, vous→-ez, ils/elles→-ent. Key -ER verbs: parler (speak), habiter (live), travailler (work), manger (eat), regarder (watch), aimer (like/love), étudier (study), chercher (look for), arriver (arrive), payer (pay).",
-    ["parler → je parle","habiter → j'habite (elision!)","travailler → nous travaillons","manger → vous mangez","regarder → ils regardent","aimer → tu aimes","étudier → elle étudie","chercher → je cherche"],
-    [mcq("'Nous travaill___' (We work)",["e","es","ons","ez"],2,"Nous + -ER verb ALWAYS = -ons. Nous travaillons, nous habitons, nous parlons. The -ons ending is the most reliable rule in French conjugation!"),
-     mcq("Correct: 'Je ___ à Ottawa.' (I live in Ottawa.)",["Je habite à Ottawa","J'habite à Ottawa","Je habitons à Ottawa","Je habitez à Ottawa"],1,"J'habite — elision! When 'je' comes before a vowel sound, drop the 'e' and add apostrophe. J'habite, j'aime, j'arrive, j'étudie, j'ai. This is mandatory in French!"),
-     mcq("'Ils travaill___' (They work — masculine)",["e","es","ent","ez"],2,"Ils/Elles + -ER verb = -ent. Ils travaillent. The -ent ending is ALWAYS SILENT! 'Il travaille' and 'Ils travaillent' sound identical — only writing distinguishes them!"),
-     wr("Conjugate 'parler' with 'vous' in a question",["vous parlez français?","parlez-vous français?","est-ce que vous parlez français?"],"Vous parlez français? OR Parlez-vous français? OR Est-ce que vous parlez français? — all three question forms are correct! The first (intonation) is most casual, the last (est-ce que) is most beginner-friendly.")]),
+  mkL("a1-03","Getting Around Montreal",25,"listening",
+    "You need to take the STM bus or metro to work. The driver announces stops in French. Your phone GPS speaks French. Someone gives you directions and you have no idea where to go. Today we fix all of that. You will learn directions, transit vocabulary, and how to ask for help when you're lost — essential skills for any Canadian city.",
+    ["à gauche = to the left","à droite = to the right","tout droit = straight ahead","tournez = turn","prenez = take","le métro = the metro/subway","l'arrêt = the stop","la station = the station","Où est...? = Where is...?","Comment aller à...? = How do I get to...?"],
+    [mcq("Someone says 'Tournez à gauche'. What do you do?",["Turn right","Go straight","Turn left","Take the metro"],2,"Tournez à gauche = Turn left! Gauche = left. Droite = right. Tout droit = straight. These 3 direction words will get you anywhere in Quebec. Tournez à droite = turn right.",1),
+     mcq("You're on the metro. The announcer says 'Prochain arrêt: Berri-UQAM'. What is happening?",["The metro is stopping","The next stop is Berri-UQAM","The metro is turning left","You need to transfer"],1,"Prochain arrêt = next stop! You will hear this on every STM bus and metro in Montreal. Prochain = next, arrêt = stop. Essential for not missing your station!",1),
+     {type:"match",prompt:"Match the direction word to English",pairs:[["à gauche","left"],["à droite","right"],["tout droit","straight ahead"],["tournez","turn"],["prenez","take"]],explain:"These 5 words are all you need to follow directions anywhere in Canada. Left, right, straight, turn, take — master them and you'll never get truly lost!",diff:1},
+     {type:"fill",before:"Pour aller à la station, prenez le bus puis tournez",blank:"___",after:"au feu rouge.",options:["à gauche","à droite","tout droit","en bas"],correct:0,explain:"Prenez le bus puis tournez à gauche au feu rouge = Take the bus then turn left at the red light. Au feu rouge = at the red light. Un très bon repère (landmark) to use in directions!",diff:2},
+     mcq("How do you ask 'How do I get to the airport?'",["Où est l'aéroport?","Comment aller à l'aéroport?","Prenez l'aéroport","À gauche l'aéroport"],1,"Comment aller à...? = How do I get to...? Comment = how, aller = to go. Comment aller à l'aéroport? Comment aller au centre-ville? Works for any destination!",2),
+     {type:"scene",story:"Sara is lost in Montreal. She stops someone and says 'Excusez-moi, comment aller à la station de métro?' The person replies 'Allez tout droit, puis tournez à droite au coin de la rue.'",prompt:"What should Sara do?",options:["Go straight then turn right at the corner","Turn left then go straight","Take the metro then turn right","Go straight to the corner then turn left"],correct:0,explain:"Allez tout droit = go straight, puis = then, tournez à droite = turn right, au coin de la rue = at the street corner. You just understood real French directions! Sara will find her metro!",diff:2},
+     {type:"order",prompt:"Ask how to get to downtown",words:["Comment","aller","au","centre-ville?"],answer:["Comment","aller","au","centre-ville?"],explain:"Comment aller au centre-ville? Au = à + le (contraction for masculine nouns). À la gare, au centre-ville, à l'hôpital. Centre-ville = downtown — a word you'll use constantly in any Canadian city!",diff:2},
+     wr("Write how you ask where the metro station is",["où est la station de métro","où est le métro","où est la station","comment aller au métro"],"Où est la station de métro? Perfect! This question will help you navigate any Canadian city. The STM app also has French audio — now you'll understand it!",2)]),
 
-  mkL("a1-04","Regular -IR Verbs",25,"writing",
-    "The second major verb group! Remove -ir, add: je→-is, tu→-is, il/elle→-it, nous→-issons, vous→-issez, ils/elles→-issent. Common -IR verbs: finir (finish), choisir (choose), réussir (succeed), obéir (obey), remplir (fill), saisir (grab), agir (act), réfléchir (think/reflect). Note: some -IR verbs (partir, sortir, dormir) are IRREGULAR — different lesson!",
-    ["finir → je finis","choisir → tu choisis","réussir → il réussit","remplir → nous remplissons","obéir → vous obéissez","réfléchir → ils réfléchissent","je finis, tu finis, il finit","nous finissons, vous finissez, ils finissent"],
-    [mcq("'Je fin___' (I finish)",["e","is","it","issons"],1,"Je → -is for -IR verbs. Je finis, tu finis, il finit, nous finissons, vous finissez, ils finissent. Note the -iss- that appears in plural forms!"),
-     mcq("'Elle chois___' (She chooses)",["is","it","isse","issent"],1,"Elle → -it. Elle choisit. The T is silent! Compare: je choisis (silent S), il choisit (silent T). In speech, singular forms all sound the same for -IR verbs."),
-     mcq("'Vous réuss___' (You succeed)",["it","issons","issez","issent"],2,"Vous → -issez. Vous réussissez. The long -iss- middle is the signature of regular -IR verbs! 'Vous réussissez bien!' = You're doing well! (Common encouragement phrase)"),
-     wr("Say 'I choose to study French' using 'choisir'",["je choisis d'étudier le français","je choisis étudier le français"],"Je choisis d'étudier le français — after verbs of choice, use 'de' + infinitive! Choisir de, décider de, essayer de, oublier de. The 'd' before 'étudier' is elision of 'de'.")]),
+  mkL("a1-04","Your First Job Interview",30,"speaking",
+    "Getting a job is one of the most important steps for immigrants in Canada. Even entry-level jobs often require basic French in Quebec. Today you learn the exact phrases used in French job interviews — how to introduce yourself professionally, talk about your experience, and ask questions. These phrases have helped thousands of immigrants get their first Canadian job.",
+    ["Je m'appelle... et je postule pour = My name is... and I am applying for","J'ai X années d'expérience = I have X years of experience","Je parle... = I speak...","Mes points forts sont... = My strengths are...","Je suis disponible = I am available","Quel est le salaire? = What is the salary?","Quand commencerais-je? = When would I start?","Je suis très motivé(e) = I am very motivated","Merci de votre temps = Thank you for your time","Avez-vous des questions? = Do you have any questions?"],
+    [mcq("The interviewer asks 'Parlez-moi de vous'. What do they want?",["Tell them your address","Tell them about yourself","Tell them about your friends","Tell them your salary expectations"],1,"Parlez-moi de vous = Tell me about yourself. The most common opening in any French interview! Start with: Je m'appelle X, j'ai X ans, je viens de X, j'ai X années d'expérience en...",1),
+     mcq("How do you say 'I have 3 years of experience'?",["J'ai 3 ans d'expérience","Je suis 3 années","J'habite 3 ans expérience","J'ai expérience 3"],0,"J'ai 3 ans d'expérience = I have 3 years of experience! Notice: ans d'expérience. The d' (de + vowel) links them. J'ai 5 ans d'expérience en comptabilité = 5 years in accounting.",1),
+     {type:"match",prompt:"Match interview phrases to their meaning",pairs:[["Je suis disponible","I am available"],["Mes points forts","My strengths"],["Je suis motivé","I am motivated"],["Merci de votre temps","Thank you for your time"],["Avez-vous des questions?","Do you have questions?"]],explain:"These 5 phrases appear in almost every French job interview. Learn them and you'll sound professional and prepared — exactly what employers want!",diff:1},
+     {type:"fill",before:"J'ai cinq",blank:"___",after:"d'expérience en restauration.",options:["ans","jours","heures","mois"],correct:0,explain:"J'ai cinq ans d'expérience = I have five years of experience. Ans = years. Mois = months. Jours = days. Always use 'ans' for years of experience in a job context!",diff:2},
+     mcq("The interviewer asks 'Pourquoi voulez-vous travailler ici?' (Why do you want to work here?) What is a good answer?",["Je ne sais pas","J'ai besoin d'argent","Je suis très motivé et votre entreprise m'intéresse beaucoup","C'est près de chez moi"],2,"Je suis très motivé et votre entreprise m'intéresse beaucoup = I am very motivated and your company interests me a lot. Always show enthusiasm! Mention something specific about the company if you can.",2),
+     {type:"scene",story:"Priya is at her first job interview at a Montreal café. The manager asks 'Parlez-vous français?' (Do you speak French?)",prompt:"What is the best response?",options:["Je parle un peu français et j'apprends chaque jour","Non, pas du tout","Oui, très bien merci","Je ne comprends pas"],correct:0,explain:"Je parle un peu français et j'apprends chaque jour = I speak a little French and I learn every day. Honest, positive, and shows commitment! Employers in Quebec love this attitude.",diff:2},
+     {type:"order",prompt:"Introduce yourself professionally: My name is Sara and I am applying for the position",words:["Je","m'appelle","Sara","et","je","postule","pour","le","poste"],answer:["Je","m'appelle","Sara","et","je","postule","pour","le","poste"],explain:"Je m'appelle Sara et je postule pour le poste — perfect professional introduction! Postule = apply (from postuler). Le poste = the position/job. Add the specific job title after: le poste de serveur, le poste de caissier.",diff:3},
+     wr("Write how you say you are motivated and available to work",["je suis motivé","je suis disponible","je suis très motivé et disponible","motivé et disponible"],"Je suis très motivé(e) et disponible! These two words — motivé and disponible — are music to any employer's ears. You're ready for your first French job interview in Canada!",2)]),
 
-  mkL("a1-05","Irregular Verbs: Faire, Aller, Venir",30,"speaking",
-    "Three essential irregular verbs to memorize completely! FAIRE (to do/make): je fais, tu fais, il fait, nous faisons, vous faites, ils font. ALLER (to go): je vais, tu vas, il va, nous allons, vous allez, ils vont. VENIR (to come): je viens, tu viens, il vient, nous venons, vous venez, ils viennent. These are used in dozens of everyday expressions!",
-    ["faire: je fais, tu fais, il fait","faire: nous faisons, vous faites, ils font","aller: je vais, tu vas, il va","aller: nous allons, vous allez, ils vont","venir: je viens, tu viens, il vient","venir: nous venons, vous venez, ils viennent","Ça va? (How's it going?)","d'où venez-vous? (Where do you come from?)"],
-    [mcq("'Qu'est-ce que tu ___?' (What are you doing?)",["fait","fais","faites","font"],1,"Tu → fais. Qu'est-ce que tu fais? = What are you doing? VERY common question! 'Je fais mes devoirs' (I'm doing homework), 'Je fais la cuisine' (I'm cooking), 'Il fait beau' (weather — it uses faire too!)"),
-     mcq("'Ils ___ au parc.' (They go to the park.)",["va","vont","allez","allons"],1,"Ils → vont. Ils vont au parc. 'Vont' is the most irregular form of aller — must memorize! Je vais, tu vas, il va, nous allons, vous allez, ILS VONT."),
-     mcq("'Elle ___ de Montréal.' (She comes from Montreal.)",["viens","vient","venez","viennent"],1,"Elle → vient. 'Elle vient de Montréal' = She comes from Montreal. Venir de + city/country = to come from. Also: 'Je viens d'arriver' (I just arrived — recent past with venir de!)"),
-     wr("Say 'We are going to the pharmacy'",["nous allons à la pharmacie","on va à la pharmacie"],"Nous allons à la pharmacie — or 'On va à la pharmacie' (very common in spoken French!). 'On' is used instead of 'nous' in everyday conversation. On va = nous allons!")]),
+  mkL("a1-05","At the Doctor",25,"mixed",
+    "Going to a doctor in Quebec is different from what you know. You'll call a clinic, book an appointment in French, wait in a waiting room where everyone speaks French, and then explain your symptoms to a doctor who may speak only French. Today you learn exactly what to say — from booking the appointment to describing what's wrong and understanding the doctor's instructions.",
+    ["J'ai besoin d'un rendez-vous = I need an appointment","C'est urgent = It's urgent","Depuis quand? = Since when?","J'ai des douleurs = I have pains","la tête = head","le ventre = stomach/belly","le dos = back","la gorge = throat","une radiographie = an X-ray","Je prends des médicaments = I take medications"],
+    [mcq("You call a clinic. They ask 'C'est urgent?' What do they want to know?",["Your name","If it's an emergency","Your health card number","Your address"],1,"C'est urgent? = Is it urgent? If yes, say 'Oui c'est urgent' for same-day appointment. If no, say 'Non, pas vraiment' = No, not really. This determines how quickly you get seen!",1),
+     mcq("The doctor asks 'Depuis quand avez-vous ces symptômes?' What is she asking?",["What symptoms do you have?","Since when do you have these symptoms?","Do you take medications?","Where is the pain?"],1,"Depuis quand = since when? Depuis quand avez-vous ces symptômes? = Since when have you had these symptoms? Reply: depuis hier (since yesterday), depuis 3 jours (for 3 days), depuis une semaine (for a week).",1),
+     {type:"match",prompt:"Match the body part to English",pairs:[["la tête","head"],["le dos","back"],["la gorge","throat"],["le ventre","stomach"],["le bras","arm"]],explain:"Knowing body parts in French is essential for any medical appointment. J'ai mal à la tête, au dos, à la gorge, au ventre — now you can describe any pain to a doctor in Quebec!",diff:1},
+     {type:"fill",before:"J'ai mal",blank:"___",after:"dos depuis trois jours.",options:["au","à la","à l'","aux"],correct:0,explain:"J'ai mal au dos = I have back pain. Au = à + le (for masculine nouns). À la tête (feminine), au dos (masculine), à l'épaule (vowel), aux pieds (plural). The article changes but the pattern is always 'j'ai mal à'!",diff:2},
+     mcq("The doctor says 'Je vais vous prescrire des antibiotiques'. What is happening?",["She is asking for your health card","She is prescribing you antibiotics","She wants you to get an X-ray","She is sending you to a specialist"],1,"Je vais vous prescrire = I am going to prescribe you. Prescrire = to prescribe, des antibiotiques = antibiotics. After this, you'll receive an ordonnance (prescription) to take to the pharmacy!",2),
+     {type:"scene",story:"Ravi calls a medical clinic. The receptionist asks 'Avez-vous une carte d'assurance maladie?' (Do you have a health insurance card?)",prompt:"Ravi has his RAMQ card. What should he say?",options:["Oui, j'ai ma carte d'assurance maladie","Non je n'ai pas","Je ne comprends pas","C'est combien?"],correct:0,explain:"Oui, j'ai ma carte d'assurance maladie — perfect! In Quebec, your RAMQ card (carte d'assurance maladie) is required for medical appointments. Always have it ready when you call or visit a clinic.",diff:2},
+     {type:"order",prompt:"Book an appointment: I need an appointment please it's not urgent",words:["J'ai","besoin","d'un","rendez-vous","s'il","vous","plaît","ce","n'est","pas","urgent"],answer:["J'ai","besoin","d'un","rendez-vous","s'il","vous","plaît","ce","n'est","pas","urgent"],explain:"J'ai besoin d'un rendez-vous s'il vous plaît, ce n'est pas urgent — a perfect call to a clinic! J'ai besoin de = I need. Ce n'est pas urgent = it's not urgent. You're ready to navigate Quebec healthcare in French!",diff:3},
+     wr("Write how you describe having stomach pain for two days",["j'ai mal au ventre depuis deux jours","j'ai mal au ventre","j'ai des douleurs au ventre depuis 2 jours"],"J'ai mal au ventre depuis deux jours — perfect medical French! Depuis + time = for how long. This pattern works for any symptom: j'ai mal à la tête depuis ce matin, j'ai de la fièvre depuis hier.",2)]),
 
-  mkL("a1-06","Irregular Verbs: Pouvoir, Vouloir, Devoir",30,"speaking",
-    "The three modal verbs — express ability, desire, and obligation! POUVOIR (can/be able to): je peux, tu peux, il peut, nous pouvons, vous pouvez, ils peuvent. VOULOIR (want to): je veux, tu veux, il veut, nous voulons, vous voulez, ils veulent. DEVOIR (must/have to): je dois, tu dois, il doit, nous devons, vous devez, ils doivent. Always followed by INFINITIVE!",
-    ["pouvoir + inf: je peux parler","vouloir + inf: je veux manger","devoir + inf: je dois partir","puis-je? (may I? — formal)","je voudrais (I would like — polite)","il faut (it is necessary)","on peut (one can/we can)"],
-    [mcq("'Je ___ parler avec le médecin.' (I want to speak with the doctor.)",["peux","veux","dois","fais"],1,"Je veux = I want to. Je veux parler avec le médecin. In polite contexts, use 'je voudrais' (I would like) instead — it sounds less demanding! 'Je voudrais parler avec le médecin, s'il vous plaît.'"),
-     mcq("'Vous ___ signer ici.' (You must sign here.)",["pouvez","voulez","devez","faites"],2,"Vous devez = you must/have to. Devoir expresses obligation: 'Vous devez remplir ce formulaire' (You must fill out this form). Very common at government offices and clinics!"),
-     mcq("'Est-ce que je ___ prendre ce médicament?' (Can I take this medication?)",["veux","dois","peux","fais"],2,"Est-ce que je peux = Can I...? Pouvoir expresses ability/permission. At a pharmacy: 'Est-ce que je peux prendre ce médicament avec de l'alcool?' = Can I take this medication with alcohol?"),
-     wr("Say 'I have to call the doctor tomorrow'",["je dois appeler le médecin demain","je dois appeler le docteur demain"],"Je dois appeler le médecin demain — devoir + infinitive = must/have to. 'Demain' = tomorrow. Perfect sentence for managing healthcare in Canada!")]),
+  mkL("a1-06","Present Tense — Action Verbs",25,"writing",
+    "You want to say 'I work downtown' or 'She speaks three languages' or 'We eat at 6pm'. For all of this you need the present tense. French verbs change ending depending on who is doing the action. Today you master the 3 verb groups — the building blocks of every French sentence. After this lesson you can make hundreds of new sentences.",
+    ["je parle = I speak","tu parles = you speak","il/elle parle = he/she speaks","nous parlons = we speak","vous parlez = you speak (formal/plural)","ils/elles parlent = they speak","-ER verbs: parler, manger, habiter, travailler","-IR verbs: finir, choisir, réussir","-RE verbs: vendre, attendre, répondre","irregular: être, avoir, aller, faire"],
+    [mcq("'Je travaill__' — what ending completes this -ER verb?",["es","e","ons","ez"],1,"Je travaille — for je (I), -ER verbs always end in -e. Je parle, je mange, j'habite, je travaille. This is the most common verb pattern in French!",1),
+     mcq("'Nous parl__' — what ending for nous?",["e","es","ons","ez"],2,"Nous parlons! For nous (we), -ER verbs always end in -ons. Nous mangeons (we eat), nous habitons (we live), nous travaillons (we work). The -ons ending is the signature of nous!",1),
+     {type:"match",prompt:"Match the subject to the correct verb form",pairs:[["Je","parle"],["Tu","parles"],["Il/Elle","parle"],["Nous","parlons"],["Vous","parlez"]],explain:"These are the 5 main forms of parler (to speak) in present tense. The -ER pattern works for 90% of regular French verbs — master this and you can conjugate hundreds of verbs!",diff:1},
+     {type:"fill",before:"Sara",blank:"___",after:"à Montreal depuis 2 ans. (Sara lives in Montreal)",options:["habite","habites","habitons","habitez"],correct:0,explain:"Sara habite = Sara lives. For il/elle/on, -ER verbs end in -e — same as je! Je parle, il parle, elle habite, on travaille. Context tells you who is speaking.",diff:2},
+     mcq("Which sentence is correct?",["Vous travaillez au bureau","Vous travaille au bureau","Vous travaillons au bureau","Vous travailles au bureau"],0,"Vous travaillez — for vous (you formal/plural), -ER verbs end in -ez. Vous parlez, vous habitez, vous mangez. This is the polite form — essential for work and formal situations in Quebec!",2),
+     {type:"scene",story:"Ravi is telling his new coworker about himself in French. He wants to say: I work at the hospital, I speak English and French, and I live in Laval.",prompt:"Which is correct?",options:["Je travaille à l'hôpital, je parle anglais et français, et j'habite à Laval","Je travailles à l'hôpital, je parles anglais et français, et j'habites à Laval","Je travaillons, je parlons, et j'habitons à Laval","Je travail, je parle, et j'habite Laval"],correct:0,explain:"Je travaille, je parle, j'habite — all correct -ER verb forms with je! No article before languages (je parle anglais, not je parle l'anglais). À l'hôpital — à before vowel becomes à l'. Perfect sentence!",diff:2},
+     {type:"order",prompt:"Build: We work and we live in Montreal",words:["Nous","travaillons","et","nous","habitons","à","Montréal"],answer:["Nous","travaillons","et","nous","habitons","à","Montréal"],explain:"Nous travaillons et nous habitons à Montréal! Both verbs correctly conjugated with nous (-ons ending). This kind of sentence is perfect for introducing yourself and your family in Quebec.",diff:2},
+     wr("Write a sentence about what you do every day using a French verb",["je travaille","je parle","je mange","j'habite","je lis","j'étudie"],"Excellent use of present tense! Now you can make sentences about your daily life, your job, your habits. The present tense is the foundation of all French conversation.",2)]),
 
-  mkL("a1-07","Negation: Ne...Pas and Variations",20,"writing",
-    "Negation in French: NE + verb + PAS. Je parle → Je ne parle pas. Before vowels: ne → n'. J'ai → Je n'ai pas. Other negations: ne...jamais (never), ne...plus (no longer), ne...rien (nothing), ne...personne (nobody), ne...que (only). In SPOKEN Quebec French, 'ne' is often dropped: 'Je parle pas', 'J'ai pas'. But ALWAYS write both for CLB!",
-    ["je ne parle pas (I don't speak)","je n'ai pas de (no elision!)","ne...jamais (never)","ne...plus (no longer/anymore)","ne...rien (nothing)","ne...personne (nobody)","ne...que (only)","spoken: je parle pas (informal)"],
-    [mcq("'I don't have a car.' In French:",["Je n'ai pas une voiture","Je n'ai pas de voiture","Je ne ai pas voiture","Je n'ai pas la voiture"],1,"After negation, un/une/des → DE! Je n'ai pas DE voiture. Je n'ai pas D'argent (elision before vowel). Je n'ai pas DE temps. This DE rule applies every time!"),
-     mcq("'Je ne fume jamais' means:",["I don't smoke anymore","I never smoke","I don't smoke at all","I shouldn't smoke"],1,"Ne...jamais = never. Je ne fume jamais = I never smoke. Useful for health forms in Canada! Ne...plus = no longer: 'Je ne fume plus' = I don't smoke anymore."),
-     mcq("In spoken Quebec French, you often hear:",["Je ne parle pas","Je ne parle jamais","Je parle pas","Ne parle pas"],2,"'Je parle pas' — in spoken Quebec French, 'ne' is frequently dropped! You'll hear this constantly. But for CLB writing and formal speaking: ALWAYS use 'ne...pas'. Both forms are important to know!"),
-     wr("Say 'I no longer live in Montreal' (use ne...plus)",["je n'habite plus à montréal","je ne vis plus à montréal","je n'habite plus a montreal"],"Je n'habite plus à Montréal — ne...plus = no longer/anymore. Note the elision: ne + habite → n'habite. 'Je n'habite plus' is very different from 'Je ne veux plus habiter' (I don't want to live there anymore)!")]),
+  mkL("a1-07","Avoir & Être — The Two Key Verbs",25,"speaking",
+    "Two verbs run ALL of French: avoir (to have) and être (to be). You use them dozens of times every day. They are irregular — meaning you must memorize them. But the good news? Once you know them, you can form the past tense (passé composé) of every verb in French. Today is one of the most important lessons in the entire course.",
+    ["ÊTRE: je suis, tu es, il est, nous sommes, vous êtes, ils sont","AVOIR: j'ai, tu as, il a, nous avons, vous avez, ils ont","être: identity, location, description","avoir: possession, age, symptoms","J'ai faim = I'm hungry (literally I have hunger)","J'ai soif = I'm thirsty","J'ai chaud = I'm hot","J'ai froid = I'm cold","Il est médecin = He is a doctor (no article!)","C'est + article = C'est un médecin"],
+    [mcq("'Je __ médecin.' How do you say 'I am a doctor'?",["j'ai","je suis","j'habite","je vais"],1,"Je suis médecin — after être, NO article before professions! Je suis infirmière, je suis professeur, je suis ingénieur. But with C'est: C'est un médecin (with article). Important difference!",1),
+     mcq("'J'__ froid.' I am cold — which verb?",["suis","habite","ai","vais"],2,"J'ai froid! In French, physical sensations use AVOIR: j'ai faim (hungry), j'ai soif (thirsty), j'ai froid (cold), j'ai chaud (hot), j'ai peur (scared). Never 'je suis froid'!",1),
+     {type:"match",prompt:"Match avoir expressions to English",pairs:[["J'ai faim","I'm hungry"],["J'ai soif","I'm thirsty"],["J'ai chaud","I'm hot"],["J'ai froid","I'm cold"],["J'ai peur","I'm scared"]],explain:"French uses AVOIR (to have) for feelings! J'ai faim = literally I have hunger. These expressions sound strange in English but are completely natural in French. Learn them as fixed phrases!",diff:1},
+     {type:"fill",before:"Nous",blank:"___",after:"trois enfants. (We have three children)",options:["sommes","avons","êtes","ont"],correct:1,explain:"Nous avons = we have. AVOIR conjugation: j'ai, tu as, il/elle a, nous avons, vous avez, ils/elles ont. Avons = have (nous form). Nous avons une maison, nous avons deux voitures, nous avons trois enfants.",diff:2},
+     mcq("Which is correct: She is tired?",["Elle a fatiguée","Elle est fatiguée","Elle ai fatiguée","Elle sont fatiguée"],1,"Elle est fatiguée — tired is an adjective so it uses ÊTRE. Note the -e at the end because elle (she) is feminine! Elle est fatiguée, il est fatigué. Adjectives agree with the subject!",2),
+     {type:"scene",story:"Sara meets her new neighbor. The neighbor asks 'Vous êtes d'où?' (Where are you from?) and 'Vous avez des enfants?' (Do you have children?)",prompt:"Sara is from India and has 2 children. What should she say?",options:["Je suis d'Inde et j'ai deux enfants","J'ai d'Inde et je suis deux enfants","Je suis d'Inde et je suis deux enfants","J'habite d'Inde et j'ai enfants deux"],correct:0,explain:"Je suis d'Inde (être for origin) et j'ai deux enfants (avoir for possession). Perfect use of both verbs! This conversation happens constantly with neighbours, coworkers, and at school pickup.",diff:2},
+     {type:"order",prompt:"Say: We are Canadian and we have a big family",words:["Nous","sommes","canadiens","et","nous","avons","une","grande","famille"],answer:["Nous","sommes","canadiens","et","nous","avons","une","grande","famille"],explain:"Nous sommes canadiens (être for nationality) et nous avons une grande famille (avoir for what we have). Grande = big/large (feminine adjective before famille). You're building complex sentences now!",diff:3},
+     wr("Write a sentence using both avoir and être",["je suis et j'ai","je suis...et j'ai","j'ai...et je suis"],"Using both être and être in one sentence shows real French fluency! These two verbs are the skeleton of the language. Master them and everything else becomes easier.",2)]),
 
-  mkL("a1-08","Question Forms",25,"speaking",
-    "3 ways to ask questions: 1) Rising intonation: 'Tu parles français?' ↗ (most informal). 2) Est-ce que: 'Est-ce que tu parles français?' (recommended for beginners!). 3) Inversion: 'Parles-tu français?' (formal/written). Question words: Où (where), Quand (when), Comment (how), Pourquoi (why), Qui (who), Qu'est-ce que/Que (what), Combien (how much/many), Quel/Quelle (which/what).",
-    ["Où est...? (Where is?)","Quand est...? (When is?)","Comment...? (How?)","Pourquoi...? (Why?)","Qui...? (Who?)","Combien de...? (How many/much?)","Quel/Quelle...? (Which/What?)","Est-ce que... (Is it that = question marker)"],
-    [mcq("The easiest way to form a question in French:",["Add -er to the verb","Use est-ce que + normal sentence","Put ne...pas around the verb","Always invert subject-verb"],1,"Est-ce que + normal word order = any statement becomes a question! 'Tu parles français' → 'Est-ce que tu parles français?' No word order change. Perfect for beginners!"),
-     mcq("'Quel est votre numéro de téléphone?' means:",["What is your phone number?","Where is your phone?","How is your phone?","Who has your phone?"],0,"Quel/Quelle = which/what (agrees with noun gender). Quel est ton... (masculine), Quelle est ta... (feminine). 'Quel est votre numéro?' (polite/formal) is asked constantly in Canada!"),
-     mcq("'Pourquoi vous apprenez le français?' asks:",["When you're learning French","Where you're learning French","Why you're learning French","How you're learning French"],2,"Pourquoi = why. Common question for newcomers in Canada! Great answer: 'J'apprends le français parce que je veux travailler et m'intégrer au Canada.'"),
-     wr("Ask 'When does the pharmacy open?' in French",["quand est-ce que la pharmacie ouvre?","quand la pharmacie ouvre?","à quelle heure ouvre la pharmacie?"],"Quand est-ce que la pharmacie ouvre? OR À quelle heure ouvre la pharmacie? — both excellent! The second (à quelle heure) specifically asks about time, which is usually what you want to know!")]),
+  mkL("a1-08","Negation — How to Say No",20,"writing",
+    "In French you say NO differently than in English. Instead of just 'not', you wrap the verb with two words: ne...pas. It's like putting the verb in a sandwich! Today you learn negation — one of the most used structures in everyday French. You need it to say 'I don't understand', 'I don't have', 'I don't speak English here', and hundreds of other real situations.",
+    ["ne...pas = not (je ne parle pas)","ne...plus = no longer (je ne travaille plus)","ne...jamais = never (je ne mange jamais)","ne...rien = nothing (je ne fais rien)","ne...personne = nobody (je ne vois personne)","ne...que = only (je n'ai que 5 dollars)","In spoken French: ne is often dropped!","Je ne comprends pas = I don't understand","Je n'ai pas de... = I don't have any...","Pas de problème! = No problem!"],
+    [mcq("How do you say 'I don't speak French'?",["Je parle pas français","Je ne parle pas français","Je pas parle français","Je parle ne français"],1,"Je ne parle pas français — the verb is sandwiched between ne and pas. Ne...pas is always split around the verb. Ne + verb + pas. Je ne parle pas, tu ne comprends pas, elle ne travaille pas.",1),
+     mcq("'Je __ travaille __ ici.' I no longer work here:",["ne...jamais","ne...pas","ne...plus","ne...rien"],2,"Je ne travaille plus ici = I no longer work here. Ne...plus = no longer/anymore. Very useful for talking about changes in your life: je n'habite plus là, je ne mange plus de viande.",1),
+     {type:"match",prompt:"Match the negative expression to its meaning",pairs:[["ne...pas","not"],["ne...plus","no longer"],["ne...jamais","never"],["ne...rien","nothing"],["ne...que","only"]],explain:"These 5 negative expressions cover 95% of everyday negation in French. Ne...pas is by far the most common. The others add nuance and precision to your French!",diff:1},
+     {type:"fill",before:"Je n'ai pas",blank:"___",after:"argent aujourd'hui. (I don't have any money today)",options:["de","du","le","un"],correct:0,explain:"Je n'ai pas DE argent — after negation, articles (un/une/du/de la/des) change to DE (or D' before vowel). Je n'ai pas de voiture, je n'ai pas d'argent, je ne mange pas de viande. Important rule!",diff:2},
+     mcq("In spoken Quebec French, what often happens to 'ne'?",["It changes to 'non'","It is often dropped","It moves after the verb","It becomes 'pas'"],1,"In spoken French (especially Quebec!), the 'ne' is often dropped. Je comprends pas, je sais pas, c'est pas grave. You'll hear this constantly on the streets. Both forms are correct but formal writing keeps the ne.",2),
+     {type:"scene",story:"Amara is at a store. The cashier says 'Vous avez la carte fidélité?' (Do you have the loyalty card?) Amara doesn't have one.",prompt:"What should Amara say?",options:["Non, je n'ai pas de carte fidélité","Non je pas avoir carte","Non, je ne pas avoir","Je n'ai jamais"],correct:0,explain:"Non, je n'ai pas de carte fidélité — perfect negation! After n'ai pas, de replaces the article. Je n'ai pas de carte (not 'une carte'). This happens every time you check out at a Quebec store!",diff:2},
+     {type:"order",prompt:"Build: I never eat meat",words:["Je","ne","mange","jamais","de","viande"],answer:["Je","ne","mange","jamais","de","viande"],explain:"Je ne mange jamais de viande — I never eat meat. Ne...jamais = never. After negation, de replaces du/de la/des. Je ne mange jamais de viande, de sucre, de gluten. Perfect for dietary restrictions!",diff:2},
+     wr("Write a negative sentence about something you don't do",["je ne...pas","je n'ai pas","je ne mange pas","je ne parle pas","je ne travaille pas"],"Excellent negation! Now you can decline, refuse, explain limitations, and express what you don't do or have. Negation is used in every conversation. You've mastered a fundamental French structure!",2)]),
 
-  mkL("a1-09","Articles (Definite, Indefinite, Partitive)",25,"reading",
-    "French articles are essential — every noun needs one! DEFINITE (the): le (m), la (f), l' (before vowel), les (pl). INDEFINITE (a/an): un (m), une (f), des (pl). PARTITIVE (some — for uncountable): du (= de+le), de la, de l', des. After negation: un/une/des/du/de la → DE. Examples: Je mange du pain (I eat some bread), Je n'ai pas de pain (I have no bread).",
-    ["le/la/l'/les (the)","un/une/des (a/an/some)","du/de la/de l'/des (some — partitive)","pas de/d' (after negation)","à + le = au, à + les = aux","de + le = du, de + les = des"],
-    [mcq("'Je voudrais ___ café.' (I would like a coffee.)",["le","la","un","une"],2,"Un café — café is masculine and we want 'A' coffee (indefinite). Un = a (masculine). Une = a (feminine). Perfect for any Canadian café order!"),
-     mcq("'Je bois ___ eau tous les matins.' (I drink some water every morning.)",["la","une","de la","du"],2,"De l'eau — partitive article before vowel! 'Eau' starts with E → de l'eau (not 'de la eau'). Partitive = some/an amount of. Used for uncountable things: de l'eau, du pain, de la patience."),
-     mcq("After negation: 'Je ne mange pas ___ viande.' (I don't eat meat.)",["la","une","de la","de"],3,"After negation: un/une/des/du/de la → DE. Je ne mange pas DE viande. Je ne bois pas D'alcool. This DE rule is one of the most important grammar rules in French!"),
-     wr("Write 'I have some time today' in French",["j'ai du temps aujourd'hui","j ai du temps aujourd'hui"],"J'ai du temps aujourd'hui — 'temps' is masculine, so 'du' (de + le). Partitive for uncountable noun. 'Avez-vous du temps?' = Do you have (some) time? Very useful for scheduling in Canada!")]),
+  mkL("a1-09","Asking Questions",25,"speaking",
+    "In Quebec, you need to ask questions constantly — at work, at the doctor, at the school, in stores. But French questions work differently from English. Today you learn 4 ways to ask any question in French. The simplest way? Just raise your voice at the end of a statement! The most formal? Use inversion. You'll learn them all.",
+    ["Intonation: Tu travailles ici? (voice goes up)","Est-ce que: Est-ce que tu travailles ici?","Inversion: Travailles-tu ici?","Question words: Qui, Quoi, Où, Quand, Pourquoi, Comment, Combien","Qui = who","Quoi/Qu'est-ce que = what","Où = where","Quand = when","Pourquoi = why","Comment = how","Combien = how much/many"],
+    [mcq("What is the simplest way to ask a question in French?",["Always use inversion","Use est-ce que","Just raise your voice at the end","Start with pourquoi"],2,"Intonation! In spoken French (especially in Quebec), just raise your voice at the end of a statement to make it a question. Tu parles français? Vous êtes médecin? C'est ici? Simple and very natural!",1),
+     mcq("How do you ask 'Where do you work?' using Est-ce que?",["Où est-ce que tu travailles?","Est-ce que où tu travailles?","Où tu travailles est-ce que?","Tu travailles où est-ce que?"],0,"Où est-ce que tu travailles? Question word first + est-ce que + subject + verb. Où est-ce que = where does... This is the standard, neutral way to ask questions in French — perfect for all situations!",1),
+     {type:"match",prompt:"Match the question word to its meaning",pairs:[["Qui","who"],["Où","where"],["Quand","when"],["Pourquoi","why"],["Comment","how"]],explain:"These 5 question words (Qui, Où, Quand, Pourquoi, Comment) let you ask about any situation. Learn them and you can get information about anything in French!",diff:1},
+     {type:"fill",before:"",blank:"___",after:"est-ce que vous habitez? (Where do you live?)",options:["Qui","Où","Quand","Pourquoi"],correct:1,explain:"Où est-ce que vous habitez? = Where do you live? Où = where. This question appears constantly — at the doctor, on forms, meeting new people. Où habitez-vous? is the formal inversion form.",diff:2},
+     mcq("How do you ask 'Why are you learning French?'",["Comment tu apprends le français?","Pourquoi est-ce que tu apprends le français?","Quand tu apprends le français?","Qui apprend le français?"],1,"Pourquoi est-ce que tu apprends le français? = Why are you learning French? Pourquoi = why. A great question to practice because you can answer it: J'apprends le français pour travailler, pour m'intégrer, pour mes enfants!",2),
+     {type:"scene",story:"Ravi starts a new job. His coworker wants to get to know him. She asks three questions in French.",prompt:"Which set of questions is correct French?",options:["Où est-ce que tu habites? Depuis combien de temps? Pourquoi tu travailles ici?","Où habites? Combien temps? Pourquoi tu?","Est-ce que où? Depuis quand combien? Pourquoi ici travailles?","Habites-tu où? Temps depuis combien? Travailles pourquoi?"],correct:0,explain:"Où est-ce que tu habites? (where do you live?) Depuis combien de temps? (for how long?) Pourquoi tu travailles ici? (why do you work here?) All three are natural, correct French questions!",diff:2},
+     {type:"order",prompt:"Ask: How long have you been in Canada?",words:["Depuis","combien","de","temps","êtes-vous","au","Canada?"],answer:["Depuis","combien","de","temps","êtes-vous","au","Canada?"],explain:"Depuis combien de temps êtes-vous au Canada? = How long have you been in Canada? Depuis combien de temps = for how long. This question will be asked of you many times in Quebec — and now you can ask it too!",diff:3},
+     wr("Write a question you would ask on your first day of work in French",["pourquoi","où","quand","comment","est-ce que","qui"],"Great question using French question words! On your first day of work in Quebec, these questions show confidence and willingness to communicate. Your coworkers will be impressed!",2)]),
 
-  mkL("a1-10","Possessive Adjectives",20,"reading",
-    "Possessives agree with the NOUN they describe (not the owner!): mon/ma/mes (my), ton/ta/tes (your-informal), son/sa/ses (his/her/its), notre/nos (our), votre/vos (your-formal/plural), leur/leurs (their). Important: before feminine nouns starting with vowel, use MON/TON/SON! 'Mon amie' not 'Ma amie' (sounds bad). Examples: mon père, ma mère, mon école (feminine but vowel!).",
-    ["mon/ma/mes (my)","ton/ta/tes (your - informal)","son/sa/ses (his/her/its)","notre/nos (our)","votre/vos (your - formal)","leur/leurs (their)","Before vowel: mon/ton/son (even feminine!)"],
-    [mcq("'___ médecin est excellent.' (My doctor — feminine noun starting with M)",["Ma","Mon","Mes","Mes"],1,"Mon médecin — even though 'médecin' can refer to a woman, the noun itself uses 'mon'. But also: médecin is actually used as masculine in French regardless. 'Mon médecin de famille est disponible aujourd'hui.'"),
-     mcq("'C'est ___ appartement.' (It's his apartment.)",["mon","ma","son","sa"],2,"Son = his/her/its (before masculine noun). 'Son appartement' = his/her apartment. Note: 'son' works for both masculine and feminine owners — context tells you which! 'C'est son appartement à elle' clarifies it's hers."),
-     mcq("'Votre ___ de naissance, s'il vous plaît?' (Your date of birth please?)",["date","la date","mon","son"],0,"Votre date de naissance — 'votre' is the formal/plural possessive. Always use 'votre' with strangers, officials, doctors in Canada. 'Votre nom? Votre prénom? Votre numéro de téléphone?' — standard questions!"),
-     wr("Write 'my health card' in French",["ma carte-santé","ma carte santé"],"Ma carte-santé — feminine noun (la carte) → ma carte. 'Avez-vous votre carte-santé?' = Do you have your health card? You'll hear this at EVERY medical appointment in Quebec!")]),
-
-  mkL("a1-11","Demonstratives: Ce, Cet, Cette, Ces",20,"reading",
-    "Demonstrative adjectives = this/that/these/those in French. CE (masculine singular): ce livre (this book). CET (masculine singular before vowel/h): cet homme, cet appartement. CETTE (feminine singular): cette maison. CES (all plurals): ces enfants. To distinguish 'this' vs 'that', add -ci (this) or -là (that): ce livre-ci (this book), ce livre-là (that book).",
-    ["ce + m.singular (ce livre)","cet + m.vowel/h (cet hôpital)","cette + f.singular (cette maison)","ces + plural (ces documents)","ce...ci (this one — nearby)","ce...là (that one — far)","C'est = it is / this is","Ce sont = these are / those are"],
-    [mcq("'___ formulaire est important.' (This form is important.)",["Cet","Ce","Cette","Ces"],1,"Ce formulaire — formulaire is masculine and starts with F (not a vowel), so use CE. If it started with a vowel or H: CET. Ce formulaire, cet appartement, cette maison!"),
-     mcq("'___ école est excellente.' (This school is excellent.)",["Ce","Cet","Cette","Ces"],2,"Cette école — école is feminine → cette. Also: note 'école' starts with E, but since it's feminine we use CETTE not CET (cet is only for masculine nouns starting with vowel/h)!"),
-     mcq("'Signez ___ documents, s'il vous plaît.' (Sign these documents please.)",["ce","cet","cette","ces"],3,"Ces documents — plural → ces. 'Ces' works for all genders in plural: ces hommes, ces femmes, ces enfants, ces documents. Very common at government offices: 'Remplissez ces formulaires!'"),
-     wr("Write 'this apartment has 3 bedrooms'",["cet appartement a 3 chambres","cet appartement a trois chambres"],"Cet appartement a 3 chambres — 'appartement' starts with A (vowel) → CET (not CE). 'Cet appartement est disponible?' = Is this apartment available? Critical vocabulary for apartment hunting in Canada!")]),
-
-  mkL("a1-12","Prepositions of Place",20,"reading",
-    "Prepositions for location — essential for giving/understanding directions! sur (on), sous (under), devant (in front of), derrière (behind), à côté de (next to), entre (between), en face de (across from), dans (in/inside), près de (near), loin de (far from), au bout de (at the end of), au coin de (at the corner of). With countries: en + feminine (en France), au + masculine (au Canada), aux + plural (aux États-Unis).",
-    ["sur/sous (on/under)","devant/derrière (in front of/behind)","à côté de (next to)","entre (between)","en face de (across from)","près de/loin de (near/far from)","en + pays féminin (en France)","au + pays masculin (au Canada)","aux + pays pluriel (aux États-Unis)"],
-    [mcq("'La pharmacie est ___ côté de la banque.' (next to)",["en","à","au","sur"],1,"À côté de = next to. Note: 'à côté de' not 'en côté de'! Other location phrases: en face de (across from), au bout de (at the end of), au coin de (at the corner of)."),
-     mcq("'J'habitais ___ Maroc avant.' (I used to live in Morocco.)",["en","au","à","aux"],1,"Au Maroc — Maroc is masculine (le Maroc), so use AU. En = feminine countries (en France, en Algérie, en Tunisie). Au = masculine (au Canada, au Maroc, au Mexique). Aux = plural (aux États-Unis)!"),
-     mcq("'Le bureau est ___ entre la bibliothèque et le café.' The office is:",["on top of library and café","between the library and the café","across from library and café","behind library and café"],1,"Entre = between. 'Le bureau est entre la bibliothèque et le café.' Essential for giving/understanding directions in Canadian cities!"),
-     wr("Say 'The hospital is near the metro station'",["l'hôpital est près de la station de métro","l'hôpital est près de la station","l'hopital est près de la station de métro"],"L'hôpital est près de la station de métro — très bien! 'Près de' = near (followed by de). Always add de after près, loin, à côté, en face, au bout!")]),
-
-  mkL("a1-13","Adverbs of Frequency & Time",20,"reading",
-    "How often? toujours (always), souvent (often), parfois/quelquefois (sometimes), rarement (rarely), jamais (never — with ne). When? maintenant (now), bientôt (soon), déjà (already), encore (still/again), encore une fois (once more), tout de suite (right away), hier (yesterday), aujourd'hui (today), demain (tomorrow), la semaine prochaine (next week).",
-    ["toujours (always)","souvent (often)","parfois/quelquefois (sometimes)","rarement (rarely)","jamais (never)","maintenant (now)","bientôt (soon)","déjà (already)","encore (still/again)","tout de suite (right away)"],
-    [mcq("'Je ne fume jamais' means:",["I rarely smoke","I never smoke","I don't smoke anymore","I sometimes smoke"],1,"Ne...jamais = never. Different from ne...plus (no longer). 'Je ne fume jamais' = I have never smoked and I never will. Health forms in Canada often ask: 'Fumez-vous?' (Do you smoke?)"),
-     mcq("'C'est déjà fait!' means:",["It's not done yet","It's done already!","It will be done soon","It should be done"],1,"Déjà = already. 'C'est déjà fait!' = It's already done! Very useful in work contexts. 'Avez-vous déjà rempli le formulaire?' = Have you already filled out the form?"),
-     mcq("'Tout de suite' means:",["in a while","later today","right away/immediately","next week"],2,"Tout de suite = right away/immediately. 'Je reviens tout de suite' = I'll be right back. You'll hear this at service counters constantly! 'Un moment, s'il vous plaît — je reviens tout de suite.'"),
-     wr("Write a sentence using 'parfois' (sometimes)",["parfois je","je parle parfois","je mange parfois","je travaille parfois"],"Parfois je mange au restaurant = Sometimes I eat at a restaurant. Or: Je parle parfois avec des voisins = I sometimes talk with neighbors. Adverbs usually go AFTER the verb in French!")]),
-
-  mkL("a1-14","Near Future: Aller + Infinitive",25,"speaking",
-    "The most natural way French people talk about future plans! Formula: aller (conjugated) + infinitive. Je vais manger (I'm going to eat), Tu vas travailler (You're going to work), Il va appeler (He's going to call), Nous allons partir (We're going to leave), Vous allez voir (You're going to see), Ils vont arriver (They're going to arrive). This is used MORE than the future tense in everyday French!",
-    ["je vais + infinitif","tu vas + infinitif","il/elle va + infinitif","nous allons + infinitif","vous allez + infinitif","ils/elles vont + infinitif","demain je vais... (tomorrow I'm going to)","ce soir on va... (tonight we're going to)"],
-    [mcq("'Il ___ téléphoner au médecin.' (He's going to call the doctor.)",["va","vont","allez","vais"],0,"Il → va. Il va téléphoner au médecin. Near future: 'je vais, tu vas, il VA, nous allons, vous allez, ils vont' — this form is used constantly for plans, intentions, and imminent actions!"),
-     mcq("'Je vais remplir ce formulaire' means:",["I filled out this form","I'm filling out this form","I'm going to fill out this form","I should fill out this form"],2,"Aller + infinitive = near future (going to do). 'Je vais remplir ce formulaire' = I'm going to fill out this form. The most common way to express future intention in everyday Canadian French!"),
-     mcq("'Qu'est-ce que vous allez faire ce soir?' means:",["What did you do tonight?","What are you doing tonight?","What are you going to do tonight?","What should you do tonight?"],2,"Qu'est-ce que vous allez faire = What are you going to do? This is how Canadians actually ask about plans. 'Ce soir' = tonight. A very natural conversational question!"),
-     wr("Say 'Tomorrow I'm going to go to the doctor'",["demain je vais aller chez le médecin","demain je vais aller chez le docteur","demain je vais voir le médecin"],"Demain je vais aller chez le médecin — aller chez + person = go to (someone's place/office). 'Chez le médecin, chez le dentiste, chez le pharmacien.' This structure is used constantly!")]),
-
-  mkL("a1-15","Depuis, Il y a, Pendant (Time Expressions)",25,"writing",
-    "Three key time expressions English speakers struggle with! DEPUIS + present = ongoing action (started in past, still happening): 'J'habite ici depuis 3 ans' (I've lived here for 3 years). IL Y A + past = completed time ago: 'Je suis arrivé il y a 3 ans' (I arrived 3 years ago). PENDANT + any tense = during/for a duration: 'J'ai travaillé pendant 5 ans' (I worked for 5 years — finished).",
-    ["depuis + présent (ongoing!): j'habite depuis","il y a + passé composé: je suis arrivé il y a","pendant + durée: j'ai étudié pendant 3 ans","ça fait [durée] que + présent (same as depuis)","depuis quand? (since when?)","depuis combien de temps? (for how long?)"],
-    [mcq("'J'apprends le français depuis 6 mois.' means:",["I learned French 6 months ago","I learned French for 6 months (finished)","I have been learning French for 6 months (ongoing)","I will learn French for 6 months"],2,"Depuis + PRESENT = still ongoing! 'J'apprends depuis 6 mois' = I've been learning for 6 months (and I'm still learning now). If you stopped: 'J'ai étudié pendant 6 mois' (passé composé + pendant)."),
-     mcq("'Je suis arrivé au Canada ___ 2 ans.' (2 years ago — completed)",["depuis","pendant","il y a","pour"],2,"Il y a = ago (for completed events). Il y a 2 ans = 2 years ago. 'Je suis arrivé au Canada il y a 2 ans' = I arrived in Canada 2 years ago. Depuis would imply you've been 'arriving' for 2 years — illogical!"),
-     mcq("'J'ai travaillé dans ce restaurant ___ 3 ans.' (for 3 years — finished)",["depuis","il y a","pendant","ça fait"],2,"Pendant = for/during (completed duration). 'J'ai travaillé pendant 3 ans' = I worked for 3 years (then I stopped). The passé composé + pendant signals completion. If still working: 'Je travaille depuis 3 ans' (present + depuis)!"),
-     wr("Say 'I have been living in Canada for 4 years' (ongoing)",["j'habite au canada depuis 4 ans","j'habite au canada depuis quatre ans","j'habite ici depuis 4 ans"],"J'habite au Canada depuis 4 ans — present tense + depuis! 'Depuis combien de temps habitez-vous au Canada?' = How long have you been living in Canada? This question is asked at EVERY immigration-related appointment!")]),
-
-  mkL("a1-16","Daily Routine Reflexive Verbs",25,"speaking",
-    "Reflexive verbs describe actions done to/for yourself. Use reflexive pronouns: me (je), te (tu), se (il/elle), nous, vous, se (ils/elles). Common ones: se réveiller (wake up), se lever (get up), se laver (wash), se doucher (shower), se brosser les dents (brush teeth), s'habiller (get dressed), se maquiller (put on makeup), se raser (shave), se coucher (go to bed), se reposer (rest).",
-    ["je me réveille","tu te lèves","il/elle se douche","nous nous lavons","vous vous habillez","ils/elles se couchent","Le matin, d'abord je me...","Le soir, je me couche à..."],
-    [mcq("'Je me lève à 7h' means:",["I fall asleep at 7","I wake up at 7","I get up at 7","I eat at 7"],2,"Se lever = to get up (physically get out of bed). Se réveiller = to wake up (become conscious). Both happen every morning — first you wake up, then you get up! 'Je me réveille à 6h30 et je me lève à 7h.'"),
-     mcq("'Vous ___ les dents tous les soirs?' (You brush your teeth every evening?)",["vous brossez","vous vous brossez","vous vous brosse","vous brossez-vous"],1,"Vous vous brossez les dents — reflexive verb needs BOTH the conjugated verb AND the reflexive pronoun! 'Vous vous brossez' = vous + se + brosser → vous vous brossez."),
-     mcq("'Ils se ___ à 23h.' (They go to bed at 11pm.)",["couche","couchent","couchons","couchez"],1,"Ils/elles + reflexive = ils SE + verb ending in -ent. Ils se couchent à 23h. The -ent is silent! 'Ils se couchent tôt pendant la semaine' = They go to bed early on weekdays."),
-     wr("Describe your morning in 2 sentences using reflexive verbs",["je me réveille","je me lève","je me douche","je m'habille","je me brosse"],"Sample: 'Le matin, je me réveille à 6h et je me lève immédiatement. Je me douche, je m'habille, et je prends le bus.' This type of routine description is a CORE CLB 4 speaking task!")]),
-
-  mkL("a1-17","Adjective Agreement Rules",20,"reading",
-    "Adjectives in French agree in GENDER and NUMBER with the noun they describe! Basic rule: add -E for feminine, -S for plural, -ES for feminine plural. Exceptions: adjectives already ending in -E don't change (rouge, jeune, facile). Irregular: bon→bonne, beau→belle, blanc→blanche, long→longue, public→publique, gentil→gentille. Position: most adjectives AFTER noun, but BAGS (Beauty, Age, Goodness, Size) go BEFORE!",
-    ["masculin→féminin: grand→grande","singulier→pluriel: grand→grands","déjà en -e: rouge (pas de changement)","irréguliers: beau→belle, blanc→blanche","AVANT le nom: beau, vieux, nouveau, petit, grand, bon","APRÈS le nom: rouge, intelligent, canadien..."],
-    [mcq("'Un grand homme' vs 'Une grande femme'. 'Grand' goes ___ the noun:",["after","before","it depends","it doesn't matter"],1,"Grand/grande goes BEFORE the noun — it's a BAGS adjective (Size). 'Un grand appartement', 'une grande ville', 'un grand médecin'. Compare: 'Un médecin compétent' (competent goes AFTER)!"),
-     mcq("Feminine of 'beau' (beautiful):",["beau","beaue","belle","beaux"],2,"Beau → belle (completely irregular!). 'Un beau garçon, une belle femme'. Also: beau → beaux (plural m), beau → belles (plural f). Similarly: nouveau→nouvelle, vieux→vieille!"),
-     mcq("'Les enfants sont content___.' (The children are happy.)",["(no change)","e","s","es"],2,"Les enfants (masculine plural) → contents (add -s). If feminine: 'Les filles sont contentes' (add -es). Adjective agrees with noun: content, contente, contents, contentes!"),
-     wr("Write 'a new Canadian hospital' in French",["un nouvel hôpital canadien","un nouveau hôpital canadien"],"Un nouvel hôpital canadien — 'nouveau' becomes 'nouvel' before masculine nouns starting with vowel/H (like 'cet'). 'Canadien' goes AFTER (nationality adjective). Great sentence demonstrating adjective rules!")]),
-
-  mkL("a1-18","Making Appointments & Requests",25,"speaking",
-    "Essential for daily life in Canada! Making appointments: 'Je voudrais prendre un rendez-vous avec le docteur X.' / 'Avez-vous de la disponibilité le mardi?' Polite requests: 'Pourriez-vous...?' (Could you...?), 'Est-ce qu'il serait possible de...?' (Would it be possible to...?), 'J'aurais besoin de...' (I would need...). Confirming/cancelling: 'Je confirme mon rendez-vous', 'Je dois annuler / reporter mon rendez-vous'.",
-    ["Je voudrais prendre un rendez-vous","Avez-vous de la disponibilité?","Quel jour vous conviendrait?","Je confirme mon rendez-vous du...","Je dois annuler/reporter","À quelle heure êtes-vous disponible?","Pourriez-vous me rappeler?","Je vous rappelle mon numéro:"],
-    [mcq("To make a polite appointment request, you say:",["Je veux un rendez-vous maintenant","Je voudrais prendre un rendez-vous, s'il vous plaît","Donnez-moi un rendez-vous","Rendez-vous!"],1,"Je voudrais prendre un rendez-vous, s'il vous plaît — the conditional 'voudrais' makes it polite. Then: avec quel médecin? Pour quand? En matinée ou après-midi? These are the follow-up questions!"),
-     mcq("'Je dois annuler mon rendez-vous' means:",["I want to make an appointment","I need to move my appointment","I need to cancel my appointment","I confirmed my appointment"],2,"Annuler = to cancel. Reporter = to reschedule/postpone. 'Je dois annuler mon rendez-vous de vendredi' = I need to cancel my Friday appointment. Always call ahead — cancelling is expected and polite!"),
-     wr("Write a polite request to reschedule an appointment",["je dois reporter mon rendez-vous","je voudrais reporter","je dois annuler et reprendre un rendez-vous","je voudrais changer mon rendez-vous"],"'Je dois reporter mon rendez-vous. Serait-il possible de le déplacer à la semaine prochaine?' Perfect sentence! Reporter = to reschedule, déplacer = to move. Both are correct for appointment changes.")]),
-
-  mkL("a1-19","Transportation & Directions (Full)",25,"listening",
-    "Getting around Canada requires specific vocabulary! Questions: 'Où est l'arrêt de bus/la station de métro?' (Where is the bus stop/metro station?), 'Comment aller à...?' (How do I get to...?), 'Quel bus/métro va à...?' (Which bus/metro goes to...?). Directions: tournez à gauche/droite (turn left/right), allez tout droit (go straight), traversez (cross), prenez (take), descendez à (get off at), correspondance (transfer).",
-    ["l'arrêt de bus (bus stop)","la station de métro","prenez le bus numéro... (take bus #)","descendez à... (get off at)","la correspondance (transfer)","tournez à gauche/droite","allez tout droit","c'est à X minutes à pied (X min walk)","à pied/en bus/en métro/en voiture"],
-    [mcq("'Descendez à la prochaine station' means:",["Get on at the next station","Transfer at the next station","Get off at the next station","Wait at the next station"],2,"Descendre = to get off (public transport). 'Descendez à...' = Get off at... 'Où dois-je descendre?' = Where should I get off? Essential for taking buses and metro in Montreal, Ottawa, or Quebec City!"),
-     mcq("'La correspondance' at a metro station means:",["the exit","the ticket office","the transfer point (to change lines)","the lost and found"],2,"La correspondance = transfer/connection. 'Prenez la correspondance à la station Berri-UQAM' = Transfer at Berri-UQAM station. You'll see this in transit maps and hear it in announcements!"),
-     wr("Ask how to get to the nearest hospital",["comment aller à l'hôpital le plus proche?","où est l'hôpital le plus proche?","comment est-ce que je peux aller à l'hôpital?"],"Comment aller à l'hôpital le plus proche? — 'le plus proche' = the nearest (superlative). Or simply: 'Où est l'hôpital?' If urgent: 'J'ai besoin d'aller à l'urgence tout de suite!' = I need to get to the ER right away!")]),
-
-  mkL("a1-20","Food & Restaurants (Full)",25,"speaking",
-    "Complete restaurant and food vocabulary for Canada! Menus: les entrées (appetizers/starters), les plats principaux (main courses), les desserts, les boissons (drinks). Ordering: 'Je prends...' (I'll have...), 'Pour moi...' (For me...), 'Qu'est-ce que vous recommandez?' (What do you recommend?). Dietary: végétarien/végétalien (vegetarian/vegan), sans gluten (gluten-free), allergie à (allergy to), sans noix (without nuts).",
-    ["Je prends... / Pour moi...","Qu'est-ce que vous recommandez?","C'est quoi, exactement? (What is it exactly?)","C'est délicieux! (It's delicious!)","végétarien/végétalien","sans gluten/sans noix","Je suis allergique à...","L'addition, s'il vous plaît","Est-ce que le service est inclus? (Is service included?)"],
-    [mcq("'Pour moi, le saumon, s'il vous plaît.' means:",["I am salmon","The salmon is for me, please","I like salmon","I recommend the salmon"],1,"'Pour moi' = for me — a very natural way to order in French restaurants. Also: 'Je prends le saumon' = I'll have the salmon. Both are polite and natural — avoid 'Je veux' (I want) which sounds too direct!"),
-     mcq("'Je suis allergique aux arachides' means:",["I like peanuts","I don't eat peanuts for religious reasons","I am allergic to peanuts","I can't find peanuts"],2,"Allergique aux arachides = allergic to peanuts (arachides is the Canadian French word — not 'cacahuètes' which is France French!). 'Aux' = à + les. Critical health information — always communicate food allergies clearly in French!"),
-     wr("Order a vegetarian dish politely",["je voudrais un plat végétarien","je prends le plat végétarien","est-ce que vous avez des plats végétariens?"],"Je voudrais un plat végétarien, s'il vous plaît — or ask first: 'Est-ce que vous avez des plats végétariens?' (Do you have vegetarian dishes?). In Quebec, most restaurants now have vegetarian options — don't be shy to ask!")]),
-
-  mkL("a1-21","Shopping & Money",25,"speaking",
-    "Shopping in Canada: Les soldes (sales), Le rabais/La réduction (discount), Le prix (price), La caisse (checkout), Le reçu (receipt), La facture (invoice/bill), Payer (to pay), Rembourser (to refund), Échanger (to exchange), La garantie (warranty). Asking for help: 'Excusez-moi, je cherche...' (Excuse me, I'm looking for...), 'Quelle est votre politique de retour?' (What's your return policy?)",
-    ["les soldes (sales)","le rabais/la réduction (discount)","le prix (price)","la caisse (checkout)","le reçu (receipt)","rembourser (to refund)","échanger (to exchange)","la garantie (warranty)","Quelle est votre politique de retour?","En avez-vous une autre taille? (Do you have another size?)"],
-    [mcq("'Le magasin est en solde' means:",["The store is sold out","The store is on sale","The store is closed","The store is full"],1,"En solde = on sale. 'Les soldes' = the sales (events). 'C'est en solde' = it's on sale. 'Avez-vous d'autres articles en solde?' = Do you have other items on sale? Great question during Canadian Boxing Day (26 décembre) or Black Friday!"),
-     mcq("'Je voudrais échanger ce pantalon' means:",["I want to buy this pants","I want to return this pants for money back","I want to exchange these pants (for another)","I want to try on these pants"],2,"Échanger = to exchange (for a different size/color/item). Rembourser = to refund (get money back). 'Est-ce que je peux l'échanger? Il est trop grand.' = Can I exchange it? It's too big."),
-     wr("Ask for a different size in French",["est-ce que vous avez une autre taille?","avez-vous ce modèle en taille L?","est-ce que vous avez ce pantalon en plus grand?"],"Est-ce que vous avez une autre taille? — 'une autre taille' = another size. Or be specific: 'Est-ce que vous avez ce modèle en taille médium?' (Do you have this in a medium?) Always polite to ask!")]),
-
-  mkL("a1-22","Workplace French Basics",25,"speaking",
-    "Essential French for Canadian workplaces! Asking questions: 'Pourriez-vous m'expliquer...?' (Could you explain...?), 'Je n'ai pas bien compris...' (I didn't quite understand...), 'Pouvez-vous répéter plus lentement?' Describing your role: 'Je suis responsable de...' (I'm responsible for...), 'Ma tâche principale est de...' (My main task is...). Professional phrases: 'C'est noté' (Noted), 'Je m'en occupe' (I'll take care of it), 'Je vous envoie ça tout de suite' (I'll send that right away).",
-    ["Pourriez-vous m'expliquer?","Je n'ai pas bien compris","Je suis responsable de (I'm in charge of)","Ma tâche principale (my main task)","C'est noté (noted)","Je m'en occupe (I'll handle it)","À quelle heure est la réunion? (meeting time?)","Je vous envoie ça par courriel (I'll email that)"],
-    [mcq("'Je m'en occupe' in a work context means:",["I forget about it","I'll take care of it","I'm occupied","I don't know"],1,"Je m'en occupe = I'll take care of/handle it. A very professional and useful phrase! 'Pouvez-vous préparer ce rapport?' 'Oui, je m'en occupe!' Perfect for showing competence in a Canadian workplace."),
-     mcq("'C'est noté' is used when:",["you disagree with something","you've received and acknowledged information","you're taking notes for others","you need to write something"],1,"C'est noté = noted / got it. Professional way to acknowledge information without repeating it all back. 'La réunion est reportée à vendredi.' 'C'est noté, merci.' Very common in Canadian offices!"),
-     wr("Tell your manager you'll send an email right away",["je vous envoie ça tout de suite","je vous envoie par courriel tout de suite","je vais vous envoyer ça immédiatement"],"Je vous envoie ça tout de suite / Je vous envoie ça par courriel tout de suite — professional and reassuring! 'Par courriel' = by email. Remember: 'courriel' is the Quebec French word for email — not 'email' in formal Quebec contexts!")]),
-
-  mkL("a1-23","School & Education Vocabulary",20,"reading",
-    "For parents and students navigating Canadian schools! L'école primaire/secondaire (elementary/high school), le cégep (Quebec college — unique to Quebec!), l'université (university), la classe/le cours (class/course), le professeur/l'enseignant(e) (teacher), les devoirs (homework), la note (grade), le bulletin (report card), l'inscription (registration), les frais de scolarité (tuition).",
-    ["l'école primaire/secondaire","le cégep (Quebec college)","l'université","le cours (course/class)","les devoirs (homework)","la note/la cote (grade)","le bulletin (report card)","s'inscrire (to register)","les frais de scolarité (tuition)","la garderie (daycare)","le service de garde (before/after school care)"],
-    [mcq("'Le cégep' is unique to:",["France","Belgium","Quebec, Canada","Switzerland"],2,"Le cégep (Collège d'enseignement général et professionnel) exists ONLY in Quebec! It's between high school and university — a mandatory step for Quebec students. If your child studies in Quebec, they'll go through the cégep system!"),
-     mcq("'Les devoirs' means:",["the teachers","the homework","the grades","the exams"],1,"Les devoirs = homework. 'Mon enfant a beaucoup de devoirs ce soir' = My child has a lot of homework tonight. Other school vocab: l'examen (exam), le contrôle (quiz/test), le bulletin (report card)."),
-     wr("Ask what time school ends",["à quelle heure est-ce que l'école finit?","l'école finit à quelle heure?","à quelle heure se termine l'école?"],"À quelle heure est-ce que l'école finit/se termine? — essential for childcare planning in Canada! Also: 'Y a-t-il un service de garde?' (Is there before/after school care?) Very practical for working parents!")]),
-
-  mkL("a1-24","Emergency & Safety Language",20,"speaking",
-    "Critical French for emergencies in Canada! Emergency numbers: 911 (police, fire, ambulance). 'Au secours!' / 'À l'aide!' (Help!). 'Appelez une ambulance!' (Call an ambulance!). 'Il y a un accident!' (There's an accident!). 'J'ai perdu...' (I lost...). 'On m'a volé...' (I was robbed of...). 'J'ai besoin d'aide immédiatement' (I need help immediately). At the hospital: 'C'est urgent!' (It's urgent!), 'J'ai du mal à respirer' (I have difficulty breathing).",
-    ["Au secours! / À l'aide! (Help!)","Appelez une ambulance/la police!","Il y a un accident/incendie!","C'est urgent! (It's urgent!)","J'ai du mal à respirer (difficulty breathing)","J'ai perdu mon passeport/portefeuille","On m'a volé... (I was robbed of...)","Je me suis perdu(e) (I'm lost)","Le 911 (emergency number Canada)"],
-    [mcq("Canada's emergency number is:",["999","112","911","118"],2,"911 is the universal emergency number in Canada for police, fire, and ambulance. Say 'J'ai besoin d'une ambulance' or 'Il y a un incendie' (There's a fire). 911 operators in Quebec can assist in French!"),
-     mcq("'J'ai du mal à respirer' means:",["I have a headache","I'm having difficulty breathing","I'm in pain","I feel dizzy"],1,"J'ai du mal à respirer = I'm having difficulty breathing. 'Avoir du mal à + infinitive' = to have difficulty doing something. CRITICAL medical phrase for emergencies! Also: 'J'ai du mal à marcher' (difficulty walking)."),
-     wr("Say 'I lost my health card' in French",["j'ai perdu ma carte-santé","j'ai perdu ma carte santé"],"J'ai perdu ma carte-santé — very important! Report immediately to the RAMQ (Quebec) to get a replacement. Also useful: 'J'ai perdu mon portefeuille' (wallet), 'J'ai perdu mon passeport' (passport). 'J'ai perdu' = I lost (passé composé of perdre).")]),
-
-  mkL("a1-25","Hobbies & Free Time",20,"speaking",
-    "Talk about your interests in French! Common hobbies: lire (read), écrire (write), cuisiner/faire la cuisine (cook), regarder des films (watch movies), écouter de la musique (listen to music), faire du sport (play sports), jouer aux jeux vidéo (play video games), jardiner (garden), voyager (travel), faire des randonnées (hike), jouer d'un instrument (play an instrument).",
-    ["J'aime + infinitif (I like to...)","Je préfère (I prefer)","lire (read)","cuisiner (cook)","faire du sport (play sports)","écouter de la musique","regarder des films","jouer aux cartes/échecs","le weekend, je...","pendant mon temps libre (in my free time)"],
-    [mcq("'J'aime faire de la randonnée' means:",["I like watching movies","I like hiking","I like swimming","I like cooking"],1,"Faire de la randonnée = to hike/go hiking. 'Faire de' + activity is common: faire du vélo (cycling), faire de la natation (swimming), faire du yoga, faire de la cuisine. Very natural French!"),
-     mcq("'Qu'est-ce que vous faites pendant votre temps libre?' asks:",["What do you do for work?","What are you doing right now?","What do you do in your free time?","What time is it?"],2,"Pendant votre temps libre = in your free time. 'Qu'est-ce que vous faites' = what do you do/are you doing. A great conversation starter in Canada — showing interest in hobbies builds relationships!"),
-     wr("Say what you like to do on weekends",["le weekend j'aime","le week-end je","le samedi je","le dimanche j'aime"],"Le weekend, j'aime [activity] — perfect! Or: 'Pendant mon temps libre, j'aime cuisiner et lire.' Talking about hobbies is a core part of CLB speaking tasks — be ready to describe yours for 1-2 minutes!")]),
-
-  mkL("a1-26","Weather & Canadian Seasons (Full)",20,"speaking",
-    "Canada's weather is dramatic and a constant conversation topic! Describing weather: Il fait chaud/froid/beau/mauvais, Il pleut/neige/grêle (hails), Il y a du soleil/du brouillard (fog)/du verglas (black ice)/une tempête (storm). Clothing advice: 'Habille-toi chaudement!' (Dress warmly!), 'Prends ton parapluie' (Take your umbrella). Winter driving: 'Les routes sont glissantes' (Roads are slippery).",
-    ["Il pleut (it's raining)","Il neige (it's snowing)","Il grêle (it's hailing)","Il y a du verglas (black ice)","Il y a du brouillard (fog)","une tempête de neige (snowstorm)","la météo (weather forecast)","Il fait combien? (What's the temperature?)","Les routes sont glissantes (roads are slippery)"],
-    [mcq("'Il y a du verglas ce matin' means:",["It's raining hard this morning","There's black ice this morning","It's very windy this morning","There's fog this morning"],1,"Du verglas = black ice — extremely important in Canada! Winter driving on black ice is dangerous. 'Soyez prudents, il y a du verglas sur les routes' = Be careful, there's black ice on the roads. A news headline you'll hear every winter!"),
-     mcq("'Prends ton manteau — il fait -15°C!' means:",["Take your umbrella — it's -15°C!","Take your coat — it's -15°C!","Stay inside — it's -15°C!","Drive carefully — it's -15°C!"],1,"Prends ton manteau = take your coat. Le manteau = winter coat (essential in Canada!). -15°C is a typical Quebec winter day — layers are mandatory: manteau, foulard (scarf), gants (gloves), tuque (winter hat — a Quebec word used across Canada!)."),
-     wr("Describe today's weather in French",["il fait","il pleut","il neige","il y a du","c'est","il fait froid","il fait beau"],"Il fait beau aujourd'hui! / Il pleut ce matin. / Il neige beaucoup! — any of these work. Start conversations with weather in Canada — it's literally the #1 small talk topic! 'Quel temps horrible!' (What awful weather!) is always relatable in winter!")]),
-
-  mkL("a1-27","A1 Grammar Review: Verbs",25,"integrated",
-    "Review session: all major A1 verb types and forms. être and avoir (essential irregular), -ER verbs (80% of verbs), -IR regular verbs, key irregular verbs (faire, aller, venir, pouvoir, vouloir, devoir), reflexive verbs for daily routine, near future (aller + inf), negation (ne...pas, ne...jamais, ne...plus). If you can use these fluently, you're at A1/CLB 2 level!",
-    ["Review: être/avoir all forms","Review: -ER verb conjugation","Review: pouvoir/vouloir/devoir + infinitif","Review: réflexifs (se lever, se coucher)","Review: aller + infinitif (near future)","Review: ne...pas, ne...jamais, ne...plus","Diagnostic: 5 quick questions"],
-    [mcq("'Nous ___ partir à 8h.' (We have to leave at 8.)",["allons","voulons","devons","pouvons"],2,"Nous devons = we have to/must. Devoir + infinitif = obligation. 'Nous devons partir à 8h pour ne pas rater le bus' = We have to leave at 8 so we don't miss the bus."),
-     mcq("'Je ne travaille ___' means I don't work anymore:",["pas","jamais","rien","plus"],3,"Ne...plus = no longer/anymore. 'Je ne travaille plus' = I don't work anymore (I used to, but I stopped). Ne...jamais = never, ne...rien = nothing, ne...pas = basic negation."),
-     mcq("'Elle va ___ le médecin demain.' (She's going to see the doctor.)",["voir","voit","voit","voyant"],0,"Elle va voir le médecin — aller + infinitif. 'Voir' (to see) is the infinitive. Near future: je vais, tu vas, il/elle va + infinitif. Always use the INFINITIVE form after aller!"),
-     wr("Conjugate 'se lever' for 'nous'",["nous nous levons"],"Nous nous levons — both the verb (levons) and the reflexive pronoun (nous) are needed! 'Nous nous levons' = we get up. The doubled 'nous' looks strange but is correct and essential for reflexive verbs in plural forms.")]),
-
-  mkL("a1-28","A1 Vocabulary Review: Daily Life",25,"integrated",
-    "Vocabulary checkpoint! This session covers the 500 most important A1 words across all themes. Key categories: greetings/politeness, numbers/time, family, house, food, transport, health, work, shopping, school, emotions. A true A1 speaker knows these words reflexively — no hesitation needed.",
-    ["Révision: greetings and politeness","Révision: numbers, time, dates","Révision: family and description","Révision: house and neighborhood","Révision: food and restaurant","Révision: transport and directions","Révision: health and body","Révision: work and services"],
-    [mcq("'La pharmacie est ouverte jusqu'à 22h' means:",["The pharmacy opens at 10pm","The pharmacy is open until 10pm","The pharmacy closes at 10am","The pharmacy opened at 10pm"],1,"Jusqu'à = until. 'Ouverte jusqu'à 22h' = open until 10pm. 'Ouvert de 9h à 22h' = open from 9am to 10pm. Essential for checking service hours in Canada — many pharmacies are open late!"),
-     mcq("'Mon loyer est de 950$ par mois' — what are you talking about?",["your salary","your rent","your mortgage","your bills"],1,"Le loyer = rent. 'Mon loyer' = my rent. '$950 par mois' = $950 per month. Housing costs are a major topic for newcomers — knowing this vocabulary helps you navigate ads, leases, and landlord communication!"),
-     wr("Name 3 things you do every morning (routine)",["je me réveille","je me lève","je me douche","je mange","je prends","je vais"],"Morning routine answers: Je me réveille, je me lève, je me douche, je m'habille, je mange, je prends le bus. This is a standard CLB 4 speaking task — practice until fluent!")]),
-
-  mkL("a1-29","A1 Speaking Practice: Introductions",20,"speaking",
-    "SPEAKING ASSESSMENT — Introduce yourself fully in French! A complete A1 introduction covers: name (Je m'appelle...), age (J'ai X ans), origin (Je viens de... / Je suis [nationality]), current city (J'habite à...), profession or student status (Je suis.../Je travaille comme...), family (J'ai X enfants / Je suis marié(e)), hobbies (J'aime...), French level (J'apprends le français depuis X mois/ans). Practice until automatic!",
-    ["Je m'appelle... (name)","J'ai ... ans (age)","Je viens de... (origin)","J'habite à... (city)","Je suis / Je travaille comme... (profession)","J'ai X enfants / Je suis marié(e)","J'aime + activité (hobbies)","J'apprends le français depuis..."],
-    [mcq("A complete A1 introduction in French should include:",["only name and age","name, age, origin, current city, and one detail about yourself","name and profession only","name, age, and a long life story"],1,"Name + age + origin + city + at least one personal detail = complete A1 introduction. This is asked in CLB 3-4 speaking assessments! Practice delivering this in 30-60 seconds without hesitation."),
-     mcq("'J'apprends le français depuis 8 mois' tells people:",["you finished learning French 8 months ago","you've been learning French for 8 months (ongoing)","you'll learn French for 8 months","you learned French 8 months ago"],1,"Depuis + présent = ongoing! 'J'apprends depuis 8 mois' = I've been learning for 8 months (and I'm still learning). Shows humility and real effort — Canadians always appreciate this!"),
-     wr("Write your full introduction in French (all 6 elements)",["je m'appelle","j'ai","je viens","j'habite","je suis","j'aime"],"Je m'appelle [name], j'ai [X] ans. Je viens de [country] et j'habite à [city]. Je suis/travaille comme [profession]. J'ai/Je suis [family status]. J'aime [hobby]. J'apprends le français depuis [time]. — Perfect complete A1 introduction!")]),
-
-  mkL("a1-30","A1 Writing Practice: Short Messages",25,"writing",
-    "Writing assessment: CLB 3 requires writing short, functional messages. Practice these 4 types: 1) Text message to a friend (informal), 2) Note to a neighbor, 3) Email to cancel an appointment (formal), 4) Short form completion. Key: in informal messages use 'tu', in formal use 'vous'. Always: clear purpose, enough detail, polite closing.",
-    ["SMS/texto (informal, tu)","Note pour voisin (semi-formal)","Courriel pour annuler (formal, vous)","Remplir un formulaire","Formules d'ouverture/fermeture","Contenu: qui, quoi, quand, où, pourquoi","Correction des erreurs fréquentes"],
-    [mcq("An informal text to a friend about being late:",["Bonjour Monsieur, je serai en retard. Cordialement.","Salut! Je vais être en retard de 10 minutes. Désolé(e)!","Je vous informe que je serai en retard.","Cher ami, je suis dans l'impossibilité d'arriver à l'heure."],1,"'Salut! Je vais être en retard de 10 minutes. Désolé(e)!' — perfect informal text! Salut, tu-form implied, brief, apologetic. A formal version would start with 'Bonjour' and use 'vous'. Context determines register!"),
-     mcq("A formal email cancelling a doctor's appointment should open with:",["Allo docteur!","Hey, je peux pas venir","Bonjour Docteur Martin,","Salut, je dois annuler"],2,"Bonjour Docteur Martin, — formal, uses title and name. Then: 'Je vous écris pour vous informer que je dois malheureusement annuler mon rendez-vous du [date].' Always give a brief reason and offer to reschedule!"),
-     wr("Write a 2-line note to your neighbor about noise",["je suis désolé(e)","bonsoir","bonjour","excusez-moi","je voulais vous informer","le bruit"],"Sample: 'Bonsoir, je suis désolé(e) pour le bruit de ce soir. Cordialement, [Name] (appartement 3B).' Brief, polite, explains the situation, and signs off professionally. Perfect A1/CLB 3 writing!")]),
-
-  // Lessons 31-40: Grammar expansion
-  mkL("a1-31","Possessives & Demonstratives Review",20,"reading",
-    "Consolidation session for possessives and demonstratives with tricky cases! Remember: possessives agree with the NOUN (not the owner). Son/sa/ses = his OR her. 'Son médecin' = his/her doctor. 'Sa voiture' = his/her car. Demonstratives: ce/cet/cette/ces = this/that/these/those. Special case: 'cet' before masculine vowel/H. Adding -ci/-là specifies this vs that.",
-    ["mon/ma/mes, ton/ta/tes, son/sa/ses","notre/nos, votre/vos, leur/leurs","son = his OR her (depends on context)","ce + m. consonant, cet + m. vowel/H","cette + f., ces + plural","ce rendez-vous-ci (this appointment)","ce rendez-vous-là (that appointment)"],
-    [mcq("'___ ami(e) s'appelle Laure.' (My friend's name is Laure.)",["Ma","Mon","Mes","Mes"],1,"Mon ami — even though 'amie' is feminine, 'ami' starts with a vowel! Before any vowel sound, use MON (not MA): mon amie, mon école, mon histoire. This prevents the awkward 'ma amie' sound!"),
-     mcq("'C'est ___ appartement.' (It's their apartment.) [plural they]",["sa","son","leur","leurs"],2,"Leur appartement — 'leur/leurs' = their (plural owners). 'Leur' before singular noun, 'leurs' before plural: leur appartement, leurs enfants. Don't confuse with 'lui' (him, indirect pronoun)!"),
-     wr("Write 'this hospital appointment' in French",["ce rendez-vous à l'hôpital","cet rendez-vous","ce rendez-vous"],"Ce rendez-vous — 'rendez-vous' starts with R (consonant) → CE (not CET). If starting with vowel: cet hôpital (this hospital). Adding -ci/-là: 'ce rendez-vous-ci' (this specific appointment here).")]),
-
-  mkL("a1-32","Comparatives & Superlatives",20,"reading",
-    "Compare things in French! Comparatives: plus...que (more...than), moins...que (less...than), aussi...que (as...as). Examples: 'Montréal est plus grand que Québec' (Montreal is bigger than Quebec City). Superlatives: le/la/les plus + adj (the most), le/la/les moins + adj (the least). Irregular: bon→meilleur (better/best), mauvais→pire (worse/worst), bien→mieux (better/best — adverb).",
-    ["plus + adj + que (more...than)","moins + adj + que (less...than)","aussi + adj + que (as...as)","le/la plus + adj (the most)","le/la moins + adj (the least)","meilleur/meilleure (better/best)","pire (worse/worst)","mieux (better — adverb)"],
-    [mcq("'Le français est plus difficile que l'espagnol pour moi.' means:",["French is less difficult than Spanish for me","French is as difficult as Spanish for me","French is more difficult than Spanish for me","French is the most difficult language for me"],2,"Plus + adj + que = more...than. 'Plus difficile que' = more difficult than. For comparative, remember: plus, moins, aussi — followed by que!"),
-     mcq("'C'est la meilleure pharmacie du quartier.' means:",["It's a good pharmacy","It's a better pharmacy","It's the best pharmacy in the neighborhood","It's the worst pharmacy"],2,"Meilleure = best (feminine of meilleur). Superlative: le/la meilleur(e) = the best. 'Du quartier' = of/in the neighborhood. Irregular: bon→meilleur, mauvais→pire. Don't say 'le plus bon' — always 'le meilleur'!"),
-     wr("Say 'French is as important as English in Canada'",["le français est aussi important que l'anglais au canada","le francais est aussi important que l'anglais"],"Le français est aussi important que l'anglais au Canada — aussi...que = as...as (equality). A true statement about Canada's bilingualism! 'Aussi' can be used with adjectives AND adverbs: 'Je parle aussi vite que toi.'")]),
-
-  mkL("a1-33","Object Pronouns: Le, La, Les",25,"writing",
-    "Direct object pronouns replace nouns after verbs! Le (replaces masculine singular noun), La (feminine singular), Les (plural). They go BEFORE the verb in French! Je mange le pain → Je le mange. Elle appelle la docteure → Elle l'appelle. Ils font les devoirs → Ils les font. With infinitives: aller chercher les enfants → aller les chercher.",
-    ["le (replaces m. singular noun)","la (replaces f. singular noun)","l' (before vowel/H)","les (replaces plural noun)","pronoun BEFORE the verb!","negative: je ne le comprends pas","infinitive: je vais l'appeler"],
-    [mcq("'Tu connais ce médecin?' 'Oui, je ___ connais.'",["le","la","les","lui"],0,"Je le connais — 'ce médecin' is masculine singular → le. Pronouns go before the verb: je LE connais (not je connais le). This is one of the most important structural differences from English!"),
-     mcq("'Est-ce que tu as la carte-santé?' 'Non, je ne ___ ai pas.'",["le","la","les","lui"],1,"Je ne LA ai pas → Je ne l'ai pas (elision!). La = replaces 'la carte-santé' (feminine). In negation: ne + pronoun + verb + pas. 'Je ne l'ai pas trouvée' = I didn't find it (feminine agreement in passé composé with direct object pronoun!)"),
-     wr("Replace the object: 'Elle regarde les documents' (She looks at the documents.)",["elle les regarde"],"Elle les regarde — 'les documents' (plural) → les. Always BEFORE the verb! If you're taking the CLB test: 'Avez-vous rempli les formulaires?' 'Oui, je les ai remplis.' (pronoun + agreement in passé composé!)")]),
-
-  mkL("a1-34","Prepositions with Cities & Countries",20,"reading",
-    "This rule is tested everywhere in Canada! Cities: always À. À Montréal, à Ottawa, à Paris. Countries and regions: EN + feminine countries (en France, en Algérie, en Ontario). AU + masculine countries (au Canada, au Maroc, au Japon). AUX + plural countries (aux États-Unis, aux Philippines). DE/D' for coming from: je viens de France, je viens du Canada, je viens des États-Unis.",
-    ["à + ville (à Montréal)","en + pays féminin (en France)","au + pays masculin (au Canada)","aux + pays pluriel (aux États-Unis)","de + pays féminin (de France)","du + pays masculin (du Canada)","des + pays pluriel (des États-Unis)","en + province québécoise (en Ontario, en Colombie-Britannique)"],
-    [mcq("'Je vais ___ États-Unis la semaine prochaine.'",["à","en","au","aux"],3,"Aux États-Unis — États-Unis is plural (the United States). Les États-Unis → aux États-Unis. De → des États-Unis. Always: aux and des with plural country names!"),
-     mcq("'Elle vient ___ Algérie.' (She comes from Algeria.)",["du","de","d'","des"],2,"D'Algérie — Algérie starts with A (vowel) → d' (elision of de). 'De l'Algérie' is technically correct too but 'D'Algérie' is more natural. Feminine country → de/d'. Je viens d'Algérie, de France, du Maroc."),
-     wr("Say 'I'm going to Quebec City next month'",["je vais à québec le mois prochain","je vais à québec city le mois prochain","je vais à québec prochain mois"],"Je vais à Québec le mois prochain — 'à + city' always! Important: Québec the city vs le Québec the province. 'J'habite en Colombie-Britannique mais je vais à Québec le mois prochain.'")]),
-
-  mkL("a1-35","Expressing Likes & Dislikes",20,"speaking",
-    "Express preferences in French! Loving: j'adore, je suis passionné(e) par. Liking: j'aime (bien), j'apprécie. Neutral: ça me plaît (I like it), c'est correct. Disliking: je n'aime pas (tellement), je n'apprécie pas. Hating: je déteste, je ne supporte pas. Preference: je préfère X à Y. Discovering: j'ai découvert que, j'ai appris à aimer. Opinion: je trouve que, je pense que.",
-    ["j'adore (I love)","j'aime (bien) (I like)","j'apprécie (I appreciate)","je n'aime pas (I don't like)","je déteste (I hate)","je préfère X à Y (I prefer X to Y)","ça me plaît (I like it — more specific)","Qu'est-ce que tu aimes faire? (What do you like to do?)"],
-    [mcq("'Je préfère le thé au café' means:",["I like tea and coffee","I prefer tea to coffee","I hate tea and coffee","I drink both tea and coffee"],1,"Je préfère X à Y = I prefer X to Y. 'Au café' = à + le café. 'Je préfère le thé au café, mais je prends un café le matin quand même!' A very natural preference statement!"),
-     mcq("'J'adore' is stronger than 'j'aime'. Which is strongest?",["j'aime bien","j'apprécie","j'adore","j'aime"],2,"Scale: je déteste < je n'aime pas < ça m'est égal < j'aime bien < j'aime < j'apprécie < j'adore. 'J'adore le français!' is stronger than 'J'aime le français.' Use adore for things you're passionate about!"),
-     wr("Say what you love and hate about Canadian winter",["j'adore","j'aime","je déteste","je n'aime pas","je préfère"],"Sample: 'J'adore la neige mais je déteste le froid extrême. Je préfère l'automne à l'hiver.' — expressing mixed opinions shows B1-level nuance! Practice using contrast words like 'mais' and 'cependant'.")]),
-
-  mkL("a1-36","A1 Listening Practice: Understanding Instructions",20,"listening",
-    "Practice understanding spoken French for daily Canadian life! Common instruction contexts: transit announcements, voicemail messages, doctor's instructions, workplace directives, school communications. Key strategy: focus on key NOUNS and VERBS, don't panic about words you don't know, use context to guess unfamiliar vocabulary. Numbers, names, and times are priority listening targets.",
-    ["Stratégie: écouter les mots-clés","Numéros, noms, heures = priorité","Context = guess unknown words","Message téléphonique (voicemail)","Annonce de transport (transit)","Instructions médicales","À prendre matin et soir (take morning and evening)","Prenez un comprimé par jour (one tablet per day)"],
-    [mcq("In a pharmacy voicemail, you hear 'deux fois par jour'. This means take the medication:",["twice a week","twice a day","two at a time","for two days"],1,"Deux fois par jour = twice a day (literally 'two times per day'). Medical dosing vocabulary: une fois par jour (once daily), deux fois par jour (twice daily), toutes les 8 heures (every 8 hours). Always listen carefully to dosage instructions!"),
-     mcq("A transit announcement says 'Le prochain bus arrive dans cinq minutes.' This means:",["The bus left 5 minutes ago","The next bus arrives in 5 minutes","The bus is 5 minutes late","The bus comes every 5 minutes"],1,"Dans cinq minutes = in five minutes (from now). 'Il y a cinq minutes' = five minutes ago (in the past). 'Pendant cinq minutes' = for five minutes. These distinctions are tested in CLB 4 listening!"),
-     wr("Write what 'Prenez un comprimé avec de l'eau le matin' means",["take one tablet with water in the morning","prendre un comprimé avec de l'eau le matin"],"Prenez un comprimé avec de l'eau le matin = Take one tablet with water in the morning. Medical instructions you'll receive at any Canadian pharmacy. 'Comprimé' = tablet/pill. 'Avec de l'eau' = with water.")]),
-
-  mkL("a1-37","A1 Writing: Filling Forms",20,"writing",
-    "Canadian forms require specific French vocabulary! Key fields: Nom de famille (last name), Prénom(s) (first name[s]), Date de naissance (DOB — day/month/year in Canada), Sexe (sex: M/F), Adresse complète (full address — numéro, rue, ville, province, code postal), Numéro de téléphone, Courriel, Numéro d'assurance maladie (health insurance number — RAMQ in Quebec), Signature.",
-    ["Nom de famille (last name)","Prénom(s) (first name)","Date de naissance (JJ/MM/AAAA)","Adresse complète","Code postal (A1A 1A1 format)","Numéro d'assurance maladie","Statut matrimonial (marital status)","Nationalité/Citoyenneté","Signature obligatoire"],
-    [mcq("On a Quebec form, 'Numéro d'assurance maladie' refers to:",["your SIN number","your RAMQ health card number","your passport number","your employee number"],1,"Numéro d'assurance maladie = your RAMQ (health insurance) card number. RAMQ = Régie de l'assurance maladie du Québec. You'll need this at EVERY healthcare appointment in Quebec. Keep it memorized!"),
-     mcq("Canadian dates are written in the format:",["MM/DD/YYYY","DD/MM/YYYY","YYYY/MM/DD","MM-YYYY-DD"],1,"In Canada: DD/MM/YYYY (day/month/year) is used on French forms — same as France and most of the world! But English Canada often uses MM/DD/YYYY. When filling French forms: 15/03/2025 = March 15, 2025."),
-     wr("Write your full address in proper French format",["numéro","rue","appartement","ville","province","code postal"],"Format: [number] [street], Appartement [X], [City], [Province], [Postal Code]. Example: 1234, rue Saint-Denis, Appartement 5, Montréal, Québec, H2J 2K5. Every element is needed for official Canadian mail!")]),
-
-  mkL("a1-38","A1 Integrated Practice",25,"integrated",
-    "Integrated A1 practice covering all skills! This session simulates the kind of multi-skill tasks you'll face in CLB 3-4 assessments. Reading a short notice, answering comprehension questions, writing a short response, and demonstrating grammar knowledge. This is what CLB test preparation looks like at A1 level.",
-    ["Comprendre une courte annonce","Répondre à des questions de compréhension","Rédiger une réponse courte","Utiliser les temps et la grammaire A1","Vocabulaire en contexte réel"],
-    [mcq("Notice: 'Le cabinet médical sera fermé le lundi 12 janvier pour cause de formation du personnel.' What is closed?",["The hospital","The medical office","The pharmacy","The school"],1,"Le cabinet médical = the medical office/clinic. 'Sera fermé' = will be closed (future tense!). 'Pour cause de' = due to/because of. 'Formation du personnel' = staff training. Notice reading is a core CLB 4 task!"),
-     mcq("'Pour cause de formation' tells you the office is closed because of:",["a public holiday","a patient shortage","staff training","bad weather"],1,"Pour cause de = due to/because of. 'Formation du personnel' = staff training. This type of explanation appears in all official notices. Other common reasons: travaux (construction/repairs), congé (holiday)."),
-     wr("Write a 2-sentence response to rescheduling your appointment",["je dois reporter","je voudrais reporter","je confirme","quand êtes-vous disponible","quel jour","disponibilité"],"'Suite à la fermeture du cabinet le 12 janvier, je dois reporter mon rendez-vous. Seriez-vous disponible la semaine du 19 janvier?' — Professional, clear, uses conditional for politeness. Perfect CLB 3-4 writing!")]),
-
-  mkL("a1-39","A1 Speaking Assessment Prep",20,"speaking",
-    "Final speaking preparation for A1/CLB 3-4! You should now be able to: ✓ Introduce yourself fully (1 minute), ✓ Describe your daily routine, ✓ Talk about your family, ✓ Ask and answer simple questions, ✓ Handle basic service interactions (pharmacy, store, clinic), ✓ Describe a simple problem, ✓ Express preferences. Practice speaking each of these out loud — fluency comes from repetition!",
-    ["Auto-présentation (self-introduction — 60 sec)","Routine quotidienne (daily routine — 60 sec)","Famille et logement (family/housing)","Situation professionnelle (work)","Demande de service (service request)","Exprimer un problème simple","Exprimer une préférence","Questions fréquentes de CLB 3-4"],
-    [mcq("A CLB 3-4 speaking task asks you to describe your daily routine. You should speak for:",["5-10 seconds","10-20 seconds","30-60 seconds","3-5 minutes"],2,"CLB 3-4 = 30-60 seconds on familiar topics. Use: D'abord, ensuite, puis, après, finalement. Include times (à 7h, le matin), specific activities (je prends le bus), and at least 2-3 sequence connectors!"),
-     mcq("If you don't understand a question in a CLB speaking test, you should:",["Stay silent","Say 'I don't know' in English","Say 'Pouvez-vous répéter la question, s'il vous plaît?'","Leave the room"],2,"'Pouvez-vous répéter la question, s'il vous plaît?' — Always ask in FRENCH! This itself demonstrates language competency. Assessors respect when learners ask for clarification — it's a real communication skill."),
-     wr("Practice your full 60-second self-introduction",["je m'appelle","j'ai","je viens","j'habite","je travaille","je suis","j'aime","j'apprends le français"],"Perfect! Your A1 introduction should cover all 6 elements in under 60 seconds. If you can deliver this smoothly, you're ready for CLB 3 speaking. Practice 5 times out loud right now!")]),
-
-  mkL("a1-40","A1 Final Assessment",30,"integrated",
-    "Congratulations on completing A1! This final assessment checks your mastery of all A1 content. You're ready for A2 if you can: conjugate être, avoir, -ER, -IR, and key irregular verbs correctly, form negatives and questions, use possessives and demonstratives, express near future, talk about daily life, health, work, housing, and shopping — all in complete sentences. Félicitations!",
-    ["Test final A1 — toutes les compétences","Grammaire: verbes, articles, pronoms","Vocabulaire: vie quotidienne complète","Compréhension: annonce simple","Production: phrase complète et correcte","Vous êtes prêt(e) pour A2!"],
-    [mcq("'Nous allons déménager au Québec l'année prochaine.' means:",["We moved to Quebec last year","We are going to move to Quebec next year","We should move to Quebec next year","We moved to Quebec this year"],1,"Allons déménager = near future (going to move). 'L'année prochaine' = next year. Déménager = to move (home/city). Perfectly formed A1 sentence showing near future + location preposition!"),
-     mcq("Choose the CORRECT sentence:",["Je suis 30 ans","Je n'ai pas une voiture","Je vais à l'hôpital","Je habite à Montréal"],2,"Je vais à l'hôpital ✓. Errors: 'Je suis 30 ans' → J'ai 30 ans. 'Je n'ai pas une voiture' → Je n'ai pas DE voiture. 'Je habite' → J'habite (elision required before vowel)!"),
-     wr("Write 3 correct French sentences about yourself using A1 grammar",["je","j'","j'ai","je suis","je vais","j'habite","je travaille","je m'appelle"],"Any 3 correct sentences: 'J'habite à Toronto depuis 2 ans. Je travaille comme technicien. Le weekend, j'aime faire du sport.' — If all 3 are grammatically correct, you're A1 certified! You've completed the A1 level. À vous l'A2!")])
+  mkL("a1-10","Past Tense — Passé Composé",30,"writing",
+    "Last week you went to the grocery store, met your new neighbor, and had a doctor's appointment. To talk about any of this in French, you need the passé composé — the most common past tense. Today you learn how to talk about anything that happened. It is the most important grammar structure for telling stories and sharing experiences in Canada.",
+    ["AVOIR + past participle: j'ai mangé (I ate)","ÊTRE + past participle: je suis allé (I went)","Regular past participles: -ER → é, -IR → i, -RE → u","parlé, mangé, travaillé (from -ER verbs)","fini, choisi, réussi (from -IR verbs)","vendu, attendu (from -RE verbs)","Irregular: fait, été, eu, vu, dit, pris","ÊTRE verbs: aller, venir, partir, arriver, naître, mourir","Agreement: je suis allée (feminine adds -e)","Negation: je n'ai pas mangé"],
+    [mcq("'J'__ mangé au restaurant hier.' Which auxiliary?",["suis","ai","es","a"],1,"J'ai mangé = I ate. Most verbs use AVOIR as auxiliary. J'ai mangé (manger→mangé), j'ai travaillé (travailler→travaillé), j'ai parlé (parler→parlé). The -ER ending becomes -é in past participle!",1),
+     mcq("'Je __ allé au travail.' Which auxiliary for aller?",["ai","suis","as","avons"],1,"Je suis allé! Aller uses ÊTRE as auxiliary. Remember: DR MRS VANDERTRAMP or think of movement verbs — aller, venir, partir, arriver, naître, mourir, entrer, sortir all use ÊTRE!",1),
+     {type:"match",prompt:"Match the verb to its past participle",pairs:[["parler","parlé"],["finir","fini"],["vendre","vendu"],["faire","fait"],["avoir","eu"]],explain:"Past participles — regular and irregular! -ER verbs: parlé. -IR verbs: fini. -RE verbs: vendu. Irregular: fait (faire), eu (avoir), été (être), vu (voir). These 5 are the most used!",diff:2},
+     {type:"fill",before:"Hier, Sara est",blank:"___",after:"au supermarché.",options:["allée","allé","allés","alla"],correct:0,explain:"Sara est allée — Sara (feminine) used être auxiliary + past participle agrees with subject! Sara is feminine so allée adds -e. If it was Ravi: il est allé. Agreement is required with être verbs!",diff:2},
+     mcq("How do you say 'I didn't eat this morning'?",["Je ne pas ai mangé ce matin","Je n'ai pas mangé ce matin","Je n'ai mangé pas ce matin","J'ai ne mangé pas ce matin"],1,"Je n'ai pas mangé = I didn't eat. Negation in passé composé: ne + auxiliary + pas + past participle. Ne...pas wraps around the auxiliary (ai), not around the whole phrase!",2),
+     {type:"scene",story:"Amara calls her friend to share her day. She wants to say: This morning I went to the doctor, I waited one hour, and I got a prescription.",prompt:"Which is correct?",options:["Ce matin je suis allée chez le médecin, j'ai attendu une heure, et j'ai eu une ordonnance","Ce matin j'ai allée chez le médecin, j'ai attendu une heure, et j'ai pris une ordonnance","Ce matin je suis allé chez le médecin, j'ai attendu une heure, et j'avais une ordonnance","Ce matin j'aller chez médecin, attendre une heure, et avoir ordonnance"],correct:0,explain:"Suis allée (être + agreement), j'ai attendu (avoir, past participle of attendre = attendu), j'ai eu (avoir, past participle of avoir = eu). Three verbs correctly conjugated in passé composé — impressive!",diff:3},
+     {type:"order",prompt:"Say: Yesterday I worked and then I went home",words:["Hier","j'ai","travaillé","et","ensuite","je","suis","rentré","à","la","maison"],answer:["Hier","j'ai","travaillé","et","ensuite","je","suis","rentré","à","la","maison"],explain:"Hier j'ai travaillé (avoir + travaillé) et ensuite je suis rentré à la maison (être + rentré). Two different auxiliaries in one sentence — you're using advanced French now! Ensuite = then/afterwards.",diff:3},
+     wr("Write what you did yesterday using passé composé",["j'ai","je suis","hier j'ai","hier je suis","j'ai mangé","je suis allé"],"Excellent use of passé composé! You can now talk about your past experiences, tell stories, and share what happened. This tense is used in 90% of past conversations in French.",2)]),
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// A2 — 40 LESSONS (shortened for file size, but full structure)
-// ─────────────────────────────────────────────────────────────────────────────
 const A2_LESSONS = [
-  mkL("a2-01","Passé Composé with Avoir",30,"writing",
-    "The main past tense for completed actions! Formula: avoir conjugated + past participle. Past participle rules: -ER → -É (manger→mangé), -IR → -I (finir→fini), -RE → -U (vendre→vendu). Common irregular: faire→fait, prendre→pris, voir→vu, boire→bu, écrire→écrit, lire→lu, dire→dit, être→été, avoir→eu.",
-    ["j'ai mangé (I ate)","tu as fini (you finished)","il a fait (he did/made)","nous avons pris (we took)","vous avez vu (you saw)","ils ont bu (they drank)","j'ai écrit (I wrote)","j'ai eu (I had)","j'ai été (I was — using avoir!)"],
-    [mcq("Past participle of 'prendre' (to take):",["prendu","prendé","pris","prené"],2,"Prendre → pris (irregular!). Common irregular past participles: faire→fait, prendre→pris, voir→vu, boire→bu, écrire→écrit, lire→lu, dire→dit. These must be memorized — no rule covers them!"),
-     mcq("'Nous avons regardé la télé hier soir' means:",["We're watching TV this evening","We watched TV last night","We will watch TV tonight","We should watch TV tonight"],1,"Nous avons regardé = we watched (passé composé = completed past action). 'Hier soir' = last night/yesterday evening. This sentence could appear in any CLB 4 listening or reading task!"),
-     mcq("'J'ai eu un rendez-vous ce matin' means:",["I have an appointment this morning","I had an appointment this morning","I will have an appointment this morning","I need an appointment this morning"],1,"J'ai eu = I had (past). 'Avoir' in passé composé = j'ai eu (irregular!). 'J'ai eu un rendez-vous ce matin' = I had an appointment this morning — past and finished!"),
-     wr("Put into passé composé: 'je mange une pomme'",["j'ai mangé une pomme"],"J'ai mangé une pomme — manger → mangé (-ER verb). J'ai + mangé. Notice the cedilla stays! 'J'ai mangé à la cafétéria ce midi' = I had lunch at the cafeteria today. Perfect A2 usage!")]),
+  mkL("a2-01","At the Bank",25,"speaking",
+    "Opening a bank account is one of the first things you do in Canada. The teller speaks French, the forms are in French, and you need to explain what you need. Today you learn everything for your first bank visit — how to open an account, understand your statement, transfer money, and talk to your banker. These skills save you money and stress every month.",
+    ["Je voudrais ouvrir un compte = I would like to open an account","un compte chèques = a chequing account","un compte épargne = a savings account","un virement = a transfer","un dépôt = a deposit","un retrait = a withdrawal","le solde = the balance","les frais = the fees","une hypothèque = a mortgage","le taux d'intérêt = the interest rate"],
+    [mcq("You want to open an account. You say:",["Je voudrais ouvrir un compte s'il vous plaît","Je veux de l'argent","Combien coûte un compte?","Je voudrais un virement"],0,"Je voudrais ouvrir un compte = I would like to open an account. This is the exact phrase bank tellers in Quebec expect. Always add s'il vous plaît — it makes a great first impression!",1),
+     mcq("The teller asks about your 'solde'. What is she asking about?",["Your salary","Your balance","Your fees","Your transfer"],1,"Le solde = the balance! Quel est votre solde? = What is your balance? You'll see this on every bank statement and ATM screen. Essential word for managing money in Canada!",1),
+     {type:"match",prompt:"Match the banking term to its meaning",pairs:[["un virement","a transfer"],["un dépôt","a deposit"],["un retrait","a withdrawal"],["le solde","the balance"],["les frais","the fees"]],explain:"These 5 words appear on every bank statement in Quebec. Learn them and you'll never be confused by your Desjardins or TD statement again!",diff:1},
+     {type:"fill",before:"Je voudrais faire",blank:"___",after:"de 500 dollars vers mon autre compte.",options:["un virement","un retrait","un dépôt","une hypothèque"],correct:0,explain:"Un virement = a transfer. Je voudrais faire un virement = I would like to make a transfer. This is what you say when sending money between accounts or to another person in Quebec.",diff:2},
+     mcq("The banker says 'Il y a des frais mensuels de 15 dollars'. What does this mean?",["Your balance is $15","There is a $15 monthly fee","You need to deposit $15","Your interest rate is 15%"],1,"Des frais mensuels = monthly fees. Frais = fees/charges, mensuels = monthly. Always ask 'Quels sont les frais?' before opening any account — fees vary between banks!",2),
+     {type:"scene",story:"Sara goes to Desjardins to open her first Canadian bank account. The teller says 'Bonjour! Qu'est-ce que je peux faire pour vous aujourd'hui?'",prompt:"What should Sara say?",options:["Je voudrais ouvrir un compte chèques s'il vous plaît","Bonjour je suis Sara","Je voudrais de l'argent","Où est le guichet automatique?"],correct:0,explain:"Je voudrais ouvrir un compte chèques s'il vous plaît — perfect! Compte chèques = chequing account (the most common first account in Canada). Polite, clear, and professional!",diff:2},
+     {type:"order",prompt:"Ask: What are the monthly fees for this account?",words:["Quels","sont","les","frais","mensuels","pour","ce","compte?"],answer:["Quels","sont","les","frais","mensuels","pour","ce","compte?"],explain:"Quels sont les frais mensuels pour ce compte? — a smart question every new Canadian should ask before signing up for any bank account. Knowledge saves money!",diff:2},
+     wr("Write how you would ask for your account balance in French",["quel est mon solde","mon solde","je voudrais voir mon solde","quel est le solde"],"Quel est mon solde? Simple and clear! Bank tellers and ATMs all use this word. You can also say 'Je voudrais voir mon solde' = I would like to see my balance. You are ready for any Quebec bank!",2)]),
 
-  mkL("a2-02","Passé Composé with Être",30,"writing",
-    "17 verbs use ÊTRE not avoir! Memory trick: Dr and Mrs VANDERTRAMP: Devenir, Revenir, Monter, Rester, Sortir, Venir, Aller, Naître, Descendre, Entrer, Rentrer, Tomber, Retourner, Arriver, Mourir, Partir. Plus ALL reflexive verbs! CRITICAL: past participle agrees with subject! Elle est arrivée (+e), Ils sont partis (+s), Elles sont venues (+es).",
-    ["je suis allé(e)","tu es venu(e)","elle est arrivée (+e feminine)","nous sommes partis (+s plural)","vous êtes rentré(e)(s)","elles sont sorties (+es f.pl.)","je me suis levé(e)","il s'est habillé"],
-    [mcq("A woman says she went to the pharmacy. She says:",["Je suis allé à la pharmacie","Je suis allée à la pharmacie","J'ai allé à la pharmacie","J'ai allée à la pharmacie"],1,"Aller uses être → je suis allée (female: +e). Male: je suis allé. Agreement is mandatory with être! 'J'ai allé' is NEVER correct — aller ALWAYS uses être in passé composé."),
-     mcq("'Elle est tombée dans l'escalier' means:",["She went up the stairs","She is climbing the stairs","She fell on the stairs","She ran up the stairs"],2,"Tomber (to fall) uses être → elle est tombée. Agreement: elle (f.) → tombée (+e). 'Dans l'escalier' = on/in the stairs. Tomber is in the DR MRS VANDERTRAMP list!"),
-     wr("Say 'I woke up late this morning' (female speaker)",["je me suis réveillée tard ce matin","je me suis réveillée ce matin","je me suis réveillée tôt ce matin"],"Je me suis réveillée tard ce matin — reflexive verb uses être! Female speaker → réveillée (+e). 'Tard' = late. This is a perfect passé composé + reflexive sentence for A2/CLB 4!")]),
+  mkL("a2-02","Reading Your Lease",25,"reading",
+    "You found an apartment in Quebec — congratulations! But now you have to sign a bail (lease) and it's all in French. This is a legally binding document and understanding it is crucial. Missing a clause could cost you your deposit or lead to eviction. Today you learn the most important lease vocabulary so you never sign something you don't understand.",
+    ["le bail = the lease","le propriétaire = the landlord","le locataire = the tenant","le loyer mensuel = monthly rent","le dépôt de garantie = security deposit","les charges = utilities/charges","la durée du bail = lease duration","le préavis = notice period","les animaux de compagnie = pets","les réparations = repairs"],
+    [mcq("In a lease, who is the 'locataire'?",["The landlord","The building manager","The tenant","The real estate agent"],2,"Le locataire = the tenant — that's YOU! Le propriétaire = the landlord. Knowing this distinction is essential — the lease has different obligations for each party. Régie du logement protects tenants in Quebec!",1),
+     mcq("The lease says 'préavis de 60 jours'. What does this mean?",["You must pay 60 days deposit","You need to give 60 days notice before leaving","The lease lasts 60 days","Rent increases every 60 days"],1,"Préavis = notice period. In Quebec, you typically need to give 3 months notice (préavis de 3 mois) before leaving. 60 days is sometimes negotiated. ALWAYS check this clause!",1),
+     {type:"match",prompt:"Match the lease term to its meaning",pairs:[["le bail","the lease"],["le propriétaire","the landlord"],["le locataire","the tenant"],["le loyer mensuel","monthly rent"],["le préavis","notice period"]],explain:"These are the 5 most important words in any Quebec lease. Understanding them means you know your rights and obligations as a tenant in Canada!",diff:1},
+     {type:"fill",before:"Le",blank:"___",after:"est de 1200 dollars par mois, payable le premier du mois.",options:["loyer mensuel","préavis","bail","dépôt"],correct:0,explain:"Le loyer mensuel = the monthly rent. Payable le premier du mois = payable on the first of the month. This is the standard rent payment schedule in Quebec — always on the 1st!",diff:2},
+     mcq("The lease says 'animaux de compagnie non admis'. What does this mean?",["Pets are welcome","Pets are not allowed","Small pets only","Ask the landlord about pets"],1,"Non admis = not allowed/admitted. Animaux de compagnie non admis = pets not allowed. This is very common in Quebec leases. If you have a pet, look for 'animaux admis' or negotiate before signing!",2),
+     {type:"scene",story:"Ravi is reading his new lease. He sees: 'Durée du bail: 12 mois, du 1er juillet au 30 juin. Loyer: 1150$/mois. Charges incluses: eau chaude. Préavis: 3 mois.'",prompt:"What does Ravi now know about his lease?",options:["12-month lease July to June, $1150/month, hot water included, 3 months notice required","6-month lease, $1150/month, all utilities included, 2 months notice","12-month lease, $1150 + utilities, 3 months notice, starting August","1-year lease, $1,150 weekly, water not included"],correct:0,explain:"Durée 12 mois = 12-month lease. 1er juillet au 30 juin = July 1 to June 30 (Quebec's moving day is July 1!). Loyer 1150$/mois = $1,150/month. Eau chaude incluse = hot water included. Préavis 3 mois = 3 months notice. You read a real French lease!",diff:3},
+     {type:"order",prompt:"Build: The rent is payable on the first of each month",words:["Le","loyer","est","payable","le","premier","de","chaque","mois"],answer:["Le","loyer","est","payable","le","premier","de","chaque","mois"],explain:"Le loyer est payable le premier de chaque mois — this exact phrase appears in almost every Quebec lease. Chaque = each/every. Premier = first. Now you can read and understand your lease!",diff:2},
+     wr("Write how you ask your landlord about pet policy in French",["animaux","les animaux sont","est-ce que les animaux","les animaux de compagnie"],"Est-ce que les animaux de compagnie sont admis? — asking before signing saves you from future conflict. In Quebec, tenant rights are strong — but it's always better to clarify in writing!",2)]),
 
-  mkL("a2-03","L'Imparfait — Past Description",30,"writing",
-    "The imparfait is for ongoing past actions, descriptions, and habits in the past (contrast with passé composé for completed events). Formation: take NOUS form present, drop -ONS, add: -ais, -ais, -ait, -ions, -iez, -aient. Only exception: être → ét- (base). Uses: 'Quand j'étais enfant...' (when I was a child), descriptions of the past, interrupted actions, repeated habits.",
-    ["base = nous form - ons: parlons → parl-","je parlais, tu parlais, il parlait","nous parlions, vous parliez, ils parlaient","être → j'étais, tu étais, il était...","habitude passée (repeated habit)","description passée (past description)","action interrompue (interrupted action)","Quand j'étais jeune, je..."],
-    [mcq("'Quand j'étais enfant, j'habitais à Lyon.' The imparfait is used because:",["it's a completed action","it describes a past habit/state","it's a future plan","it's a wish"],1,"Imparfait = past habits, states, ongoing situations. 'J'habitais à Lyon quand j'étais enfant' = I used to live in Lyon when I was a child. Not a single event — an ongoing situation in the past!"),
-     mcq("Base for imparfait of 'manger': take 'nous mangeons', remove -ons → ___",["mange-","mangons-","mango-","mang-"],3,"Nous mangeons → remove -ons → mang- BUT keep the 'e' for pronunciation before -ais! So: je mangeais (not je mangais). The 'e' prevents the G from becoming hard before 'a'. Exception for manger!"),
-     wr("Say 'When I was young, I played sports every weekend'",["quand j'étais jeune, je faisais du sport tous les weekends","quand j'étais jeune je jouais au sport chaque weekend","quand j'étais jeune, je jouais au sport tous les weekends"],"Quand j'étais jeune, je jouais au sport tous les weekends — both verbs in imparfait (ongoing past state + repeated past habit). This sentence structure appears in CLB 4-5 speaking tasks about your background!")]),
+  mkL("a2-03","Your Pay Stub",25,"reading",
+    "You got your first Canadian paycheck — exciting! But the talon de paie (pay stub) is full of confusing French words: cotisations, retenues, RPC, AE... What was deducted? What do you actually take home? Today you learn to read your pay stub completely. This is money you earned — you deserve to understand every line of it.",
+    ["le salaire brut = gross salary","le salaire net = net salary (take-home)","les retenues = deductions","l'impôt sur le revenu = income tax","le RPC = CPP (Canada Pension Plan)","l'AE = EI (Employment Insurance)","les heures supplémentaires = overtime","la période de paie = pay period","le talon de paie = pay stub","les avantages sociaux = benefits"],
+    [mcq("What is 'salaire net' on your pay stub?",["Your gross salary before deductions","Your take-home pay after deductions","Your overtime pay","Your benefits"],1,"Salaire net = net salary = your actual take-home pay after all deductions. Salaire brut = gross salary before deductions. The difference can be 25-35% in Canada — taxes, CPP, and EI add up!",1),
+     mcq("'RPC' on your pay stub stands for:",["Régime de Paie Canadien","Régime de Pensions du Canada (CPP)","Retenue Pour Congés","Revenu Personnel Calculé"],1,"RPC = Régime de Pensions du Canada = Canada Pension Plan (CPP). This is deducted from every paycheck. You'll get this money back as pension when you retire in Canada — it's an investment in your future!",1),
+     {type:"match",prompt:"Match the pay stub term to its meaning",pairs:[["salaire brut","gross salary"],["salaire net","take-home pay"],["les retenues","deductions"],["l'AE","Employment Insurance"],["heures supplémentaires","overtime"]],explain:"These 5 terms appear on every Canadian pay stub. Understanding them means you can verify your pay is correct — and spot errors before they cost you money!",diff:1},
+     {type:"fill",before:"Mon salaire brut est 3000$ mais mon salaire",blank:"___",after:"est 2200$ après les retenues.",options:["net","brut","mensuel","annuel"],correct:0,explain:"Salaire net = take-home pay after deductions. The difference between brut (3000$) and net (2200$) = 800$ in deductions (impôt, RPC, AE, etc.). Always check that your net matches what's deposited in your bank!",diff:2},
+     mcq("Your pay stub shows 'AE: 45.32$'. What is this?",["A bonus","Employment Insurance deduction","A fee for benefits","Overtime pay"],1,"AE = Assurance-Emploi = Employment Insurance. This is deducted each paycheck. The benefit? If you ever lose your job, you can claim AE payments for up to 45 weeks. It protects you!",2),
+     {type:"scene",story:"Amara gets her first pay stub. It shows: Salaire brut: 2,800$. Retenues: Impôt: 420$, RPC: 141$, AE: 52$. Salaire net: 2,187$.",prompt:"How much does Amara actually take home?",options:["$2,800","$2,187","$613","$2,759"],correct:1,explain:"Salaire net = 2,187$ — that's what Amara takes home! Retenues totales = 420+141+52 = 613$ in deductions. Impôt (income tax) is always the biggest deduction. Now you can verify your own pay stub!",diff:2},
+     {type:"order",prompt:"Build: My gross salary is 3000 dollars per month",words:["Mon","salaire","brut","est","de","3000","dollars","par","mois"],answer:["Mon","salaire","brut","est","de","3000","dollars","par","mois"],explain:"Mon salaire brut est de 3000 dollars par mois — this is how you state your salary in French. You'll need this phrase at the bank (for a mortgage), on rental applications, and in job negotiations!",diff:2},
+     wr("Write how you would ask your employer about a pay stub error in French",["il y a une erreur","erreur dans mon salaire","mon salaire net","je voudrais vérifier"],"Il y a une erreur dans mon talon de paie — I would like to verify. Knowing this phrase protects your income. In Quebec, employers must correct pay errors. You have rights!",2)]),
 
-  mkL("a2-04","Passé Composé vs Imparfait",30,"writing",
-    "The key distinction for A2! Passé composé = specific completed event (it happened once, it's done). Imparfait = ongoing state, description, or repeated habit in the past. Classic pair: 'Je lisais quand le téléphone a sonné' = I was reading (imparfait — ongoing) when the phone rang (passé composé — specific event that interrupted). Think: imparfait = background/stage, passé composé = action/event.",
-    ["passé composé = action précise, terminée","imparfait = état, habitude, description","je lisais (I was reading — ongoing)","le téléphone a sonné (it rang — event)","hier il faisait beau (it was nice — state)","il a plu à 14h (it rained at 2pm — event)","Signal words: soudain, tout à coup → PC","Signal words: d'habitude, souvent → IMP"],
-    [mcq("'Il faisait froid quand je ___ au bureau.' (passé composé verb)",["arrivais","arriver","suis arrivé","arrivé"],2,"Faisait = imparfait (ongoing weather condition). Suis arrivé = passé composé (specific moment of arrival). The imparfait sets the background (it was cold), the passé composé describes the event (I arrived)!"),
-     mcq("'D'habitude, elle ___ le bus.' (She usually took the bus — imparfait)",["a pris","prenait","prend","va prendre"],1,"D'habitude (usually) signals imparfait — it's a repeated habit! 'Elle prenait le bus d'habitude' = she used to take the bus usually. If it happened once specifically: 'Elle a pris le bus hier' (passé composé)."),
-     wr("Use both tenses: 'I was eating when my phone rang'",["je mangeais quand mon téléphone a sonné","je mangeais quand le téléphone a sonné"],"Je mangeais (imparfait — ongoing) quand mon téléphone a sonné (passé composé — event that interrupted). This is THE model sentence for passé composé vs imparfait! Used in CLB 5 storytelling tasks.")]),
+  mkL("a2-04","School Registration in Quebec",25,"mixed",
+    "Registering your children in a Quebec school — or yourself in a French class — is one of the most important tasks for new immigrants. Forms, interviews with administrators, understanding the school system. The Quebec school system is unique: primaire, secondaire, cégep, université. Today you master school vocabulary and can handle any school registration in French.",
+    ["l'école primaire = elementary school (ages 5-12)","l'école secondaire = high school (ages 12-17)","le cégep = college (unique to Quebec, ages 17-19)","l'université = university","le bulletin = report card","le conseil scolaire = school board","la garderie = daycare","le CPE = subsidized daycare (Centre de la Petite Enfance)","l'inscription = registration","les fournitures scolaires = school supplies"],
+    [mcq("What age do children start école primaire in Quebec?",["3","5","6","7"],1,"École primaire starts at age 5 in Quebec (not 6 like some provinces). It goes from maternelle (kindergarten) through grade 6. French instruction is mandatory in Quebec public schools!",1),
+     mcq("What is unique about 'cégep' in Quebec?",["It's a private school","It's between high school and university — unique to Quebec","It's another word for university","It's an elementary school"],1,"Cégep = Collège d'enseignement général et professionnel. It's 2-3 years between secondaire (high school) and université. FREE in Quebec! This unique system means Quebec university is shorter (3 years instead of 4). A great advantage!",1),
+     {type:"match",prompt:"Match the Quebec school level to description",pairs:[["la garderie","daycare for young children"],["l'école primaire","elementary school"],["l'école secondaire","high school"],["le cégep","college between HS and university"],["l'université","university"]],explain:"Quebec's school system is unique in Canada! Understanding these levels helps you navigate registration, explain your children's level, and plan your own education path in Quebec.",diff:1},
+     {type:"fill",before:"Je voudrais inscrire mon fils à",blank:"___",after:"primaire pour septembre.",options:["l'école","le cégep","le bulletin","la garderie"],correct:0,explain:"Je voudrais inscrire mon fils à l'école primaire = I would like to enroll my son in elementary school. Inscrire = to enroll/register. This is the exact phrase you use at a school office in Quebec!",diff:2},
+     mcq("What is a CPE in Quebec?",["A private school","A subsidized daycare (Centre de la Petite Enfance)","A school board","A university program"],1,"CPE = Centre de la Petite Enfance = subsidized daycare! Quebec's CPE system offers high-quality daycare for around $10-15/day (heavily subsidized by the government). Very popular — register as soon as you arrive because waitlists are long!",2),
+     {type:"scene",story:"Priya arrives at an école primaire to register her 6-year-old daughter. The secretary says 'Bonjour! Vous êtes ici pour une inscription?' (Are you here to register?)",prompt:"What should Priya say?",options:["Oui, je voudrais inscrire ma fille en première année s'il vous plaît","Oui je veux école","Bonjour mon enfant a 6 ans","Je ne comprends pas"],correct:0,explain:"Oui, je voudrais inscrire ma fille en première année s'il vous plaît — perfect! Première année = grade 1 (age 6). Ma fille = my daughter. S'il vous plaît shows respect. The secretary will guide you through the rest!",diff:2},
+     {type:"order",prompt:"Say: I would like to register my child for September",words:["Je","voudrais","inscrire","mon","enfant","pour","septembre"],answer:["Je","voudrais","inscrire","mon","enfant","pour","septembre"],explain:"Je voudrais inscrire mon enfant pour septembre — used at schools, daycares, and activity programs. School registration in Quebec typically opens in March-April for the following September!",diff:2},
+     wr("Write how you ask when registration opens for next year",["quand","l'inscription","quand est-ce que","inscriptions pour"],"Quand est-ce que les inscriptions ouvrent pour l'année prochaine? — a practical question every parent in Quebec needs to ask. Early registration means you get your preferred school or daycare!",2)]),
 
-  mkL("a2-05","The Futur Simple",25,"writing",
-    "Future tense for plans, predictions, and promises! Formation: INFINITIVE + endings: -ai, -as, -a, -ons, -ez, -ont. For -RE verbs, drop the final E first: prendre → prendr- + ai. Key irregular futures (must memorize): être→ser-, avoir→aur-, aller→ir-, faire→fer-, venir→viendr-, pouvoir→pourr-, vouloir→voudr-, devoir→devr-, savoir→saur-.",
-    ["parler → je parlerai","finir → tu finiras","prendre → il prendra","aller → nous irons (irregular!)","faire → vous ferez (irregular!)","être → ils seront (irregular!)","avoir → j'aurai (irregular!)","quand + futur (when it happens...)"],
-    [mcq("'Je ___ médecin dans 10 ans.' (I will be a doctor in 10 years.)",["vais être","serai","suis","serait"],1,"Serai = je + être in futur simple (irregular: ser-). 'Je serai médecin dans 10 ans' — expressing a long-term goal. Note: in everyday French, near future (je vais être) is more common for imminent plans, futur simple for more distant plans!"),
-     mcq("Future of 'aller': 'Nous ___ au Canada l'an prochain.'",["allons","irons","allerons","allrons"],1,"Irons = nous + aller in futur simple. 'Aller' is completely irregular: j'irai, tu iras, il ira, nous irons, vous irez, ils iront. 'Nous irons au Canada l'an prochain' = We will go to Canada next year."),
-     wr("Write a sentence about what you will do next year",["je serai","j'irai","je ferai","je travaillerai","j'aurai","je pourrai","j'apprendrai"],"Sample: 'L'année prochaine, j'aurai mon diplôme et je travaillerai dans un hôpital.' Future tense + specific time expression = CLB 5 speaking and writing!  Keep practicing future forms daily!")]),
+  mkL("a2-05","Government Services in French",30,"mixed",
+    "In Canada, every interaction with the government happens in French in Quebec. Service Canada, CRA (Agence du revenu), RAMQ, SAAQ — all your important cards and services go through French-language offices. Today you learn to navigate government services: make appointments, understand letters, fill forms, and assert your rights. This knowledge makes you a confident Canadian.",
+    ["Service Canada = federal employment/benefits office","la RAMQ = Quebec health insurance (carte d'assurance maladie)","la SAAQ = Quebec driver's licence and car registration","l'ARC / CRA = Canada Revenue Agency (taxes)","le NAS = Social Insurance Number (SIN)","la carte d'assurance maladie = health card","le permis de conduire = driver's licence","la déclaration de revenus = tax return","un formulaire = a form","Veuillez remplir = Please fill out"],
+    [mcq("What does RAMQ stand for and what does it provide?",["Roads and transportation","Quebec health insurance — your free healthcare card","Employment benefits","Driving licence"],1,"RAMQ = Régie de l'assurance maladie du Québec. This is Quebec's health insurance — your carte d'assurance maladie (health card) comes from RAMQ. Apply within 3 months of arriving — healthcare is free with this card!",1),
+     mcq("'Veuillez remplir ce formulaire' means:",["Please sign this form","Please fill out this form","Please return this form","Please read this form"],1,"Veuillez remplir = please fill out. Remplir = to fill. Formulaire = form. You'll see this on every government form in Quebec. After filling: 'Veuillez signer' (please sign) and 'Veuillez retourner' (please return).",1),
+     {type:"match",prompt:"Match the government agency to its role",pairs:[["RAMQ","health insurance card"],["SAAQ","driver's licence"],["CRA / ARC","income taxes"],["Service Canada","employment insurance"],["NAS","Social Insurance Number"]],explain:"These 5 agencies handle the most important aspects of Canadian life. Knowing what each does saves you from going to the wrong office — and long waits in Quebec government offices!",diff:1},
+     {type:"fill",before:"Je voudrais renouveler ma",blank:"___",after:"d'assurance maladie s'il vous plaît.",options:["carte","formulaire","déclaration","permis"],correct:0,explain:"Je voudrais renouveler ma carte d'assurance maladie = I would like to renew my health card. Renouveler = to renew. Your RAMQ card must be renewed every few years — this is the phrase you say at the office!",diff:2},
+     mcq("A letter from CRA says 'Vous devez produire votre déclaration de revenus avant le 30 avril'. What must you do?",["Apply for health insurance before April 30","File your tax return before April 30","Renew your SIN before April 30","Pay your fees before April 30"],1,"Produire votre déclaration de revenus = file your tax return. The April 30 deadline applies to everyone in Canada. 'Vous devez' = you must. Missing this date means penalties — this letter is urgent!",2),
+     {type:"scene",story:"Ravi receives a letter from Service Canada in French. It says: 'Veuillez vous présenter à notre bureau avec votre NAS et une pièce d'identité pour compléter votre demande d'assurance-emploi.'",prompt:"What does Ravi need to do?",options:["Go to the office with his SIN and ID to complete his EI application","Mail his health card to Service Canada","Call Service Canada about his tax return","Bring his driver's licence to renew it"],correct:0,explain:"Présentez-vous = go to the office. NAS = Social Insurance Number. Pièce d'identité = ID. Demande d'assurance-emploi = EI application. You just understood a real government letter in French — this is huge!",diff:3},
+     {type:"order",prompt:"Say: I need to renew my driver's licence",words:["Je","dois","renouveler","mon","permis","de","conduire"],answer:["Je","dois","renouveler","mon","permis","de","conduire"],explain:"Je dois renouveler mon permis de conduire — I must renew my driver's licence. Go to SAAQ for this. Je dois = I must (from devoir). This phrase works for any renewal: carte d'assurance maladie, passeport, permis de travail!",diff:2},
+     wr("Write how you would say you need to apply for your health card",["je voudrais","la carte d'assurance maladie","faire une demande","demander ma carte"],"Je voudrais faire une demande de carte d'assurance maladie — apply for RAMQ within 3 months of arriving in Quebec. With this card, all doctor visits and hospital care are FREE. One of the best benefits of living in Canada!",2)]),
 
-  mkL("a2-06","Object Pronouns: Y and En",25,"writing",
-    "'Y' replaces locations and complements with à: Je vais à Montréal → J'y vais. Il pense à son travail → Il y pense. 'EN' replaces quantities and complements with de: Je mange des fruits → J'en mange. Tu as besoin d'aide? → Tu en as besoin? J'ai deux enfants → J'en ai deux. Important: en and y go BEFORE the verb (like le, la, les)!",
-    ["y = là (there) + complément avec 'à'","en = de là (from there) + complément avec 'de'","J'y vais (I'm going there)","J'en ai trois (I have three of them)","Tu en as besoin? (Do you need some/it?)","Vas-y! (Go ahead!)","Allons-y! (Let's go!)","Il y en a (There is/are some)"],
-    [mcq("'Je pense à mon rendez-vous.' Replace 'à mon rendez-vous' with a pronoun:",["Je lui pense","Je le pense","J'y pense","J'en pense"],2,"Y replaces à + thing/place. 'Penser à' → y. J'y pense = I think about it. Y also replaces locations: Je vais au bureau → J'y vais. Important: y replaces THINGS/PLACES, not people (use lui/leur for people)!"),
-     mcq("'Tu as de l'argent?' 'Oui, j'___ ai un peu.'",["le","la","y","en"],3,"En replaces de + noun. 'De l'argent' → en. 'J'en ai un peu' = I have a little of it. En also works with quantities: 'J'en ai trois' (I have three), 'Je n'en ai pas' (I have none)!"),
-     wr("Replace location: 'Je vais à la pharmacie' using Y",["j'y vais"],"J'y vais — Y replaces 'à la pharmacie' (location). 'Tu vas à la réunion?' 'Oui, j'y vais.' Y = there. Also useful: 'Allons-y!' (Let's go!), 'Vas-y!' (Go ahead!). Very common in spoken Canadian French!")]),
+  mkL("a2-06","Advanced Job Interview",30,"speaking",
+    "You have experience now. You've been in Canada for a while. You want a better job — maybe in your field, maybe a promotion. Advanced French job interviews require more than basic phrases. You need to discuss your career history, explain complex situations, negotiate salary, and present yourself as a true professional. Today you master the language of career advancement.",
+    ["Mon parcours professionnel = my professional background","J'ai travaillé pendant X ans dans = I worked for X years in","Mes responsabilités incluaient = My responsibilities included","J'ai géré une équipe de = I managed a team of","Je suis à l'aise avec = I am comfortable with","Quelles sont les perspectives d'avancement? = What are the advancement opportunities?","Le salaire est-il négociable? = Is the salary negotiable?","Je cherche un poste où = I am looking for a position where","Mes objectifs professionnels = my professional goals","À quoi ressemble une journée typique? = What does a typical day look like?"],
+    [mcq("The interviewer asks 'Parlez-moi de votre parcours professionnel'. What should you do?",["Describe your education only","Give a complete overview of your work history and experience","Talk about your hobbies","Discuss your salary expectations"],1,"Parcours professionnel = professional background/career path. Give a 2-3 minute overview: where you studied, where you worked, what you achieved. Start with the most recent and work backward. This is the most important question in any French job interview!",1),
+     mcq("How do you ask if the salary is negotiable?",["C'est combien le salaire?","Le salaire est-il négociable?","Je veux plus d'argent","Quel est le salaire minimum?"],1,"Le salaire est-il négociable? — professional and direct. In Quebec, it's normal to negotiate! Most employers expect it. If they say 'oui, c'est négociable', you can counter-offer with 'Je pensais à quelque chose autour de X dollars'.",2),
+     {type:"match",prompt:"Match the interview phrase to its meaning",pairs:[["Mon parcours professionnel","my career background"],["J'ai géré une équipe","I managed a team"],["Mes objectifs professionnels","my professional goals"],["À l'aise avec","comfortable with"],["Perspectives d'avancement","advancement opportunities"]],explain:"These 5 phrases elevate your French interview from basic to professional. Using them shows the interviewer you are serious, prepared, and comfortable in a French work environment.",diff:2},
+     {type:"fill",before:"J'ai travaillé pendant cinq ans",blank:"___",after:"le secteur de la santé au Québec.",options:["dans","avec","pour","à"],correct:0,explain:"J'ai travaillé pendant cinq ans dans le secteur de la santé = I worked for five years in the healthcare sector. Dans = in (for sectors/fields). J'ai travaillé dans la construction, dans l'éducation, dans la finance.",diff:2},
+     mcq("The interviewer asks 'Quelles sont vos forces et vos faiblesses?' What is she asking?",["What are your years of experience?","What are your strengths and weaknesses?","What are your salary expectations?","What are your work hours?"],1,"Forces et faiblesses = strengths and weaknesses. The classic interview question in French! Prepare 3 forces (strengths) with examples, and 1 faiblesse that is actually a strength in disguise (e.g., 'Je suis perfectionniste'). Always end on a positive note!",2),
+     {type:"scene",story:"Sara is interviewing for a marketing manager position. The interviewer says 'Vous avez géré des équipes dans votre pays d'origine — comment vous adapteriez-vous au contexte québécois?'",prompt:"What is the interviewer asking?",options:["How Sara would adapt her team management to the Quebec context","Why Sara left her previous job","How large Sara's team was","What Sara's salary was in her home country"],correct:0,explain:"Comment vous adapteriez-vous = how would you adapt (conditional tense — polite/hypothetical). Contexte québécois = Quebec context. This question tests cultural adaptability — a key concern for employers hiring immigrants. Show you've researched Quebec workplace culture!",diff:3},
+     {type:"order",prompt:"Say: I am looking for a position where I can develop my skills",words:["Je","cherche","un","poste","où","je","peux","développer","mes","compétences"],answer:["Je","cherche","un","poste","où","je","peux","développer","mes","compétences"],explain:"Je cherche un poste où je peux développer mes compétences — shows ambition and motivation! Compétences = skills/competencies. Où = where (relative pronoun). This phrase impresses French-speaking interviewers every time.",diff:3},
+     wr("Write a sentence describing your main professional strength in French",["je suis","ma force principale","mon point fort","je suis doué","je suis compétent"],"Excellent professional French! Describing your strengths confidently in French is what separates candidates in Quebec job interviews. Practice saying this out loud until it flows naturally.",2)]),
 
-  mkL("a2-07","Indirect Object Pronouns: Lui, Leur",25,"writing",
-    "Indirect object pronouns replace à + PERSON. LUI = to him/her (singular), LEUR = to them (plural). They go BEFORE the verb! Common verbs with indirect objects: parler à (talk to), téléphoner à (call), donner à (give to), dire à (say to), demander à (ask), écrire à (write to), répondre à (respond to), expliquer à (explain to).",
-    ["lui = to him/to her (indirect)","leur = to them (indirect)","BEFORE the verb!","Je lui parle (I speak to him/her)","Je leur écris (I write to them)","Je lui donne le formulaire","Ne confondez pas: le/la (direct) vs lui (indirect)"],
-    [mcq("'Je parle à Marie.' Replace 'à Marie':",["Je la parle","Je lui parle","Je le parle","Je leur parle"],1,"Lui replaces à + person singular (Marie is singular). Je lui parle = I talk to her. Note: LUI replaces BOTH à + masculine AND à + feminine singular! 'Je parle à Paul → Je lui parle' and 'Je parle à Marie → Je lui parle.'"),
-     mcq("'Elle donne les formulaires aux patients.' Replace 'aux patients':",["Elle les donne aux patients","Elle leur donne les formulaires","Elle lui donne les formulaires","Elle les leur donne"],1,"Leur replaces à + plural person. Aux patients → leur. 'Elle leur donne les formulaires' = She gives them the forms. Note: 'les formulaires' stays because it's the DIRECT object — you can't replace both at once in this step!"),
-     wr("Say 'I wrote to him yesterday about the appointment'",["je lui ai écrit hier pour le rendez-vous","je lui ai écrit hier","je lui ai écrit à propos du rendez-vous"],"Je lui ai écrit hier pour le rendez-vous — passé composé + indirect object pronoun! Lui goes before 'ai écrit'. 'Pour le rendez-vous' = about/regarding the appointment. CLB 5+ sentence structure!")]),
+  mkL("a2-07","Talking to Your Neighbours",20,"speaking",
+    "Your neighbour knocks on your door. Someone at the bus stop wants to chat. The parent at your child's school starts a conversation. Small talk in Quebec is warm, friendly, and very Canadian. Today you learn how to have natural conversations about weather, neighbourhood, family, and daily life. These conversations build the community connections that make Canada feel like home.",
+    ["Il fait beau aujourd'hui! = Beautiful day today!","Vous habitez ici depuis longtemps? = Have you lived here long?","Vous avez des enfants? = Do you have children?","C'est tranquille par ici = It's quiet around here","Qu'est-ce que vous faites dans la vie? = What do you do for work?","D'où venez-vous? = Where are you from?","Comment trouvez-vous le Québec? = How do you find Quebec?","On s'adapte! = We're adapting!","Les hivers sont longs! = The winters are long!","Bienvenue dans le quartier! = Welcome to the neighbourhood!"],
+    [mcq("Your neighbour says 'Il fait beau aujourd'hui!' How do you respond?",["Je ne comprends pas","Oui, c'est magnifique! Il fait chaud pour la saison.","Non","Je voudrais parler"],1,"Oui, c'est magnifique! Il fait chaud pour la saison = Yes, it's magnificent! It's warm for the season. Weather small talk is THE most common conversation starter in Quebec. Always agree, add something, then ask them a question to keep the conversation going!",1),
+     mcq("Someone asks 'Comment trouvez-vous le Québec?' What is a good answer?",["Je ne sais pas","Je trouve le Québec très accueillant! Les gens sont gentils.","C'est froid","Je suis d'Inde"],1,"Je trouve le Québec très accueillant! Les gens sont gentils = I find Quebec very welcoming! People are kind. Trouvez-vous = do you find (formal). Accueillant = welcoming. Quebecers love hearing positive things about their province — it opens doors!",1),
+     {type:"match",prompt:"Match the small talk phrase to its meaning",pairs:[["Il fait beau!","Beautiful weather!"],["Vous habitez ici depuis longtemps?","Have you lived here long?"],["Bienvenue dans le quartier!","Welcome to the neighbourhood!"],["Les hivers sont longs!","The winters are long!"],["On s'adapte!","We're adapting!"]],explain:"These 5 phrases are the foundation of Quebec neighbourhood conversations. Master them and you'll make friends, build community, and feel at home much faster. Quebecers are warm people!",diff:1},
+     {type:"fill",before:"Qu'est-ce que vous",blank:"___",after:"dans la vie? (What do you do for work?)",options:["faites","êtes","avez","prenez"],correct:0,explain:"Qu'est-ce que vous faites dans la vie? = What do you do for work/in life? Faites = do (from faire). This is the most common 'getting to know you' question in Quebec. Reply: Je suis infirmière, Je travaille dans la construction, Je suis aux études.",diff:2},
+     mcq("Your neighbour asks 'Vous avez des enfants?' You have 2 children. You say:",["Non","Oui, j'ai deux enfants. Un garçon de 8 ans et une fille de 5 ans.","Je ne sais pas","Peut-être"],1,"Oui, j'ai deux enfants — then add details! Ages, names, schools. This is the most natural conversation bridge. Quebec parents love talking about their children. Sharing this creates instant connection with neighbours!",2),
+     {type:"scene",story:"Amara meets her neighbour Marie in the hallway. Marie says 'Bonjour! Vous êtes nouvelle dans l'immeuble? Je m'appelle Marie, j'habite au 3ème. Bienvenue dans le quartier!'",prompt:"How should Amara respond to be friendly and natural?",options:["Merci beaucoup! Je m'appelle Amara, j'habite au 4ème. Je suis arrivée le mois dernier. C'est un beau quartier!","Oui","Je ne parle pas français","Au revoir"],correct:0,explain:"Merci beaucoup! Je m'appelle Amara — introduce yourself! J'habite au 4ème = I live on the 4th floor. Je suis arrivée le mois dernier = I arrived last month. C'est un beau quartier = it's a nice neighbourhood. Natural, warm, and very Quebec!",diff:2},
+     {type:"order",prompt:"Say: I've been living in this neighbourhood for 6 months",words:["J'habite","dans","ce","quartier","depuis","six","mois"],answer:["J'habite","dans","ce","quartier","depuis","six","mois"],explain:"J'habite dans ce quartier depuis six mois — depuis + present tense for ongoing situations. Ce quartier = this neighbourhood. Say this to new neighbours and they'll immediately feel comfortable — you're part of the community!",diff:2},
+     wr("Write what you would say to introduce yourself to a new neighbour",["je m'appelle","j'habite","je suis arrivé","bienvenue","je suis nouveau"],"A warm neighbourly introduction in French! In Quebec, knocking on your neighbour's door to introduce yourself is totally normal and appreciated. Your French skills make this possible!",2)]),
 
-  mkL("a2-08","Relative Clauses: Qui, Que, Où",25,"writing",
-    "Relative pronouns connect two sentences! QUI = subject of the relative clause (replaces subject). QUE = object of relative clause (replaces object). OÙ = place or time where something happens. Examples: 'C'est le médecin QUI m'a opéré.' (subject — the doctor who operated on me) 'C'est le médicament QUE j'ai pris.' (object — the medication I took) 'C'est l'hôpital OÙ je suis né.' (place — the hospital where I was born).",
-    ["qui = sujet du relatif (who/which — subject)","que/qu' = objet du relatif (that/which — object)","où = lieu ou temps (where/when)","C'est le médecin qui...","C'est l'hôpital que je cherche","C'est l'année où j'ai émigré","que becomes qu' before vowel"],
-    [mcq("'C'est le formulaire ___ tu dois remplir.' (that you must fill out)",["qui","que","où","dont"],1,"Que — the formulaire is the OBJECT of 'remplir'. 'Tu dois remplir LE FORMULAIRE' → que replaces it. Que = when the noun is the object of the relative clause verb. Qui = when it's the subject."),
-     mcq("'C'est le médecin ___ m'a aidé.' (who helped me)",["que","qui","où","lequel"],1,"Qui — le médecin is the SUBJECT of 'aidé' (the doctor helped me). 'LE MÉDECIN m'a aidé' → qui. Subject of the relative clause = qui!"),
-     wr("Combine: 'Je cherche un appartement. Il est proche du métro.' Using qui or que.",["je cherche un appartement qui est proche du métro"],"Je cherche un appartement qui est proche du métro — 'qui' because l'appartement is the SUBJECT of 'est proche'. If object: 'C'est l'appartement que j'ai trouvé' (que, because it's the object of 'trouvé'). This structure appears in CLB 5+ writing!")]),
+  mkL("a2-08","Health System Navigation",25,"mixed",
+    "Quebec's healthcare system is excellent but confusing for newcomers. RAMQ, CLSCs, walk-in clinics, specialists, emergency rooms — where do you go? How do you get a family doctor? What do you do when you can't find one? Today you learn to navigate the entire Quebec healthcare system in French, from finding a doctor to understanding your rights as a patient.",
+    ["le CLSC = community health centre (local healthcare)","la clinique sans rendez-vous = walk-in clinic","le médecin de famille = family doctor","un spécialiste = a specialist","une référence = a referral","la liste d'attente = waiting list","Guichet d'accès à un médecin de famille = registry for those without a family doctor","les urgences = emergency room","une consultation = an appointment/consultation","Je n'ai pas de médecin de famille = I don't have a family doctor"],
+    [mcq("You need a doctor but have no family doctor. Where do you go first?",["The emergency room","The CLSC or a walk-in clinic (clinique sans rendez-vous)","A specialist","The hospital"],1,"Clinique sans rendez-vous = walk-in clinic (literally: clinic without appointment). CLSCs also offer walk-in services. Emergency rooms (urgences) are for true emergencies only — going there for minor issues means 6-8 hours of waiting!",1),
+     mcq("What is the 'Guichet d'accès à un médecin de famille'?",["A hospital emergency service","The provincial registry to get a family doctor","A walk-in clinic","A specialist referral service"],1,"The Guichet d'accès = Quebec's official registry for people without a family doctor. Register at guichetacces.ramq.gouv.qc.ca — it's free and managed by RAMQ. You'll be matched with a family doctor based on your location. Do this as soon as you arrive!",1),
+     {type:"match",prompt:"Match the healthcare term to its meaning",pairs:[["le CLSC","community health centre"],["les urgences","emergency room"],["une référence","a referral"],["la liste d'attente","waiting list"],["médecin de famille","family doctor"]],explain:"These 5 terms are essential for navigating Quebec healthcare. Knowing them means you go to the RIGHT place the FIRST time — saving hours of waiting and unnecessary stress.",diff:1},
+     {type:"fill",before:"Je n'ai pas de médecin de famille. Je voudrais m'inscrire au",blank:"___",after:"d'accès à un médecin de famille.",options:["Guichet","CLSC","urgence","spécialiste"],correct:0,explain:"Guichet d'accès à un médecin de famille — this is the system to get a family doctor in Quebec. Say this at a CLSC or RAMQ office and they will guide you to register. It's free and you have the right to a family doctor!",diff:2},
+     mcq("The doctor says you need 'une référence à un spécialiste'. What happens next?",["You go directly to a specialist","The doctor writes you a referral to see a specialist","You go to the emergency room","You need to pay for the specialist"],1,"Une référence = a referral. The family doctor refers you to a specialist. In Quebec, specialist visits are free with RAMQ but you need a referral (you can't just book a specialist directly). Keep your referral letter!",2),
+     {type:"scene",story:"Priya calls a CLSC. The receptionist says 'Nous n'avons pas de rendez-vous disponibles aujourd'hui, mais notre clinique sans rendez-vous ouvre à 8h demain matin. Arrivez tôt — les places sont limitées.'",prompt:"What should Priya do?",options:["Arrive early tomorrow morning at 8am for the walk-in clinic","Call back tomorrow for an appointment","Go to the emergency room tonight","Wait for a callback"],correct:0,explain:"Clinique sans rendez-vous ouvre à 8h = walk-in clinic opens at 8am. Arrivez tôt = arrive early. Places limitées = limited spots. In Quebec, walk-in clinics fill up fast — arriving 30 minutes early is the strategy!",diff:2},
+     {type:"order",prompt:"Say: I need to make an appointment with a specialist",words:["J'ai","besoin","d'un","rendez-vous","avec","un","spécialiste"],answer:["J'ai","besoin","d'un","rendez-vous","avec","un","spécialiste"],explain:"J'ai besoin d'un rendez-vous avec un spécialiste — you'll say this when your doctor refers you. J'ai besoin de = I need. The receptionist will take it from there and schedule you!",diff:2},
+     wr("Write how you would describe not having a family doctor and needing help",["je n'ai pas de médecin","médecin de famille","je cherche un médecin","je suis sans médecin"],"Je n'ai pas de médecin de famille et je cherche de l'aide — this honest statement gets you the right help at any CLSC. Quebec health workers are trained to help newcomers. Don't hesitate to ask!",2)]),
 
-  mkL("a2-09","Conditional Tense",25,"speaking",
-    "The conditional = 'would' — used for polite requests, hypothetical situations, and advice! Formation: same as futur simple BUT with imparfait endings: -ais, -ais, -ait, -ions, -iez, -aient. Same irregular bases as future: serait, aurait, irait, ferait, viendrait, pourrait, voudrait, devrait. Key uses: 'Je voudrais...' (I would like), 'Tu devrais...' (You should), 'Ce serait bien...' (It would be nice).",
-    ["je voudrais (I would like — very common!)","tu devrais (you should)","il faudrait (it would be necessary)","nous pourrions (we could)","vous devriez (you should — formal)","Si j'avais de l'argent, j'achèterais...","Ce serait possible? (Would it be possible?)","À votre place, je... (In your place, I would...)"],
-    [mcq("'___ vous répéter, s'il vous plaît?' (Could you repeat, please?)",["Pouviez","Pourriez","Pouvrez","Pouvez"],1,"Pourriez-vous = could you (conditional, polite). More polite than 'Pouvez-vous' (can you). In CLB formal contexts: always use conditional for requests! 'Pourriez-vous m'aider?' is more polite than 'Pouvez-vous m'aider?'"),
-     mcq("'Tu devrais prendre ce médicament' means:",["You must take this medication","You will take this medication","You should take this medication","You took this medication"],2,"Tu devrais = you should (conditional of devoir). Softer than 'tu dois' (you must). 'Tu devrais voir un médecin' = You should see a doctor. Great for advice-giving in CLB speaking tasks!"),
-     wr("Give advice: 'In your place, I would make an appointment right away'",["à votre place, je prendrais un rendez-vous tout de suite","à ta place, je prendrais un rendez-vous"],"À votre place, je prendrais un rendez-vous tout de suite — conditional of prendre (prendrais). 'À votre/ta place' = in your place/if I were you. Excellent CLB 5 advice-giving structure!")]),
+  mkL("a2-09","Passé Composé vs Imparfait",30,"writing",
+    "Two past tenses that confuse even advanced French learners: passé composé and imparfait. But here's the secret — they tell different kinds of stories. Passé composé = what happened (specific events). Imparfait = what was happening (background, habits, descriptions). Think of a movie: the passé composé is the action, the imparfait is the setting. Today you master both — and telling stories becomes natural.",
+    ["Passé composé = completed actions: J'ai mangé (I ate)","Imparfait = background/habits: Je mangeais (I was eating / I used to eat)","PC for specific events: Il est arrivé à 8h (He arrived at 8)","IMP for descriptions: Il faisait beau (The weather was nice)","IMP for interrupted actions: Je dormais quand... (I was sleeping when...)","PC interrupts IMP: ...quand le téléphone a sonné (when the phone rang)","IMP for habits: Quand j'étais jeune, je jouais (When I was young, I played)","Key IMP words: toujours, souvent, d'habitude, chaque jour","Key PC words: soudain, tout à coup, un jour, hier","Être imparfait: j'étais, tu étais, il était, nous étions, vous étiez, ils étaient"],
+    [mcq("'Hier, je __ au restaurant.' Which tense for a completed action?",["mangeais (imparfait)","ai mangé (passé composé)","mange (présent)","mangerais (conditionnel)"],1,"J'ai mangé = passé composé! Hier (yesterday) signals a specific completed action. Passé composé = things that happened at a specific time and are finished. Hier, j'ai mangé au restaurant = Yesterday I ate at a restaurant.",1),
+     mcq("'Quand j'étais enfant, je __ au parc tous les jours.' Which tense?",["suis allé","vais","allais (imparfait)","irai"],2,"J'allais au parc = imparfait! 'Tous les jours' (every day) signals a habit or repeated action. Imparfait for habits, routines, and repeated past actions. Quand j'étais enfant = when I was a child (also imparfait for ongoing state).",1),
+     {type:"match",prompt:"Match the time expression to the correct tense",pairs:[["Hier soudain","passé composé"],["D'habitude","imparfait"],["Tout à coup","passé composé"],["Chaque matin","imparfait"],["Un jour","passé composé"]],explain:"Time expressions are your clues! Soudain, tout à coup, un jour, hier = passé composé (specific events). D'habitude, chaque jour, toujours, souvent = imparfait (habits/routines). Learn these signal words!",diff:2},
+     {type:"fill",before:"Je",blank:"___",after:"(dormir-IMP) quand le téléphone a sonné. (I was sleeping when the phone rang.)",options:["dormais","ai dormi","dors","dormirais"],correct:0,explain:"Je dormais (imparfait) = I was sleeping — the background action. Quand le téléphone a sonné (passé composé) = when the phone rang — the interrupting event. This PC interrupts IMP pattern is used constantly in French storytelling!",diff:2},
+     mcq("Which sentence correctly uses both tenses?",["Il faisait beau quand je suis sorti","Il a fait beau quand je sortais","Il faisait beau quand je faisais une promenade","Il a fait beau quand il a fait chaud"],0,"Il faisait beau (IMP — description/background) quand je suis sorti (PC — specific action that happened). Background in imparfait, event in passé composé. This structure is the foundation of French storytelling!",3),
+     {type:"scene",story:"Sara is telling her neighbour about her weekend: 'Samedi, il faisait très beau. Je me promenais dans le parc quand j'ai rencontré mon ancien professeur de français. Nous avons parlé pendant une heure!'",prompt:"Identify the correct use of tenses in Sara's story",options:["Faisait/promenais = IMP (background/ongoing), ai rencontré/avons parlé = PC (specific events)","All verbs should be in passé composé","Faisait = PC, promenais = IMP, rencontré = IMP","All verbs should be in imparfait"],correct:0,explain:"Perfect tense usage! Il faisait beau (IMP = weather description), je me promenais (IMP = ongoing action), quand j'ai rencontré (PC = specific event), nous avons parlé (PC = completed conversation). This is exactly how native French speakers tell stories!",diff:3},
+     {type:"order",prompt:"Build: I was working when my boss called",words:["Je","travaillais","quand","mon","patron","a","appelé"],answer:["Je","travaillais","quand","mon","patron","a","appelé"],explain:"Je travaillais (IMP — ongoing background) quand mon patron a appelé (PC — specific interrupting event). This sentence structure appears constantly in French conversation. Master it and your storytelling becomes fluent!",diff:3},
+     wr("Write 2 sentences about something that happened to you — use both imparfait and passé composé",["je","quand","il faisait","j'étais","soudain","tout à coup","puis"],"Using both tenses in the same story shows real French fluency! The contrast between IMP (setting/background) and PC (events) is what makes French storytelling rich and natural. Keep practicing this — it becomes automatic!",3)]),
 
-  mkL("a2-10","Si Clauses (Conditional Sentences)",25,"writing",
-    "Conditional sentences express hypothesis! Type 1 — Possible: SI + present + future: 'Si tu étudies, tu réussiras.' (If you study, you will succeed.) Type 2 — Hypothetical: SI + imparfait + conditionnel: 'Si j'avais de l'argent, j'achèterais une voiture.' (If I had money, I would buy a car.) Never use futur or conditionnel directly after SI!",
-    ["Type 1: si + présent + futur","Type 2: si + imparfait + conditionnel","JAMAIS conditionnel après si!","Si tu as besoin, je t'aiderai (type 1)","Si j'étais riche, je voyagerais (type 2)","Si vous êtes disponible, appelez-moi","Qu'est-ce que tu ferais si...?"],
-    [mcq("'Si je ___ le temps, j'apprendrais plus de langues.' (Hypothetical)",["ai","aurai","avais","aurais"],2,"Si + imparfait (avais) + conditionnel (apprendrais). Hypothetical = imparfait after si! 'Si j'avais le temps' = if I had the time (but I don't). Never: 'si j'aurais' — conditionnel NEVER follows si!"),
-     mcq("'Si tu viens demain, on ___ au restaurant.' (Possible plan)",["aller","irons","irions","allons"],1,"Si + présent (tu viens) + futur (irons). Possible plan = present after si + future in main clause! 'Si tu viens demain, on ira au restaurant' = If you come tomorrow, we'll go to the restaurant (it's possible!)."),
-     wr("Complete: 'Si j'habitais au Québec, je...'",["si j'habitais au québec, je parlerais","si j'habitais au québec, j'irais","si j'habitais au québec, je ferais","si j'habitais au québec, j'apprendrais"],"Si j'habitais au Québec, je parlerais français tous les jours! — Hypothetical type 2: si + imparfait (habitais) + conditionnel (parlerais). This sentence structure is common in CLB 5 writing tasks about your aspirations!")]),
+  mkL("a2-10","Writing Formal Emails in French",25,"writing",
+    "In Quebec, professional communication happens by email — and French business emails have very specific conventions. The opening, the closing, the level of formality — all different from English. Getting this right means you look professional and competent. Getting it wrong can hurt your career or business relationships. Today you master formal French email writing that impresses Quebec professionals.",
+    ["Objet: = Subject:","Bonjour Madame/Monsieur, = Dear Madam/Sir (formal opening)","Je me permets de vous contacter = I am writing to contact you","Suite à notre conversation = Following our conversation","Je vous prie d'agréer = Please accept (formal closing formula)","Veuillez trouver en pièce jointe = Please find attached","Dans l'attente de votre réponse = Awaiting your reply","Cordialement = Best regards (semi-formal)","Je vous salue distinguément = Yours faithfully (very formal)","N'hésitez pas à me contacter = Don't hesitate to contact me"],
+    [mcq("How do you open a formal French email to someone you don't know?",["Salut!","Hey,","Bonjour Madame Tremblay,","Cher ami,"],2,"Bonjour Madame/Monsieur + last name = the standard formal French email opening in Quebec. Never 'Salut' (too informal) or 'Cher/Chère' (outdated and overly formal). Bonjour is perfect — professional, warm, and modern.",1),
+     mcq("What does 'Veuillez trouver en pièce jointe' mean?",["Please call me","Please find attached","Please reply soon","Please sign this"],1,"Veuillez trouver en pièce jointe = please find attached. Pièce jointe = attachment. This phrase appears in virtually every professional French email with attachments. Always check your attachment is actually attached before sending!",1),
+     {type:"match",prompt:"Match the email phrase to its meaning",pairs:[["Bonjour Madame,","Dear Madam,"],["Je me permets de vous contacter","I am writing to you"],["Veuillez trouver en pièce jointe","Please find attached"],["Dans l'attente de votre réponse","Awaiting your reply"],["Cordialement","Best regards"]],explain:"These 5 phrases are the building blocks of every professional French email. Master them and your written French communication will look completely professional to any Quebec employer or client!",diff:1},
+     {type:"fill",before:"Suite à notre entretien téléphonique,",blank:"___",after:"vous faire parvenir mon CV et ma lettre de motivation.",options:["je vous prie de","j'aimerais","je voudrais","je peux"],correct:0,explain:"Je vous prie de = I would like to / I request (very formal). Suite à = following. This opening shows you remember the conversation and are following up professionally. Perfect for job applications!",diff:2},
+     mcq("Which is the correct formal email closing in French?",["À plus!","Bisous","Je vous prie d'agréer, Madame, l'expression de mes salutations distinguées","Bonne chance!"],2,"Je vous prie d'agréer... l'expression de mes salutations distinguées — the classic formal French closing. For semi-formal: 'Cordialement'. For less formal but still professional: 'Bien à vous'. Never use casual closings in professional emails!",2),
+     {type:"scene",story:"Priya needs to email her landlord about a broken heater. She writes: 'Objet: Problème de chauffage — urgent. Bonjour Monsieur Lavoie, Je me permets de vous contacter au sujet d'un problème urgent dans mon appartement. Le système de chauffage est en panne depuis hier soir. Pourriez-vous envoyer un technicien dans les meilleurs délais? Dans l'attente de votre réponse, je vous salue cordialement. Priya Sharma'",prompt:"What makes this email professionally appropriate?",options:["Formal opening (Bonjour Monsieur), clear subject, polite request (Pourriez-vous), professional closing (cordialement)","It uses tu instead of vous","It starts with Salut which is friendly","It doesn't use any formal phrases"],correct:0,explain:"Priya's email is perfect! Clear subject (Objet), formal opening (Bonjour Monsieur + last name), polite request using conditionnel (Pourriez-vous), formal closing (cordialement). This is exactly how Quebec professionals communicate!",diff:3},
+     {type:"order",prompt:"Build the email closing: Awaiting your reply, best regards",words:["Dans","l'attente","de","votre","réponse,","cordialement,"],answer:["Dans","l'attente","de","votre","réponse,","cordialement,"],explain:"Dans l'attente de votre réponse, cordialement — a perfect semi-formal email closing. This combination of 'awaiting your reply' + 'best regards' is used in thousands of Quebec professional emails every day!",diff:2},
+     wr("Write the opening line of a formal email asking for a job interview",["je me permets","bonjour","je vous contacte","suite à","je souhaite","postuler"],"Bonjour Madame/Monsieur, Je me permets de vous contacter concernant le poste de [title] publié sur [platform]. — This opening gets you noticed! Professional, direct, and perfectly formal. Your French business writing is at a professional level now!",3)]),
 
-  // A2 lessons 11-40 - abbreviated structure
-  // ── A2 LESSONS 11–40 (real content) ──────────────────────────────────────
-  mkL("a2-11","Passé Récent: Venir de + Infinitif",20,"speaking",
-    "Express something that JUST happened! Formula: venir de (conjugated present) + infinitive. Je viens de manger (I just ate), Tu viens d'arriver (You just arrived), Il vient de partir (He just left), Nous venons de finir (We just finished). Very natural in spoken French — replaces long explanations like 'il y a quelques minutes'. In the past: il venait de partir quand je suis arrivé (he had just left when I arrived).",
-    ["je viens de + infinitif","tu viens de","il/elle vient de","nous venons de","vous venez de","ils/elles viennent de","venir de = just did (présent)","venait de = had just (passé — imparfait)"],
-    [mcq("'Il vient de téléphoner' means:",["He is going to call","He just called","He was calling","He should call"],1,"Vient de + infinitif = just did. 'Il vient de téléphoner' = He just called (moments ago). Very useful: 'Le médecin vient de vous appeler' = The doctor just called you. Venir de is always present tense for 'just now'!"),
-     mcq("'Je viens d'arriver au Canada' means:",["I am going to arrive in Canada","I had just arrived in Canada","I just arrived in Canada","I am arriving in Canada"],2,"Je viens d'arriver = I just arrived. The d' is elision of 'de' before 'arriver' (starts with vowel). This phrase is perfect for introductions: 'Je viens d'arriver au Canada — je cherche du travail.'"),
-     mcq("In the past: 'Elle ___ de partir quand tu as appelé.'",["vient","venait","est venue","va"],1,"Venait de + inf = had just done (imperfect). 'Elle venait de partir quand tu as appelé' = She had just left when you called. The imparfait of venir + de sets up an interrupted action — very common in narratives!"),
-     wr("Say 'I just received my health card'",["je viens de recevoir ma carte-santé","je viens de recevoir ma carte santé"],"Je viens de recevoir ma carte-santé — viens de + recevoir (irregular past part. = reçu, but here it's infinitive!). Great sentence for a newcomer milestone. 'Je viens juste de...' is also used in informal Quebec French!")]),
+  mkL("a2-11","French for the Workplace",25,"speaking",
+    "You're at work in Quebec. Your boss gives instructions in French. Your coworkers chat at lunch. There's a team meeting — all in French. Workplace French is different from textbook French: faster, more casual, with Quebec expressions. Today you learn the language of the Quebec workplace so you can participate, contribute, and advance in your career.",
+    ["la réunion = the meeting","le compte rendu = the meeting minutes/summary","la tâche = the task","l'échéance = the deadline","le collègue = the colleague","le gestionnaire = the manager","la formation = training","les ressources humaines = HR","je suis en train de = I am in the process of","Pouvez-vous m'expliquer? = Can you explain to me?"],
+    [mcq("Your manager says 'La réunion est à 10h dans la salle de conférence'. What should you do?",["Go to the cafeteria at 10","Go to the conference room at 10 for the meeting","Call your manager at 10","Email the team at 10"],1,"Réunion = meeting, salle de conférence = conference room. Simple and direct! In Quebec workplaces, punctuality for meetings is important. Arrive 2-3 minutes early and say Bonjour to everyone!",1),
+     mcq("Your coworker asks 'Tu es en train de finir le rapport?' What are they asking?",["Did you finish the report?","Are you in the process of finishing the report?","When will you start the report?","Who wrote the report?"],1,"Je suis en train de = I am in the process of / I am currently. En train de finir = in the process of finishing. This expression is used constantly in Quebec workplaces to describe ongoing tasks!",1),
+     {type:"match",prompt:"Match the workplace term to its meaning",pairs:[["la réunion","the meeting"],["l'échéance","the deadline"],["le compte rendu","meeting summary"],["la formation","training"],["les ressources humaines","HR"]],explain:"These 5 workplace terms come up in every Quebec office. Know them and you'll follow team conversations, understand emails, and participate confidently in meetings!",diff:1},
+     {type:"fill",before:"Je suis en train",blank:"___",after:"terminer le projet avant l'échéance.",options:["de","à","pour","avec"],correct:0,explain:"Je suis en train de + infinitif = I am currently doing something. En train de terminer = currently finishing. This expression is essential for workplace French — it shows what you're working on right now!",diff:2},
+     mcq("Your manager says 'Pouvez-vous préparer le compte rendu de la réunion?' What does she want?",["Prepare the meeting agenda","Write the meeting summary/minutes","Book the meeting room","Email the team about the meeting"],1,"Compte rendu = meeting minutes/summary. Préparer le compte rendu = to prepare the meeting summary. This is often assigned to a team member after each meeting. A key skill in any Quebec office!",2),
+     {type:"scene",story:"Ravi is in his first team meeting in Montreal. His manager says 'Ravi, pouvez-vous nous présenter l'avancement de votre projet?' Everyone looks at him.",prompt:"What does Ravi need to do?",options:["Give a status update on his project","Introduce himself to the team","Ask about the meeting agenda","Say he doesn't understand"],correct:0,explain:"L'avancement du projet = the progress/advancement of the project. Présenter = to present. Ravi needs to give a brief project status update — in French! Start with: 'Le projet avance bien. Nous avons complété...' Practice this for your next meeting!",diff:2},
+     {type:"order",prompt:"Say: I am currently working on the monthly report",words:["Je","suis","en","train","de","travailler","sur","le","rapport","mensuel"],answer:["Je","suis","en","train","de","travailler","sur","le","rapport","mensuel"],explain:"Je suis en train de travailler sur le rapport mensuel — this is the most natural way to say you're working on something in French. Mensuel = monthly. Use this phrase in any workplace status update!",diff:2},
+     wr("Write how you would tell your manager you need more time to finish a task",["j'ai besoin","plus de temps","je ne peux pas","l'échéance","terminer"],"J'ai besoin de plus de temps pour terminer cette tâche — I need more time to finish this task. Being able to communicate this professionally in French shows maturity and respect for your manager. Quebec workplaces value clear communication!",2)]),
 
-  mkL("a2-12","Futur Proche vs Futur Simple",25,"speaking",
-    "Both express future, but differently! FUTUR PROCHE (aller + inf): imminent, planned, certain — 'Je vais appeler demain' (I'm going to call tomorrow — I'm sure). FUTUR SIMPLE (inf + endings): more distant, formal, less certain, general truths — 'Un jour, je parlerai parfaitement' (One day, I will speak perfectly). In everyday Quebec French, futur proche is used FAR more often. Futur simple appears in written French, news, predictions, and formal contexts.",
-    ["futur proche = plan immédiat/certain","futur simple = distant/formel/général","Ce soir, je vais regarder... (imminent)","Dans 10 ans, je travaillerai... (distant)","quand tu arriveras, appelle-moi! (futur simple après quand)","si tu viens, on ira (futur après si-présent)","futur simple = news, predictions, formal writing"],
-    [mcq("Which is more natural in spoken Quebec French for 'I'm going to eat dinner'?",["Je mangerai ce soir","Je vais manger ce soir","Je mangerais ce soir","Je mangé ce soir"],1,"Je vais manger = near future (spoken). Futur proche dominates everyday conversation in Quebec. Futur simple (je mangerai) sounds formal/literary in spoken contexts — save it for writing or emphasis!"),
-     mcq("'Quand tu ___ (arriver), appelle-moi!' — what tense after 'quand' for future meaning?",["vas arriver","arriveras","arrives","arrivais"],1,"After 'quand' with future meaning = FUTUR SIMPLE! 'Quand tu arriveras' (not 'quand tu vas arriver'). This is a key rule: quand, dès que, lorsque, aussitôt que + future = futur simple, not near future!"),
-     wr("Write a sentence about a distant life goal using futur simple",["je serai","j'aurai","je vivrai","je travaillerai","je parlerai","j'irai"],"Dans cinq ans, je parlerai couramment français et j'aurai un bon emploi au Canada. — Futur simple for distant goals! 'Dans X ans' + futur simple is a perfect CLB 5 speaking structure for expressing ambitions.")]),
+  mkL("a2-12","Quebec French vs France French",20,"listening",
+    "You've been learning French — but sometimes Quebecers say things you've never heard! That's because Quebec French has its own expressions, pronunciation, and vocabulary that differ from France French. This isn't bad — it's fascinating! Today you learn the most important Quebec-specific expressions so you understand what people actually say on the streets of Montreal.",
+    ["Bonjour vs Allô (Quebec greeting)","Char = voiture (car)","Bouffe = nourriture (food — informal)","Magasiner = faire du shopping (to go shopping)","Dépanneur (dép) = convenience store (uniquely Quebec!)","Tuque = winter hat","Pogner = attraire / attraper (to catch/get)","C'est le boutte! = C'est super! (It's great!)","Avoir de la misère = avoir du mal (to have difficulty)","Tantôt = tout à l'heure (shortly/earlier)"],
+    [mcq("A Quebecer says 'Je vais au dépanneur'. Where are they going?",["The grocery store","The department store","The convenience store","The gas station"],2,"Le dépanneur (or just 'le dép') = convenience store! This is a uniquely Quebec institution — open late, sells milk, chips, beer, lottery tickets. Every Quebec neighbourhood has one. Understanding this word helps you fit in instantly!",1),
+     mcq("Your Quebec friend says 'C'est le boutte!' about your cooking. What do they mean?",["It's terrible","It's just okay","It's great/awesome!","It needs salt"],2,"C'est le boutte! = It's awesome / It's the best! A classic Quebec informal expression. You'll also hear 'C'est l'boutte', 'trop l'boutte'. Use it yourself and Quebecers will love it — it shows you're embracing Quebec culture!",1),
+     {type:"match",prompt:"Match the Quebec French expression to its meaning",pairs:[["le char","the car"],["magasiner","to go shopping"],["avoir de la misère","to have difficulty"],["tantôt","shortly / a little while ago"],["la tuque","the winter hat"]],explain:"These 5 expressions are uniquely Quebec! Using them (or at least understanding them) shows cultural integration. Quebec French is a living language with its own identity — embrace it!",diff:1},
+     {type:"fill",before:"J'ai",blank:"___",after:"comprendre les instructions. (I had difficulty understanding the instructions.)",options:["de la misère à","du mal avec","problème pour","difficulté"],correct:0,explain:"J'ai de la misère à = I have difficulty (Quebec expression). In France French: j'ai du mal à. Both mean the same thing but de la misère à is specifically Quebec. Very common expression you'll hear every day!",diff:2},
+     mcq("In Quebec, 'Allô!' is used as:",["Only when answering the phone","A greeting like Bonjour, used when meeting people","Only to say goodbye","A formal greeting"],1,"Allô! in Quebec is used as a friendly greeting — like 'Hi!' — not just on the phone. You'll hear Allô! when friends meet, when someone enters a room, or even in stores. Very Quebec, very warm!",2),
+     {type:"scene",story:"Sara is at a dépanneur in Montreal. The cashier says 'Ça va-tu? T'as trouvé toute?' (How are you? Did you find everything?)",prompt:"What is the cashier asking? (Note: 'tu' added after verb is Quebec speech pattern)",options:["Are you okay? Did you find everything?","Do you want a bag? Is that all?","How much did you spend? Are you a regular?","Do you have a loyalty card? Is this everything?"],correct:0,explain:"'Ça va-tu?' = the Quebec way of making a yes/no question by adding '-tu' after the verb (Ça va? + tu). 'T'as trouvé toute?' = Did you find everything? (toute = tout in Quebec informal). This is authentic Montreal cashier language!",diff:3},
+     {type:"order",prompt:"Say it Quebec style: I'm going shopping at the mall",words:["Je","vais","magasiner","au","centre","commercial"],answer:["Je","vais","magasiner","au","centre","commercial"],explain:"Je vais magasiner au centre commercial — using magasiner (Quebec) instead of faire du shopping (France). This small difference signals you know Quebec French! Centre commercial = mall. Magasiner is one of the most used Quebec verbs.",diff:1},
+     wr("Write a sentence using a Quebec French expression you learned today",["char","dépanneur","magasiner","boutte","misère","tuque","tantôt"],"Using Quebec expressions shows cultural integration! Quebecers appreciate when immigrants embrace their unique language. It's not about being fake — it's about belonging to your new home.",2)]),
 
-  mkL("a2-13","Relative Clauses: Dont and Lequel",25,"writing",
-    "Advanced relative pronouns! DONT replaces de + noun: 'C'est le médicament DONT j'ai besoin' (the medication I need — besoin DE). 'C'est le collègue DONT je t'ai parlé' (the colleague I told you about — parler DE). LEQUEL/LAQUELLE/LESQUELS/LESQUELLES replaces à/avec/pour/dans + noun: 'Le bureau dans lequel je travaille' (the office in which I work). Remember: à + lequel = AUQUEL, de + lequel = DUQUEL.",
-    ["dont = de qui/de quoi (replaces de+noun)","avoir besoin de → dont","parler de → dont","lequel/laquelle (m/f singular)","lesquels/lesquelles (m/f plural)","dans lequel (in which)","avec laquelle (with which)","auquel = à + lequel","duquel = de + lequel"],
-    [mcq("'C'est l'appartement ___ j'ai besoin.' (I need this apartment — avoir besoin DE)",["que","qui","dont","lequel"],2,"Dont — because 'avoir besoin DE'. Dont replaces de + noun. 'C'est l'appartement dont j'ai besoin' = the apartment I need. Dont also replaces: parler de, se souvenir de, être fier de, avoir peur de..."),
-     mcq("'Le médecin avec ___ je travaille est excellent.'",["qui","que","dont","lequel"],3,"Avec lequel — preposition (avec) + lequel replaces 'avec ce médecin'. When a preposition precedes the relative pronoun, use lequel (not que or qui). With people: 'avec qui' also works: 'Le médecin avec qui je travaille.'"),
-     wr("Combine: 'J'ai un ami. Je parle souvent de cet ami.'",["j'ai un ami dont je parle souvent","j'ai un ami dont je parle souvent."],"J'ai un ami dont je parle souvent — parler DE → dont. 'Dont' replaces 'de cet ami'. Compare: 'J'ai un ami que je vois souvent' (que replaces direct object). Dont vs que = parler DE vs voir/appeler directly!")]),
+  mkL("a2-13","The Conditionnel — Polite French",25,"writing",
+    "Want to sound instantly more polite and professional in French? Use the conditionnel! This tense transforms 'I want' into 'I would like', 'Can you?' into 'Could you?', 'I need' into 'I would need'. In Quebec workplaces, healthcare, and customer service, conditionnel is the marker of a professional. Today you master this essential tense.",
+    ["Je voudrais = I would like (vouloir)","Je pourrais = I could (pouvoir)","Je devrais = I should (devoir)","Il faudrait = It would be necessary","Ce serait = It would be","Pourriez-vous? = Could you? (very polite request)","J'aimerais = I would like (aimer)","On devrait = We should","Ce serait bien si = It would be nice if","À votre place, je = In your place, I would"],
+    [mcq("Which sounds more polite and professional in Quebec?",["Je veux un café","Je voudrais un café s'il vous plaît","Donnez-moi un café","Un café!"],1,"Je voudrais = I would like (conditionnel of vouloir). This single change from 'je veux' (I want) to 'je voudrais' (I would like) transforms a demand into a polite request. Used constantly in restaurants, stores, and offices in Quebec!",1),
+     mcq("How do you politely ask your coworker to help you?",["Aide-moi!","Tu m'aides?","Pourriez-vous m'aider s'il vous plaît?","Je veux ton aide"],2,"Pourriez-vous m'aider? = Could you help me? (very polite). Pourriez-vous = could you (conditionnel of pouvoir + vous). This is the standard polite request in Quebec professional settings. Add s'il vous plaît for extra politeness!",1),
+     {type:"match",prompt:"Match the infinitive to its conditionnel form",pairs:[["vouloir","voudrais"],["pouvoir","pourrait"],["devoir","devrait"],["être","serait"],["avoir","aurait"]],explain:"These 5 conditionnel forms are the most used in Quebec French. Voudrais (would like), pourrait (could), devrait (should), serait (would be), aurait (would have). Master these and your French becomes instantly more polished!",diff:2},
+     {type:"fill",before:"",blank:"___",after:"vous me donner votre numéro de téléphone? (Could you give me your phone number?)",options:["Pourriez","Pouvez","Voulez","Devez"],correct:0,explain:"Pourriez-vous = could you (polite request using conditionnel). More polite than 'Pouvez-vous' (can you). In healthcare, banking, and formal situations in Quebec, Pourriez-vous is always the right choice!",diff:2},
+     mcq("Your doctor says 'Vous devriez faire plus d'exercice'. What is she recommending?",["You must exercise every day","You should do more exercise","You cannot exercise","You have been exercising well"],1,"Vous devriez = you should (conditionnel of devoir). A recommendation, not a command. Devrait/devriez signals advice in French. Much softer than 'vous devez' (you must). Doctors, advisors, and friends use devriez to give gentle recommendations.",2),
+     {type:"scene",story:"Amara calls a doctor's office in French. She says: 'Bonjour, je voudrais prendre un rendez-vous avec le Dr Tremblay. Ce serait possible pour la semaine prochaine?'",prompt:"What makes Amara's request sound professional and polite?",options:["She uses voudrais (would like) and serait (would be) — both conditionnel","She speaks very fast","She uses the informal tu form","She says merci at the end only"],correct:0,explain:"Voudrais (conditionnel of vouloir) + serait (conditionnel of être) = double politeness! This is exactly how to book a medical appointment in professional French. The secretary will immediately sense she's dealing with a respectful, considerate person.",diff:3},
+     {type:"order",prompt:"Build the polite request: Could you please repeat that?",words:["Pourriez-vous","répéter","s'il","vous","plaît?"],answer:["Pourriez-vous","répéter","s'il","vous","plaît?"],explain:"Pourriez-vous répéter s'il vous plaît? — one of the most useful phrases in all of French! When you don't understand something in a meeting, at the doctor, or in a store, this polite request gets you what you need without embarrassment.",diff:2},
+     wr("Write a polite request for something you need using the conditionnel",["je voudrais","pourriez-vous","j'aimerais","ce serait","il faudrait"],"Using conditionnel shows sophistication in French! Every time you use voudrais instead of veux, or pourriez-vous instead of pouvez-vous, you move from beginner to professional. This is the single most impactful grammar improvement you can make.",2)]),
 
-  mkL("a2-14","Discours Indirect (Reported Speech)",25,"writing",
-    "Reporting what someone said! Direct: Il dit 'Je viens demain.' → Indirect: Il dit qu'il vient demain. Key changes when reporting PAST speech: present → imparfait, futur → conditionnel, passé composé → plus-que-parfait. Pronouns change too: 'je' → 'il/elle'. Time words change: demain → le lendemain, hier → la veille, ce soir → ce soir-là. Introducing verbs: dire que, expliquer que, ajouter que, préciser que, confirmer que.",
-    ["dire que (to say that)","expliquer que (to explain that)","Il dit qu'il vient (present → présent)","Il a dit qu'il venait (present → imparfait)","Il a dit qu'il viendrait (futur → conditionnel)","demain → le lendemain","hier → la veille","ici → là"],
-    [mcq("Direct: 'Je travaille à l'hôpital.' → Indirect: Elle a dit qu'elle...",["travaille à l'hôpital","travaillait à l'hôpital","a travaillé à l'hôpital","travaillera à l'hôpital"],1,"Travaillait — when reporting PAST speech (elle a dit), present → imparfait. 'Elle a dit qu'elle travaillait à l'hôpital.' If reporting present speech: 'Elle dit qu'elle travaille à l'hôpital' (no tense change)."),
-     mcq("Direct: 'Je viendrai demain.' → Il a dit qu'il...",["vient le lendemain","viendra le lendemain","viendrait le lendemain","venait le lendemain"],2,"Viendrait le lendemain — futur → conditionnel when reporting past speech. And 'demain' → 'le lendemain' (the next day). 'Il a dit qu'il viendrait le lendemain' = He said he would come the next day."),
-     wr("Report this: 'Je suis arrivé hier.' (past speech)",["il a dit qu'il était arrivé la veille","elle a dit qu'elle était arrivée la veille","il a dit qu'il était arrivé hier"],"Il/Elle a dit qu'il/elle était arrivé(e) la veille — passé composé → plus-que-parfait (avait + pp) when reporting past. 'Hier' → 'la veille'. This level of reported speech shows real CLB 5-6 grammar control!")]),
+  mkL("a2-14","Emergency Situations",20,"speaking",
+    "Nobody wants to need emergency services in a foreign language — but being prepared could save your life or someone else's. In Quebec, emergencies are handled in French. 911 operators, firefighters, paramedics — they need information quickly and clearly. Today you learn exactly what to say in any emergency so you can stay calm and get help fast.",
+    ["Au secours! = Help!","Appelez le 911! = Call 911!","Il y a un accident = There is an accident","Quelqu'un est blessé = Someone is injured","J'ai besoin d'une ambulance = I need an ambulance","Il y a un incendie = There is a fire","Je suis perdu(e) = I am lost","Où est l'hôpital le plus proche? = Where is the nearest hospital?","Je ne me sens pas bien = I don't feel well","Mon adresse est... = My address is..."],
+    [mcq("You see someone collapse. What do you shout first?",["Au revoir!","Au secours! Appelez le 911!","Bonjour!","Excusez-moi"],1,"Au secours! = HELP! Then Appelez le 911! = Call 911! In Quebec, 911 is the emergency number for police, fire, and ambulance. Saying these two phrases loudly gets immediate attention from bystanders who will help!",1),
+     mcq("The 911 operator asks 'Quelle est votre adresse?' What must you give?",["Your name","Your phone number","Your address","Your health card number"],2,"Quelle est votre adresse? = What is your address? This is always the first question after your emergency type. Learn your exact Quebec address in French — including the street number, street name, apartment number, and city. Practice saying it!",1),
+     {type:"match",prompt:"Match the emergency phrase to its English meaning",pairs:[["Au secours!","Help!"],["Il y a un incendie","There is a fire"],["Quelqu'un est blessé","Someone is injured"],["J'ai besoin d'une ambulance","I need an ambulance"],["Je ne me sens pas bien","I don't feel well"]],explain:"In an emergency, you don't have time to think. These 5 phrases must be automatic. Practice them out loud right now — your brain stores them better that way. They could save a life someday.",diff:1},
+     {type:"fill",before:"Il y a un accident sur",blank:"___",after:"principale. Quelqu'un est blessé!",options:["la rue","le magasin","l'école","le bureau"],correct:0,explain:"La rue = the street. Il y a un accident sur la rue principale = There is an accident on the main street. When calling 911, always describe the location as clearly as possible: la rue + street name + intersection if possible.",diff:2},
+     mcq("You feel very sick but it's not life-threatening. You say to a nearby person:",["Au secours! Appelez le 911!","Je ne me sens pas bien. Pouvez-vous m'aider?","Il y a un incendie!","Je suis perdu"],1,"Je ne me sens pas bien = I don't feel well. + Pouvez-vous m'aider? = Can you help me? This is for non-emergency situations. Reserve 911 for true emergencies — police, fire, life-threatening situations. For less urgent help, ask a person nearby!",2),
+     {type:"scene",story:"Sara smells smoke in her building at night. She calls 911. The operator says 'Service d'urgence, quelle est votre urgence?'",prompt:"What should Sara say?",options:["Il y a un incendie dans mon immeuble. Mon adresse est le 450 rue Sherbrooke, appartement 302, Montréal.","Bonjour, comment allez-vous?","Je ne sais pas","Au revoir"],correct:0,explain:"Il y a un incendie = there is a fire. Mon adresse est... = My address is... These two pieces of information — the emergency type and your exact address — are what 911 needs first. Clear, calm, and complete. Practice your address in French right now!",diff:2},
+     {type:"order",prompt:"Call for help: There is an accident, someone is injured, call 911!",words:["Il","y","a","un","accident,","quelqu'un","est","blessé,","appelez","le","911!"],answer:["Il","y","a","un","accident,","quelqu'un","est","blessé,","appelez","le","911!"],explain:"Il y a un accident, quelqu'un est blessé, appelez le 911! — three short sentences that convey everything emergency responders need: the type, the victim, and the action. Practice this until it's automatic. In real emergencies, preparation saves lives.",diff:2},
+     wr("Write your home address in French as you would say it to a 911 operator",["mon adresse","rue","appartement","Montréal","Québec","j'habite au"],"Mon adresse est le [number] [street name], appartement [X], [city]. Practice saying this clearly and quickly — in an emergency, you need to deliver this information immediately. Being able to say your address in French could save your life or someone else's.",2)]),
 
-  mkL("a2-15","Vocabulary: Health & Pharmacy Deep Dive",25,"speaking",
-    "Complete health vocabulary for Canada! At the clinic: prendre un rendez-vous (book appointment), salle d'attente (waiting room), ordonnance (prescription), renouveler une ordonnance (renew prescription), résultats (test results), analyses de sang (blood tests). At the pharmacy: médicament sur ordonnance (prescription medication), sans ordonnance (over the counter), posologie (dosage instructions), effets secondaires (side effects), allergie (allergy), remboursement (reimbursement).",
-    ["ordonnance (prescription)","renouveler (to renew)","la salle d'attente (waiting room)","les analyses de sang (blood tests)","posologie (dosage)","effets secondaires (side effects)","sans ordonnance (OTC)","remboursement (reimbursement/coverage)","médecin de famille (family doctor)","CLSC (community health centre)","urgence (emergency room)"],
-    [mcq("'Ce médicament est sur ordonnance' means:",["This medication is over the counter","This medication requires a prescription","This medication is dangerous","This medication is free"],1,"Sur ordonnance = by prescription only. Sans ordonnance = OTC (over the counter). 'Est-ce que ce médicament est disponible sans ordonnance?' = Is this medication available without a prescription? Very common pharmacy question in Canada!"),
-     mcq("'Je veux renouveler mon ordonnance' means:",["I want to fill my prescription for the first time","I want to renew/refill my prescription","I want to cancel my prescription","I want a new prescription"],1,"Renouveler = to renew/refill. 'Mon ordonnance expire bientôt, je voudrais la renouveler.' = My prescription is expiring soon, I'd like to renew it. Very important for managing ongoing medications in Canada!"),
-     mcq("'Le CLSC' in Quebec is:",["a pharmacy chain","a private clinic","a community health centre (publicly funded)","a hospital emergency room"],2,"CLSC = Centre local de services communautaires. Free, publicly funded community health centres throughout Quebec offering medical care, social services, and vaccination clinics. Great resource for newcomers — no need for a family doctor for basic services!"),
-     wr("Tell the pharmacist you have a side effect from your medication",["j'ai un effet secondaire","je ressens des effets secondaires","j'ai une réaction","ce médicament me cause des problèmes"],"J'ai des effets secondaires avec ce médicament — je ressens des nausées / des vertiges / des douleurs. Pharmacists in Quebec are highly accessible — you can walk in without an appointment for medication advice!")]),
-
-  mkL("a2-16","Vocabulary: Housing & Rental in Canada",25,"reading",
-    "Navigating Quebec's rental market! Key terms: bail (lease), propriétaire/locateur (landlord), locataire (tenant), loyer (rent), dépôt/dépôt de garantie (deposit — NOT legal in Quebec for residential!), charges comprises (utilities included), chauffage inclus (heat included), stationnement (parking), animaux acceptés (pets allowed), avis d'éviction (eviction notice), Régie du logement/TAL (tenant tribunal).",
-    ["bail (lease)","propriétaire/locateur (landlord)","locataire (tenant)","le loyer (rent)","avis (notice — 60/90 days)","charges comprises (utilities included)","chauffage inclus (heat included)","TAL (Tribunal administratif du logement)","La Régie = old name for TAL","mois de dépôt = ILLÉGAL au Québec!"],
-    [mcq("In Quebec, a landlord asking for a damage deposit (mois de dépôt) is:",["standard practice","required by law","illegal under Quebec law","optional but common"],2,"Deposits for residential rentals are ILLEGAL in Quebec! 'Au Québec, les dépôts de garantie sont interdits par la loi.' Only rent for first month can be asked. This protects tenants — know your rights! The TAL (formerly Régie du logement) enforces tenant rights."),
-     mcq("'Chauffage inclus dans le loyer' means:",["You pay for heating separately","Heating is included in the rent","There is no heating in the unit","You choose your heating provider"],1,"Chauffage inclus = heating included in rent. Very important distinction in Quebec — winters are expensive to heat! Ads also show: eau chaude incluse (hot water included), électricité (you pay), tout inclus (all utilities included)."),
-     wr("Ask a landlord if pets are allowed",["est-ce que les animaux sont acceptés?","les animaux sont-ils permis?","acceptez-vous les animaux de compagnie?"],"Est-ce que les animaux sont acceptés? / Acceptez-vous les animaux de compagnie? — Always ask before signing! In Quebec, landlords cannot automatically refuse pets in existing leases (since 2023 law change). Know your rights as a tenant!")]),
-
-  mkL("a2-17","Vocabulary: Banking & Financial Services",25,"reading",
-    "Essential banking French for Canada! Opening an account: ouvrir un compte (open an account), compte chèques (chequing account), compte épargne (savings account), carte de débit (debit card), carte de crédit (credit card), NIP/PIN (PIN number), virement (wire transfer), virement automatique (automatic transfer), prélèvement (direct debit), relevé de compte (account statement), guichet automatique/GAB (ATM).",
-    ["ouvrir un compte (open an account)","compte chèques/épargne","carte de débit/crédit","NIP (PIN number)","virement (transfer)","prélèvement (direct debit)","relevé de compte (statement)","guichet automatique/GAB (ATM)","commission/frais (fees)","taux d'intérêt (interest rate)","NAS (Numéro d'assurance sociale = SIN)"],
-    [mcq("'Je voudrais ouvrir un compte chèques' — what are you doing?",["Cashing a cheque","Opening a savings account","Opening a chequing account","Applying for a credit card"],2,"Compte chèques = chequing account (for daily transactions). Compte épargne = savings account. When opening a bank account in Quebec, bring: passport, permanent resident card, and NAS (Social Insurance Number) if available!"),
-     mcq("'Le virement a été effectué' means:",["The transfer was declined","The transfer was completed","The transfer is pending","The transfer was cancelled"],1,"Virement effectué = transfer completed. You'll see this in online banking. 'J'ai fait un virement' = I made a transfer. 'Virement automatique' = automatic payment setup. Very useful for paying rent, utilities, and subscriptions!"),
-     wr("Ask how to set up automatic bill payment",["comment faire un prélèvement automatique?","comment mettre en place un virement automatique?","comment payer mes factures automatiquement?"],"Comment mettre en place un virement automatique pour mes factures? — virement automatique = automatic transfer. Very useful for rent, utilities, internet. The bank will ask for: compte source, montant, date, compte destinataire.")]),
-
-  mkL("a2-18","Vocabulary: Canadian Government Services",25,"reading",
-    "Navigating Canadian government services in French! Key services: Emploi et Développement social Canada (Employment and Social Development = EDSC), assurance-emploi (employment insurance = AE), Régie de l'assurance maladie du Québec (RAMQ), Service Canada, Revenu Canada/ARC (Canada Revenue Agency), numéro d'assurance sociale/NAS (SIN), déclaration de revenus (tax return), crédit d'impôt (tax credit), Aide sociale (social assistance).",
-    ["Service Canada (federal services)","EDSC (Employment & Social Development Canada)","ARC / Revenu Canada (tax agency)","RAMQ (Quebec health insurance)","NAS (Numéro d'assurance sociale = SIN)","déclaration de revenus (tax return)","Aide sociale (social assistance)","Prestation canadienne (Canadian benefit)","guichet unique (one-stop service)","formulaire (form — fill many of these!)"],
-    [mcq("'Le NAS' (Numéro d'assurance sociale) is equivalent to:",["your health card number","your passport number","your Social Insurance Number (SIN)","your bank account number"],2,"NAS = SIN (Social Insurance Number). 9-digit number required for: working in Canada, opening a bank account, filing taxes, accessing government benefits. Apply at any Service Canada office. PROTECT it — it's sensitive info!"),
-     mcq("'L'assurance-emploi' (AE) is available when:",["you quit your job voluntarily","you're laid off or lose your job involuntarily","you've never worked in Canada","you're a student"],1,"Assurance-emploi (AE) = Employment Insurance. Available if laid off (not if you quit). You must have worked enough hours (420-700 depending on region). File within 4 weeks of losing your job at Service Canada!"),
-     wr("Ask where to go to get your SIN number",["où est-ce que je peux obtenir mon NAS?","où puis-je faire une demande de NAS?","où se trouve le bureau de Service Canada?"],"Où est-ce que je peux obtenir mon NAS? — at any Service Canada office, free of charge. Bring your immigration documents (PR card, work permit, etc.). The NAS is issued same-day in most cases. Essential first step after arriving in Canada!")]),
-
-  mkL("a2-19","Writing: Formal Email Request",30,"writing",
-    "Write a formal email requesting information or a service. Structure: 1) Object: clear and specific. 2) Salutation: Bonjour Madame/Monsieur + name if known. 3) Opening: reason for writing (Je vous écris afin de / Suite à...). 4) Body: specific request + all necessary details. 5) Closing: thank them + indicate expected response (Dans l'attente de votre réponse). 6) Sign-off: Cordialement + full name + contact. Always use 'vous' and conditional for politeness.",
-    ["Objet: (subject line)","Suite à notre échange... / Je vous écris afin de...","Pourriez-vous me faire parvenir...? (polite request)","Je souhaiterais savoir si...","Je vous serais reconnaissant(e) si...","Dans l'attente de votre réponse","Cordialement,","[Prénom NOM — Téléphone — Adresse]"],
-    [mcq("The MOST polite way to make a request in a formal email:",["Je veux que vous m'envoyiez...","Envoyez-moi...","Pourriez-vous m'envoyer...?","Vous devez m'envoyer..."],2,"Pourriez-vous = conditional of pouvoir = could you. The conditional makes requests polite and professional. Always use in formal emails! 'Pourriez-vous me faire parvenir ce document?' = Could you send me this document?"),
-     mcq("'Je vous serais reconnaissant(e)' means:",["I am grateful to you","I will be grateful to you","I would be grateful to you (conditional — very polite)","I was grateful to you"],2,"Je vous serais reconnaissant(e) = I would be grateful to you — conditional + reconnaissant = very formal and polite request ending. A level above 'je vous remercie'. Use for important requests to high-level contacts!"),
-     wr("Write a subject line for an email requesting an employment reference letter",["objet : demande de lettre de référence","objet: demande de lettre de référence professionnelle"],"Objet : Demande de lettre de référence professionnelle — specific, professional, tells recipient what's needed before they open the email. Always capitalize first word of subject line in French professional emails.")]),
-
-  mkL("a2-20","Writing: Letter to Landlord",25,"writing",
-    "Write professional letters to your landlord! Situation types: reporting a repair needed (signaler une réparation), noticing problems (infiltration d'eau = water leak, chauffage insuffisant = insufficient heating), requesting rent receipt (reçu de loyer), giving notice to leave (avis de départ — 3 months in Quebec usually). Always: date the letter, keep a copy, send by registered mail for important matters, reference your lease and Quebec tenant rights (TAL).",
-    ["Je vous écris au sujet de...","Il y a un problème avec... (there is a problem with)","Je vous demande de procéder aux réparations (please proceed with repairs)","Je vous avise de mon départ le... (I hereby notify you of my departure)","Conformément au bail (as per the lease)","Dans un délai raisonnable (within a reasonable timeframe)","Je conserve une copie de cette lettre (I'm keeping a copy)","À défaut, je me verrai contraint de... (failing this, I will be forced to...)"],
-    [mcq("To report a repair needed to your landlord, you should:",["Call verbally and wait","Write a dated letter and keep a copy","Post on social media","Just fix it yourself and deduct from rent"],1,"Always write formal letters for repairs! A dated letter with your signature creates a paper trail. If landlord doesn't repair within reasonable time, you can file with the TAL. 'Je vous écris pour vous signaler...' + description of problem + 'Je vous demande de procéder aux réparations dans les meilleurs délais.'"),
-     mcq("Notice to leave your apartment in Quebec is usually:",["1 month","2 months","3 months","6 months"],2,"3 months notice (avis de 3 mois) is standard for most Quebec leases. Check your bail! 'Je vous avise par la présente de mon intention de ne pas renouveler mon bail, qui prend fin le [date].' Send before the deadline to avoid automatic renewal!"),
-     wr("Write the opening line of a repair request letter",["je vous écris pour signaler","je vous contacte au sujet d'un problème","bonjour, je vous écris","je vous informe d'un problème"],"Bonjour Madame/Monsieur [Name], Je vous écris pour vous signaler un problème d'infiltration d'eau dans ma salle de bain (appartement 3B). — Clear, polite, specific. Include: what the problem is, where it is, since when, and urgency!")]),
-
-  mkL("a2-21","Writing: Explaining an Absence",20,"writing",
-    "Write notes explaining absences for work or school. Work absence (billet d'absence): 'Je me permets de vous informer que je serai absent(e) le [date] en raison de [reason].' School absence for child: 'Veuillez excuser l'absence de mon enfant [name] le [date] pour cause de maladie.' Medical note: 'Le Dr. X certifie que M./Mme [Name] était dans l'incapacité de travailler du [date] au [date].' Always: date, signature, reason (brief), and duration.",
-    ["Je vous informe de mon absence le... (I inform you of my absence on...)","En raison de... (due to...)","Pour cause de maladie (due to illness)","Veuillez excuser... (please excuse...)","Billet médical / certificat du médecin (medical note)","J'étais dans l'incapacité de (I was unable to)","Je serai de retour le... (I will return on...)","Avec mes excuses pour la gêne occasionnée (apologies for the inconvenience)"],
-    [mcq("An informal school absence note should be addressed to:",["Le Gouvernement du Canada","Le Ministère de l'Éducation","L'enseignant(e) / Le directeur de l'école","Le médecin"],2,"Address to the teacher or principal! 'Madame/Monsieur [Nom de l'enseignant(e)],' then: 'Je vous informe que mon enfant [Prénom] était absent(e) le [date] pour cause de maladie. Veuillez l'excuser. Cordialement, [Your name].' Simple, specific, polite!"),
-     mcq("'J'étais dans l'incapacité de me présenter au travail' means:",["I chose not to come to work","I forgot to come to work","I was unable to come to work","I came to work late"],2,"J'étais dans l'incapacité de = I was unable to (formal/medical). More formal than 'je n'ai pas pu' (I couldn't). Used in medical notes and formal absence explanations. 'Le médecin certifie que le patient était dans l'incapacité de travailler.'"),
-     wr("Write a one-sentence work absence notice for tomorrow",["je vous informe que je serai absent","je vous avise de mon absence","je ne pourrai pas venir"],"Je vous informe que je serai absent(e) demain, le [date], pour cause de maladie. Je vous fournirai un billet médical à mon retour. — Professional, complete, follows French workplace norms. Always send BEFORE the absence if possible!")]),
-
-  mkL("a2-22","Speaking: Describe a Past Experience",25,"speaking",
-    "Describe past experiences in French using both past tenses correctly! Story structure: 1) Setting — imparfait (C'était en 2022, il faisait beau, j'habitais à...). 2) Events — passé composé (Soudain, j'ai rencontré..., Ensuite, nous avons...). 3) Description of feelings — imparfait (j'étais surpris, c'était incroyable). 4) Resolution — passé composé (Finalement, nous avons réussi à...). Practice with: my immigration experience, my first day at work/school in Canada, a memorable event.",
-    ["D'abord, j'étais... (setting — IMP)","Puis, j'ai... (event — PC)","C'était + description (IMP)","Tout à coup / Soudain (suddenly — signals PC)","Ensuite / Après ça (then/after that)","Finalement / À la fin (finally)","J'ai ressenti / J'éprouvais (I felt)","C'était une expérience... (It was an experience...)"],
-    [mcq("'Je marchais dans la rue quand j'ai vu mon ami.' Which is the 'background' action?",["j'ai vu","mon ami","je marchais","dans la rue"],2,"Je marchais (imparfait) = ongoing background action when the event happened. J'ai vu (passé composé) = the specific event that occurred. Classic imparfait-as-background + PC-as-event structure in storytelling!"),
-     mcq("'Soudain' (suddenly) typically signals which tense?",["imparfait","présent","passé composé","futur"],2,"Soudain/Tout à coup = suddenly → passé composé! These time words signal a specific, sudden event. Similarly: alors (then), puis (then), ensuite (next) → passé composé for events. D'habitude, souvent, toujours → imparfait for habits/descriptions."),
-     wr("Start a story: 'When I first arrived in Canada...'",["quand je suis arrivé au canada","quand je suis arrivée au canada","quand j'ai émigré au canada"],"Quand je suis arrivé(e) au Canada, j'étais nerveux/nerveu​se mais excité(e). C'était en [year]. Je ne parlais pas encore bien français... — Perfect narrative opening! This exact story is asked in CLB 5 speaking assessments: 'Parlez-moi de votre arrivée au Canada.'")]),
-
-  mkL("a2-23","Speaking: Express a Problem & Solution",25,"speaking",
-    "Describe problems and propose solutions — a core CLB 4-5 skill! Problem language: J'ai un problème avec... (I have a problem with), Malheureusement... (Unfortunately), Il y a une erreur dans... (There's an error in), Je me trouve dans une situation difficile (I'm in a difficult situation). Solution language: Je pense que la meilleure solution serait de... (best solution would be), Il faudrait... (It would be necessary to), Je propose de... (I propose to), Pourriez-vous... (Could you...).",
-    ["J'ai un problème avec... (I have a problem with)","Il y a une erreur dans... (there's an error in)","Malheureusement,... (unfortunately)","Je propose de... (I propose to)","La solution serait de... (the solution would be)","Il faudrait... (it would be necessary to)","Je vous demande de bien vouloir... (I ask that you kindly...)","Pourriez-vous corriger...? (Could you correct...?)"],
-    [mcq("'Il y a une erreur dans ma facture' is used to:",["pay a bill","report a billing error","ask for a discount","cancel a service"],1,"Il y a une erreur dans ma facture = there's an error in my bill/invoice. Useful for utilities, phone bills, medical bills. Follow with: 'Le montant facturé est de X$ mais il devrait être de Y$.' = The charged amount is $X but should be $Y."),
-     mcq("'Je vous demande de bien vouloir corriger cette erreur' means:",["I demand you fix this","I kindly ask you to correct this error","I will correct this error","I noticed an error"],1,"Je vous demande de bien vouloir = I kindly ask you to — very polite and formal request structure. 'Bien vouloir' (please be so kind as to) adds extreme politeness. Used in formal complaint letters and professional requests!"),
-     wr("Report that your internet hasn't worked for 3 days",["mon internet ne fonctionne pas depuis 3 jours","j'ai un problème avec mon internet depuis 3 jours","ma connexion internet est en panne depuis 3 jours"],"Mon internet ne fonctionne pas depuis 3 jours — depuis + présent (ongoing problem). Or: 'J'ai un problème de connexion internet depuis le [date]. Je vous demande de bien vouloir envoyer un technicien.' Full formal report for a service company!")]),
-
-  mkL("a2-24","Speaking: Make Comparisons",20,"speaking",
-    "Compare Canada, your home country, cities, or options! Structures: plus/moins/aussi + adj + que, le/la plus/moins + adj (superlative), comparatif avec noms: plus de/moins de/autant de, meilleur/pire for quality. Advanced: D'un côté... de l'autre (on one hand... on the other), En comparaison de (in comparison to), Par rapport à (compared to), Contrairement à (unlike/contrary to), Tandis que (while/whereas).",
-    ["plus/moins/aussi + adj + que","le plus / le moins + adj (superlatif)","plus de / moins de / autant de + nom","par rapport à (compared to)","contrairement à (unlike)","tandis que / alors que (while/whereas)","d'un côté... de l'autre (on one hand... other)","en comparaison (in comparison)"],
-    [mcq("'Le métro de Montréal est moins cher que le métro de Toronto.' This compares:",["cities","metro systems using moins...que","metro systems using plus...que","cities using superlative"],1,"Moins cher que = less expensive than. Plus cher que = more expensive than. Aussi cher que = as expensive as. Comparative with adj always uses plus/moins/aussi + adj + QUE!"),
-     mcq("'Par rapport à mon pays d'origine, le Canada est...' This structure is used for:",["asking a question","expressing a preference","comparing Canada to your home country","asking for directions"],2,"Par rapport à = compared to/relative to. Very useful for CLB speaking tasks about integration and cultural adaptation. 'Par rapport à mon pays d'origine, le système de santé au Canada est très accessible.'"),
-     wr("Compare two things you know well (cities, jobs, seasons...)",["par rapport à","contrairement à","tandis que","en comparaison","plus... que","moins... que"],"Par rapport à l'été, l'hiver canadien est beaucoup plus difficile. Cependant, contrairement à ce que je pensais, j'ai appris à l'apprécier. — Great CLB 5 comparison structure using contrast connectors!")]),
-
-  mkL("a2-25","A2 Grammar Review: Tenses",25,"integrated",
-    "Full review of all A2 tenses! 1) Passé Composé (specific past events) — avoir/être + past participle. 2) Imparfait (descriptions, habits, ongoing past) — base + endings. 3) PC vs IMP (background vs event). 4) Futur Simple (future plans/predictions) — infinitive + endings. 5) Conditionnel (would) — infinitive + IMP endings. 6) Si-clauses (possible: si+présent+futur; hypothetical: si+IMP+conditionnel). 7) Venir de (just did). 8) Discours indirect (tense changes).",
-    ["PC: avoir/être + participe passé","IMP: base nous (- ons) + ais/ais/ait","PC vs IMP: événement vs description","Futur: infinitif + ai/as/a/ons/ez/ont","Conditionnel: infinitif + ais/ais/ait","Si présent → futur | Si IMP → conditionnel","Venir de + infinitif = just did","Discours indirect: tense backshift"],
-    [mcq("'Si elle avait le temps, elle ___.' (conditional type 2)",["étudie","étudiera","étudierait","étudiait"],2,"Étudierait — si + imparfait → conditionnel. Type 2 (hypothetical): 'Si elle avait le temps, elle étudierait le français tous les jours.' The condition is NOT real — she doesn't have time. Imparfait after si, conditionnel in main clause!"),
-     mcq("Choose the correct tense: 'D'habitude, je ___ le bus, mais hier j'___ un taxi.'",["prenais / ai pris","ai pris / prenais","prends / prenais","prenais / prenais"],0,"Prenais (imparfait — habit) + ai pris (passé composé — specific yesterday event). D'habitude signals imparfait, hier signals passé composé. Perfect PC vs IMP contrast sentence!"),
-     wr("Write a sentence using conditionnel to express a wish",["je voudrais","j'aimerais","je souhaiterais","ce serait bien si","j'adorerais"],"J'aimerais travailler dans le domaine de la santé un jour — conditionnel of aimer. Or: 'Ce serait merveilleux de parler couramment français!' Conditionnel for wishes, dreams, and polite requests. CLB 5 speaking staple!")]),
-
-  mkL("a2-26","A2 Grammar Review: Pronouns",25,"integrated",
-    "All A2 pronouns mastered! Direct object: le/la/l'/les (replaces noun directly). Indirect object: lui/leur (replaces à + person). Y: replaces à + place/thing. En: replaces de + noun/quantity. Relative: qui (subject), que (object), dont (de+noun), où (location/time), lequel/laquelle (prep + noun). Key rule: pronoun order when multiple: NE + me/te/se/nous/vous + le/la/les + lui/leur + y + en + VERB + PAS.",
-    ["le/la/l'/les (direct object)","lui/leur (indirect — à+person)","y (à+chose/lieu)","en (de+nom/quantité)","qui/que/dont/où (relatifs)","ordre: me/te/se > le/la/les > lui/leur > y > en","ne + pronoms + verb + pas (negation)"],
-    [mcq("'Je lui en ai parlé' means:",["I spoke to him/her about it","I spoke about him/her there","I gave him/her some","I have it for him/her"],0,"Lui = to him/her (indirect), en = about it (replaces 'de + thing'). 'Je lui en ai parlé' = I spoke to him/her about it (parler À quelqu'un DE quelque chose → lui + en). Perfect CLB 5 pronoun stacking!"),
-     mcq("Order of pronouns: 'Give me some' → 'Don't give ___.'",["me en donnez pas","m'en donnez pas","en me donnez pas","donnez me pas en"],1,"Ne m'en donnez pas — order: me comes before en. M' = me (before vowel). Complete order: me/te/se/nous/vous → le/la/les → lui/leur → y → en. 'Ne me le donnez pas, ne m'en donnez pas, n'y allez pas, ne lui en parlez pas!'"),
-     wr("Replace both objects: 'Il donne le formulaire au patient.'",["il le lui donne"],"Il le lui donne — le = le formulaire (direct, masculine), lui = au patient (indirect). Order: le/la/les comes before lui/leur! 'Il le lui donne tous les matins' = He gives it to him every morning. CLB 5 grammar mastery!")]),
-
-  mkL("a2-27","A2 Vocabulary: Technology & Digital Life",20,"reading",
-    "Digital vocabulary for modern Canadian life! Un ordinateur (computer), un téléphone intelligent/cellulaire (smartphone), une application/appli (app), le courriel (email — use in Quebec!), un mot de passe (password), le réseau (network), wifi, télécharger (download), envoyer (send), partager (share), un compte (account), se connecter (log in), un identifiant (username), protection des données (data privacy).",
-    ["le courriel (email — not 'email' formally)","le mot de passe (password)","se connecter (to log in)","un identifiant (username/login)","télécharger (download)","le réseau (network)","une appli/application","partager un lien (share a link)","protection de la vie privée (data privacy)","en ligne / hors ligne (online/offline)"],
-    [mcq("In formal Quebec French, 'email' is called:",["email","courriel","texto","messagerie"],1,"Courriel = email in Quebec French (short for 'courrier électronique'). Officially promoted by the OQLF (Office québécois de la langue française). In France they use 'courriel' too, but 'e-mail' is also widely accepted. In formal Quebec contexts: ALWAYS 'courriel'!"),
-     mcq("'Télécharger' means:",["to upload","to download","to share","to delete"],1,"Télécharger = to download. Téléverser = to upload (less common, 'uploader' is often used informally). 'Téléchargez l'application sur votre téléphone' = Download the app on your phone. Very common in tech instructions!"),
-     wr("Write how to tell someone to reset their password",["réinitialisez votre mot de passe","changez votre mot de passe","allez sur la page de connexion"],"Réinitialisez votre mot de passe en cliquant sur 'Mot de passe oublié'. — réinitialiser = to reset. Very common in customer service French! Also: 'Votre mot de passe doit contenir au moins 8 caractères.' (must contain at least 8 characters)")]),
-
-  mkL("a2-28","A2 Vocabulary: Environment & Nature",20,"reading",
-    "Environmental vocabulary — increasingly important in Canada! L'environnement (environment), le changement climatique (climate change), les gaz à effet de serre (greenhouse gases), l'empreinte carbone (carbon footprint), le recyclage (recycling), la collecte des ordures (garbage collection), le bac de compost (compost bin), l'énergie renouvelable (renewable energy), la sécheresse (drought), les inondations (floods), la faune et la flore (wildlife and plants).",
-    ["le changement climatique (climate change)","le recyclage (recycling)","le compost / composter","les énergies renouvelables","l'empreinte carbone (carbon footprint)","les inondations (floods)","la sécheresse (drought)","le développement durable (sustainable development)","réduire/réutiliser/recycler (reduce/reuse/recycle)","la collecte des déchets (waste collection)"],
-    [mcq("'Le recyclage est obligatoire au Québec' means:",["Recycling is optional in Quebec","Recycling is mandatory in Quebec","Recycling is expensive in Quebec","Recycling is new in Quebec"],1,"Obligatoire = mandatory. Quebec has robust recycling programs: bac bleu (blue bin = recyclables), bac brun/compost (organics), résidus (garbage). Knowing this vocabulary helps you understand local environmental rules!"),
-     mcq("'Les gaz à effet de serre' refers to:",["natural perfumes","greenhouse gases","seasonal allergies","gas heating systems"],1,"Gaz à effet de serre = greenhouse gases (literally 'greenhouse effect gases'). Canada has committed to reducing emissions by 40-45% by 2030. This topic appears regularly in CLB reading tasks and Canadian news!"),
-     wr("Express your opinion on climate change in French",["le changement climatique est","je pense que l'environnement","à mon avis, nous devons","il est important de protéger"],"À mon avis, le changement climatique est l'un des défis les plus importants de notre époque. Il est essentiel de réduire notre empreinte carbone. — Opinion + justification. Perfect A2-B1 opinion sentence for CLB speaking tasks!")]),
-
-  mkL("a2-29","A2 Vocabulary: Food & Canadian Cuisine",20,"speaking",
-    "Food vocabulary for restaurants, grocery stores, and Quebec cuisine! Grocery: l'épicerie (grocery store), les produits frais (fresh produce), la boucherie (butcher), la fromagerie (cheese shop). Quebec specialties: la poutine, le sirop d'érable (maple syrup), la tourtière (meat pie), les cretons (pork spread), le smoked meat (from Montreal delis!). Cooking: faire cuire (cook), bouillir (boil), rôtir (roast), griller (grill), congeler (freeze).",
-    ["l'épicerie (grocery store)","les produits frais (fresh produce)","la poutine (Quebec specialty!)","le sirop d'érable (maple syrup)","la tourtière (meat pie)","le smoked meat (Montreal deli staple)","faire cuire (to cook)","bouillir/rôtir/griller (boil/roast/grill)","congeler/décongeler (freeze/thaw)","sans gluten / sans lactose (diet restrictions)"],
-    [mcq("'La poutine' is a Quebec dish consisting of:",["smoked meat and bread","fries, cheese curds, and gravy","maple syrup pancakes","French onion soup"],1,"Poutine = frites (fries) + fromage en grains (cheese curds) + sauce brune (gravy). Born in rural Quebec in the 1950s, now a Canadian icon! Fromage en grains = fresh cheese curds (they must squeak when fresh!). Essential Quebec cultural knowledge!"),
-     mcq("'Êtes-vous sans lactose?' a restaurant asks because:",["they want to know your nationality","they're asking about a dairy intolerance","they're asking if you're vegetarian","they're checking if you have nut allergies"],1,"Sans lactose = lactose-free/lactose intolerant. Restaurants in Canada increasingly ask about dietary restrictions. Common questions: 'Avez-vous des allergies?' 'Êtes-vous végétarien(ne)?' 'Mangez-vous sans gluten?'"),
-     wr("Describe your favourite Canadian food you've tried",["j'ai essayé","j'adore","c'est délicieux","je recommande","la poutine","le sirop d'érable","le smoked meat"],"J'ai essayé la poutine pour la première fois l'année dernière — c'était délicieux! Je recommande le smoked meat du Marché Jean-Talon à Montréal. — Past experience + recommendation = perfect CLB 4-5 speaking content!")]),
-
-  mkL("a2-30","A2 Vocabulary: Sports & Leisure",20,"speaking",
-    "Sports and activities vocabulary for Canada! Major Canadian sports: le hockey sur glace (ice hockey — THE national sport!), le curling, le patinage (skating), le ski, la raquette (snowshoeing), la randonnée (hiking), le vélo (cycling), la natation (swimming), le soccer (Canada uses 'soccer' not 'football'!). Talking about sports: assister à un match (attend a game), une équipe (team), les Canadiens de Montréal (Montreal's NHL team — 'les Habs'!).",
-    ["le hockey sur glace (ice hockey)","les Canadiens de Montréal (the Habs!)","le curling","le patinage (skating)","la raquette (snowshoeing)","le ski alpin/nordique (downhill/cross-country)","assister à un match (attend a game)","une équipe (team)","la saison sportive (sports season)","les billets de saison (season tickets)"],
-    [mcq("'Le hockey sur glace' is considered:",["a minor sport in Canada","THE national winter sport of Canada","only popular in Quebec","a recent arrival to Canada"],1,"Hockey is THE national winter sport of Canada (lacrosse is the official national summer sport). 'Les Canadiens de Montréal' (the Habs) are one of the most storied NHL franchises. Talking hockey is an instant connection-builder with Canadians!"),
-     mcq("'Assister à un match de hockey' means:",["to watch hockey on TV","to play hockey","to attend a hockey game in person","to coach a hockey team"],1,"Assister à = to attend (in person). Not 'assister' in the English sense of 'help'! 'J'ai assisté à un match des Canadiens — c'était incroyable!' = I attended a Canadiens game — it was incredible! Perfect for CLB speaking conversation!"),
-     wr("Say what sport you'd like to try in Canada",["j'aimerais essayer","je voudrais apprendre","j'ai envie d'essayer","je souhaiterais pratiquer"],"J'aimerais apprendre à patiner — c'est très typique du Canada! Conditio​nnel + sport = polite expression of wish. Or: 'J'ai envie d'essayer le curling, parce que c'est un sport très canadien!'")]),
-
-  mkL("a2-31","A2 Reading: Understanding Notices",20,"reading",
-    "Read and understand official notices in French — a CLB 4 core skill! Types: building notices (avis aux locataires = notice to tenants), school notices (avis aux parents), utility interruption notices (interruption de service), government notices (avis officiel). Key vocabulary: avis (notice), prendre note de (take note of), s'applique à (applies to), entrer en vigueur (take effect), sauf exception (unless otherwise), conformément à (in accordance with).",
-    ["avis (notice/announcement)","à compter du... (as of / starting from)","entrer en vigueur (take effect)","s'appliquer à (to apply to)","prendre note de (take note of)","conformément à (in accordance with)","sauf avis contraire (unless otherwise notified)","dès réception (upon receipt)","ci-joint (enclosed/attached)"],
-    [mcq("'À compter du 1er janvier' means:",["Before January 1st","As of / starting January 1st","Until January 1st","On January 1st only"],1,"À compter de = as of / starting from. 'À compter du 1er janvier, les nouvelles heures d'ouverture seront...' = Starting January 1st, the new hours will be... Very common in official announcements and policy changes!"),
-     mcq("'Cet avis s'applique à tous les locataires' means:",["This notice is optional for tenants","This notice applies to all tenants","This notice is from all tenants","This notice is only for some tenants"],1,"S'appliquer à = to apply to. 'Tous les locataires' = all tenants. Standard language in building management notices. 'Le présent avis s'applique à l'ensemble des résidents de l'immeuble.'"),
-     wr("Write what 'Interruption d'eau le mardi 15 mars de 9h à 15h' communicates",["il n'y aura pas d'eau","l'eau sera coupée","interruption du service d'eau","pas d'eau de 9h à 15h"],"The water will be shut off on Tuesday March 15 from 9am to 3pm. Practical building notices like this appear regularly in CLB reading tests. Key words: interruption (shutdown), de...à... (from...to), date and time!")]),
-
-  mkL("a2-32","A2 Reading: Extracting Key Information",20,"reading",
-    "CLB 4 reading skill: scan a text for specific information without reading every word! Strategy: 1) Read the question FIRST, 2) Identify key words to scan for, 3) Skim the text, 4) Find the answer section, 5) Read that section carefully. Texts: job postings (offres d'emploi), service descriptions, schedules (horaires), menus, advertisements, government information pages. Focus on: who, what, when, where, how much, requirements.",
-    ["Technique: lire la question d'abord","Scanner = chercher les mots-clés","Offre d'emploi: exigences (requirements), salaire, horaire","Horaires: de...à..., sauf le...","Publicité: remise, conditions","Critères d'éligibilité","Poste à temps plein/partiel (full/part-time)","Expérience requise (experience required)"],
-    [mcq("When scanning a job posting for the required experience, you look for:",["the company address","words like 'expérience requise', 'minimum X ans d'expérience'","the salary","the closing date"],1,"Scan for key phrases! In job postings: 'Expérience requise: 2 ans minimum' / 'Vous possédez au moins 3 ans d'expérience en...' These signal the experience requirement. CLB 4 reading = find specific information efficiently, not read everything!"),
-     mcq("In a schedule 'Ouvert du lundi au vendredi de 8h30 à 17h, sauf jours fériés', the office is closed:",["every day","on weekends and public holidays","only on weekends","only on public holidays"],1,"Fermé le weekend (not mentioned = closed) ET les jours fériés (public holidays). 'Sauf' = except. 'Du lundi au vendredi' = weekdays only. In CLB reading, 'sauf' often contains critical exceptions!"),
-     wr("List 3 things to look for when reading a job posting",["salaire","expérience","exigences","horaire","lieu de travail","formation","conditions"],"When reading a job posting: 1) Exigences/qualifications requises (required qualifications), 2) Salaire/rémunération (salary), 3) Horaire et type de poste (schedule, full/part-time). These 3 elements tell you quickly if a job is worth applying for!")]),
-
-  mkL("a2-33","A2 Listening: Voicemail Messages",20,"listening",
-    "Understand phone messages in French — critical for daily life in Canada! Voicemail strategy: 1) Listen for WHO is calling (name, organization). 2) Listen for WHY (purpose of call). 3) Listen for WHAT action is needed. 4) Listen for callback number, time, reference numbers. Common types: medical appointment reminders, bank/government messages, employer callbacks, school messages. Note: Quebec French phone messages often use 10-digit numbers!",
-    ["Bonjour, je suis... de... (I am... from...)","Je vous appelle au sujet de... (calling about...)","Pourriez-vous me rappeler au... (call me back at...)","Mon numéro de dossier est... (file/case number)","Votre rendez-vous est confirmé pour le... (appointment confirmed)","Rappellez-nous avant le... (call us back before...)","En cas d'urgence, composez le... (in case of emergency, dial...)","Appuyez sur le 1 pour... (press 1 for...)"],
-    [mcq("In a medical voicemail, the MOST IMPORTANT information to write down:",["the name of the clinic","the date and time of the appointment, and the callback number","the doctor's specialty","the clinic's address"],1,"Date + time of appointment + callback number = top priority! If you miss the appointment or need to reschedule, you need the number. Always have paper and pen ready when listening to medical voicemails in Canada!"),
-     mcq("You hear 'Votre rendez-vous est confirmé pour le mardi 15 mars à 14h.' This means:",["You need to call to confirm","Your appointment is cancelled","Your appointment is confirmed for Tuesday March 15 at 2pm","You need to reschedule"],2,"Confirmé = confirmed (no action needed unless you can't make it). 'Le mardi 15 mars à 14h' = Tuesday March 15 at 2pm (14h = 24h time). Write this down and show up! If you can't make it: call back to cancel or reschedule."),
-     wr("Write the key info you'd note from a voicemail about an appointment",["la date","l'heure","le nom","le numéro de téléphone","le motif"],"Key info to note: 1) Nom de l'appelant/organisation, 2) Date et heure du rendez-vous, 3) Numéro de rappel, 4) Numéro de dossier si mentionné, 5) Délai pour rappeler. Have this checklist ready for every voicemail!")]),
-
-  mkL("a2-34","A2 Listening: Service Interactions",20,"listening",
-    "Understand service conversations in real Canadian contexts — pharmacy, bank, government office, store. Strategy: Focus on the KEY exchange (what's requested, what's the response, what action is required). Common patterns: clerk asks for ID/documentation, explains a procedure, gives instructions, quotes prices or wait times. Practice: listen for numbers (prices, wait times, amounts) and action words (remplir, signer, apporter, revenir).",
-    ["Puis-je voir votre... (May I see your...)","Veuillez remplir ce formulaire (please fill out this form)","Il faudra revenir avec... (you'll need to come back with...)","Le délai est de... jours ouvrables (processing time is... business days)","Signez ici, s'il vous plaît","Avez-vous une pièce d'identité? (ID)","Le montant total est de... (total amount is...)","Voici votre reçu (here is your receipt)"],
-    [mcq("'Il faudra revenir avec votre passeport' means you:",["don't need your passport","should mail your passport","must come back with your passport","have already submitted your passport"],2,"Il faudra = will be necessary (future of il faut). 'Revenir avec' = come back with. Very common at government offices when you don't have all documents. Note: 'jours ouvrables' = business days (not calendar days — weekends don't count)!"),
-     mcq("'Le délai de traitement est de 10 jours ouvrables' means:",["ready in 10 hours","ready in 10 calendar days (including weekends)","ready in 10 business days (weekdays only)","ready in 10 weeks"],2,"Jours ouvrables = business days (Monday-Friday, excluding holidays). 10 jours ouvrables = about 2 weeks. Important distinction when waiting for documents, credit cards, or government decisions in Canada!"),
-     wr("Write what you'd say if asked 'Puis-je voir une pièce d'identité?'",["oui, voici mon passeport","voici ma carte de résidence permanente","voici ma carte d'identité","bien sûr, voici..."],"Bien sûr, voici mon passeport / ma carte de résidence permanente. — Always carry your primary ID document in Canada. If you don't have it: 'Je n'ai pas mon passeport sur moi, mais j'ai ma carte de résident permanent.' Always explain what you DO have!")]),
-
-  mkL("a2-35","A2 Writing: Short Opinion Paragraph",25,"writing",
-    "Write a structured opinion paragraph — the foundation of all CLB writing tasks! Structure: 1) Topic sentence (state your opinion clearly). 2) Reason 1 + example/explanation. 3) Reason 2 + example/explanation. 4) Conclusion (restate or expand opinion). Target: 60-100 words for CLB 4, 80-120 for CLB 5. Language: À mon avis, selon moi, je pense que + parce que/car + de plus, en outre + c'est pourquoi, par conséquent.",
-    ["Phrase d'accroche / opinion initiale","Raison 1 + exemple (parce que / car)","Raison 2 + exemple (de plus / également)","Conclusion (c'est pourquoi / en conclusion)","Connecteurs: parce que, car, de plus, cependant","Longueur: 60-120 mots selon le niveau CLB","Registre: formal (vous, pas d'argot)","Orthographe et ponctuation!"],
-    [mcq("The FIRST sentence of an opinion paragraph should:",["start with 'I' in English by mistake","state your position/opinion clearly on the topic","list all your arguments","give your conclusion"],1,"Topic sentence = state your opinion clearly first. 'À mon avis, apprendre le français est essentiel pour les immigrants au Canada.' — Clear position + topic. Everything else supports this opening statement!"),
-     mcq("'De plus' in a paragraph means:",["on the contrary","in conclusion","furthermore/additionally","for example"],1,"De plus = furthermore/additionally. Adds a second argument: 'Premièrement... De plus... Enfin...' Connectors show logical organization — key for CLB scoring! Also: également (also), en outre (furthermore), par ailleurs (besides)."),
-     wr("Write a topic sentence about learning French in Canada",["à mon avis, apprendre le français","selon moi, le français est","je pense que parler français","il est important d'apprendre le français"],"À mon avis, apprendre le français est indispensable pour s'intégrer pleinement à la vie canadienne. — Indispensable (indispensable) + pour + infinitive = strong, clear CLB 5 topic sentence! Now add 2 reasons and a conclusion to complete your paragraph.")]),
-
-  mkL("a2-36","A2 Writing: Complaint Message",25,"writing",
-    "Write a formal complaint — essential for consumer rights in Canada! Structure: 1) Identify yourself + situation. 2) Describe the problem precisely (dates, amounts, reference numbers). 3) State what you want (refund, repair, explanation, apology). 4) Give deadline for response. 5) Mention next steps if unresolved (consumer protection agency = Office de la protection du consommateur in Quebec). Tone: firm but polite, factual.",
-    ["Je vous écris pour vous faire part de ma déception concernant... (I write to express my disappointment regarding...)","Le [date], j'ai acheté/commandé... (on [date], I purchased...)","Malgré [X], le problème persiste (despite [X], problem continues)","Je vous demande de me rembourser / réparer / remplacer","Dans un délai de X jours ouvrables","À défaut, je me verrai contraint de contacter... (failing this, I will contact...)","Office de la protection du consommateur (OPC)"],
-    [mcq("A formal complaint letter should be:",["angry and threatening","emotional and personal","polite, factual, and specific with dates/amounts","brief and vague"],2,"Always: polite tone + specific facts (dates, amounts, order numbers) + clear request + deadline. Even if you're frustrated, professional tone gets better results. 'Je vous fais part de ma déception' is firm but respectful."),
-     mcq("'À défaut, je me verrai contraint de contacter l'Office de la protection du consommateur' means:",["I will never contact the OPC","If this isn't resolved, I will be forced to contact the consumer protection agency","I already contacted the OPC","I recommend contacting the OPC"],1,"À défaut = failing this / if not resolved. Je me verrai contraint de = I will be forced to. This phrase escalates the complaint professionally — it shows you know your rights without being aggressive. Very effective in Canada!"),
-     wr("Write the first sentence of a complaint about a defective product",["je vous écris pour vous faire part","je vous contacte au sujet d'un problème","je souhaite vous signaler un défaut","suite à mon achat"],"Je vous écris pour vous faire part d'un problème concernant un produit acheté le [date] dans votre magasin (référence: [number]). — Perfect opening: polite, explains purpose, includes date and reference number. Everything needed for a clear CLB 5 complaint!")]),
-
-  mkL("a2-37","A2 Speaking: Routine & Daily Life",20,"speaking",
-    "Describe your daily life fluently — a core CLB 4 speaking task! Full-day routine: le matin (morning: se lever, se préparer, prendre le petit-déjeuner, aller au travail/école), la journée (during the day: travailler, manger, prendre des pauses), le soir (evening: rentrer, préparer le dîner, se reposer, regarder la télé, se coucher). Use time markers and sequence connectors. Add details: commute time, workplace/school, responsibilities.",
-    ["D'abord / En premier (first of all)","Ensuite / Puis (then/next)","Vers [heure] (around [time])","À [heure] précise (at exactly [time])","Je prends [X] minutes pour (it takes me X min to)","Le soir, je rentre vers... (I get home around...)","Je me couche généralement à... (I usually go to bed at...)","Le weekend, je..."],
-    [mcq("'Je prends le bus jusqu'au travail, ça prend environ 45 minutes.' This sentence describes:",["a one-time event","your daily commute routine","a future plan","a past experience"],1,"Daily routine = present tense + frequency words. 'Je prends le bus' (present habit) + 'ça prend environ' (it takes about — expressing duration). Perfect for describing your regular commute!"),
-     mcq("Which sequence best describes a morning routine?",["D'abord je me couche, ensuite je déjeune, puis je me réveille","D'abord je me réveille, puis je me lève, ensuite je prends mon petit-déjeuner","Je me couche d'abord, ensuite je m'habille, puis je me réveille","Je déjeune, puis je me réveille, d'abord je m'habille"],1,"Logical sequence: réveil → lever → douche/habillage → petit-déjeuner → départ. D'abord > puis > ensuite > après > finalement. Sequence connectors make your routine description sound organized and fluent!"),
-     wr("Describe your morning in 3 sentences",["d'abord","puis","ensuite","je me lève","je prends","je pars"],"D'abord, je me lève à 6h30 et je prends une douche rapide. Ensuite, je prépare mon café et je mange. Puis, je prends le bus pour aller au travail — ça prend environ 30 minutes. — 3 well-connected sentences = CLB 4 speaking score!")]),
-
-  mkL("a2-38","A2 Speaking: Work & Employment",25,"speaking",
-    "Talk about work and employment in French — vital for professional integration! Describe your job: Je travaille comme/en tant que... (I work as...), Mes responsabilités incluent... (My responsibilities include...), Je travaille à temps plein/partiel (full/part-time), Je suis en contrat/permanent (on contract/permanent). Job searching: Je cherche un emploi dans... (looking for work in...), J'ai postulé pour... (I applied for...), un CV, une lettre de motivation, un entretien d'embauche (job interview).",
-    ["Je travaille comme / en tant que...","Mes responsabilités: je suis responsable de...","à temps plein/partiel (full/part-time)","Je suis en contrat / permanent(e) (contract/permanent)","Je cherche un emploi dans le domaine de...","Postuler pour un poste (apply for a position)","Le CV et la lettre de motivation","Un entretien d'embauche (job interview)","Le salaire brut/net (gross/net salary)","Les avantages sociaux (employee benefits)"],
-    [mcq("'Je travaille en tant qu'infirmière à temps partiel' means:",["I want to be a part-time nurse","I work as a part-time nurse","I worked as a full-time nurse","I was a nurse"],1,"En tant que = as (in a professional capacity). 'Je travaille en tant qu'infirmière à temps partiel dans un CHSLD' = I work as a part-time nurse in a long-term care facility. More formal than 'je suis infirmière' in professional contexts!"),
-     mcq("'Les avantages sociaux' in a job offer refers to:",["social media perks","employee benefits (health, dental, pension)","social work responsibilities","vacation pay only"],1,"Avantages sociaux = employee benefits package: assurance collective (group insurance), assurance dentaire (dental), régime de retraite (pension plan), congés payés (paid vacation). Always check these when comparing job offers in Canada!"),
-     wr("Describe your work experience in 2 sentences",["j'ai travaillé","je travaille","mes responsabilités","j'ai de l'expérience","en tant que"],"J'ai travaillé pendant 5 ans comme comptable dans mon pays d'origine. Actuellement, je cherche un emploi dans le domaine de la finance au Canada, où mes compétences pourraient être utiles. — Excellent CLB 5 employment description!")]),
-
-  mkL("a2-39","A2 Integrated Practice",30,"integrated",
-    "Full A2 integrated practice — combining all 4 skills in one realistic scenario. Scenario: You are a newcomer who just received a lease for an apartment. You need to: understand the lease terms (reading), ask the landlord questions (speaking), write a confirmation email (writing), and understand the landlord's voicemail response (listening). This mirrors real CLB 4-5 test format!",
-    ["Lecture du bail (reading a lease)","Vocabulaire: loyer, charges, durée, résiliation","Questions au propriétaire (speaking)","Courriel de confirmation (writing: formal, vous)","Comprendre une réponse téléphonique (listening)","Vocabulaire intégré: logement, argent, rendez-vous"],
-    [mcq("In a lease, 'reconduction automatique' means:",["the lease is automatically cancelled","the lease automatically renews unless proper notice is given","rent automatically increases","the landlord can automatically evict you"],1,"Reconduction automatique = automatic renewal. If you don't give proper written notice (avis de non-renouvellement) before the deadline, your lease automatically renews for another year in Quebec! Critical tenant knowledge!"),
-     mcq("The CORRECT email opening to a new landlord (you haven't met in person):",["Salut [name]!","Allo,","Bonjour Monsieur/Madame [Name],","Hey,"],2,"Bonjour Monsieur/Madame [Name], — always formal with a new landlord. You'll switch to first name once they invite you to, but start formal. If you don't know their name: 'Bonjour Madame, Bonjour Monsieur,' (both included)."),
-     wr("Write the body of a confirmation email for signing a lease",["je vous confirme","je suis disponible","je souhaite confirmer","suite à notre conversation","je suis heureux de confirmer"],"Suite à notre conversation téléphonique, je vous confirme ma disponibilité pour la signature du bail le [date] à [heure]. Je me présenterai avec les documents requis (pièce d'identité, preuve d'emploi). Merci de votre confiance. — Professional, complete, confirms details!")]),
-
-  mkL("a2-40","A2 Final Assessment",30,"integrated",
-    "A2 COMPLETE! Final comprehensive assessment covering all A2 grammar and vocabulary. You should be able to: narrate past events using PC and imparfait, talk about future plans, express opinions with justification, write formal emails and letters, understand service conversations, read notices and documents. If you can do all this, you're at CLB 4 performance — ready for B1! Félicitations — c'est une étape majeure!",
-    ["Bilan A2: passé composé, imparfait, futur, conditionnel","Pronoms: directs, indirects, y, en, relatifs","Compréhension: annonces, messages, courriels","Production: email formel, paragraphe d'opinion","Interaction: services, travail, logement","Vous êtes au niveau CLB 4 — bravo!"],
-    [mcq("'Si j'avais su, je n'aurais pas signé ce bail.' This sentence expresses:",["a future plan","a present habit","a past regret (conditional perfect + pluperfect)","a description of the past"],2,"Si + plus-que-parfait (j'avais su) + conditionnel passé (je n'aurais pas signé) = Type 3 conditional — expressing regret about the PAST. 'If I had known, I wouldn't have signed that lease.' This structure shows advanced A2/B1 level!"),
-     mcq("The CORRECT sentence is:",["Je suis allé à la pharmacie hier et j'ai achetais des médicaments","Hier, je suis allé à la pharmacie et j'ai acheté des médicaments","Je allais à la pharmacie et j'ai acheté des médicaments","Hier, j'ai allé à la pharmacie et j'achetais des médicaments"],1,"Je suis allé (être verb = aller) + j'ai acheté (avoir verb = acheter) — both passé composé for specific past events. The others mix up tenses or use wrong auxiliary!"),
-     wr("Write 3 sentences showing your A2 level: past, future, and opinion",["j'ai","je vais","à mon avis","je voudrais","selon moi","je pense que"],"J'ai commencé à apprendre le français il y a un an. L'année prochaine, je passerai le TEF Canada. À mon avis, parler français ouvre beaucoup de portes au Canada. — Three tenses + opinion = A2 showcase! Félicitations — vous passez maintenant au niveau B1!")])
+  mkL("a2-15","Futur Simple — Making Plans",20,"speaking",
+    "Talk about the future in French! Whether you're discussing your Canadian citizenship goals, planning a vacation, or making next week's agenda, you need the futur simple. Today you learn to conjugate it, use it naturally, and talk confidently about your plans and dreams in Quebec. This tense opens up a whole new dimension of French conversation.",
+    ["Futur simple: infinitif + endings (-ai, -as, -a, -ons, -ez, -ont)","je parlerai = I will speak","tu parleras = you will speak","il/elle parlera = he/she will speak","nous parlerons = we will speak","vous parlerez = you will speak","ils parleront = they will speak","Irregular: être→sera, avoir→aura, aller→ira, faire→fera, venir→viendra","Dans X ans = In X years","Quand je serai citoyen(ne) = When I am a citizen"],
+    [mcq("How do you say 'I will work in Montreal next year'?",["Je travaille à Montréal l'année prochaine","Je travaillais à Montréal l'année prochaine","Je travaillerai à Montréal l'année prochaine","Je vais travailler Montréal"],2,"Je travaillerai = I will work (futur simple of travailler). L'année prochaine = next year. The futur simple ending for je is -rai. Travail-ler → travaille-rai. Drop the -r from -er verbs and add the endings!",1),
+     mcq("'Nous serons canadiens dans deux ans.' What does this mean?",["We were Canadian two years ago","We are Canadian now","We will be Canadian in two years","We would be Canadian"],2,"Nous serons = we will be (futur of être — irregular: ser-). Dans deux ans = in two years. This is such a meaningful sentence for immigrants! Quand nous serons canadiens = when we will be Canadian — a beautiful goal to express in French.",1),
+     {type:"match",prompt:"Match the infinitive to its futur simple form (je form)",pairs:[["parler","parlerai"],["avoir","aurai"],["être","serai"],["aller","irai"],["faire","ferai"]],explain:"These 5 futur forms include 4 irregular verbs you must memorize: avoir→aurai, être→serai, aller→irai, faire→ferai. The rest follow the regular pattern: infinitif + -ai for je. Learn these 5 and you can talk about almost anything in the future!",diff:2},
+     {type:"fill",before:"Dans cinq ans, j'",blank:"___",after:"la citoyenneté canadienne.",options:["aurai","ai","avais","aurais"],correct:0,explain:"J'aurai = I will have (futur of avoir — irregular: aur-). Dans cinq ans, j'aurai la citoyenneté canadienne = In five years, I will have Canadian citizenship. A powerful sentence! The futur simple makes your goals concrete and real.",diff:2},
+     mcq("'Quand tu viendras à Montréal, nous visiterons le Vieux-Port.' When will they visit the Old Port?",["They visited it last year","They are visiting it now","When you come to Montreal (in the future)","They never visited"],2,"Quand tu viendras (futur of venir) = when you come. Nous visiterons (futur of visiter) = we will visit. In French, after 'quand' referring to the future, you use futur simple in BOTH clauses — unlike English which uses present tense!",3),
+     {type:"scene",story:"Ravi is talking about his 5-year plan: 'Dans cinq ans, j'aurai la citoyenneté canadienne. Je parlerai couramment le français. Ma famille viendra me rejoindre à Montréal et nous achèterons une maison.'",prompt:"All verbs are in futur simple. Which plan does Ravi express for his family?",options:["His family will come to join him in Montreal","His family is already in Montreal","His family came last year","His family doesn't want to come"],correct:0,explain:"Ma famille viendra (futur of venir) = my family will come. Me rejoindre = to join me. Nous achèterons (futur of acheter) = we will buy. Ravi's 5-year plan in perfect futur simple! This is exactly how to talk about goals and dreams in French.",diff:2},
+     {type:"order",prompt:"Build: I will speak French fluently in two years",words:["Je","parlerai","couramment","le","français","dans","deux","ans"],answer:["Je","parlerai","couramment","le","français","dans","deux","ans"],explain:"Je parlerai couramment le français dans deux ans — say this out loud! Couramment = fluently. This is your commitment in French. Write it down, put it on your wall. Dans deux ans, you will indeed speak couramment!",diff:2},
+     wr("Write about one of your goals for life in Canada using futur simple",["je","dans","ans","quand je serai","j'aurai","je parlerai","nous"],"Expressing your Canadian goals in futur simple makes them real! Whether it's citizenship, a career goal, buying a house, or mastering French — say it in French and commit to it. Dans quelques années, tu regarderas en arrière avec fierté!",2)]),
 ];
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// B1 — 40 LESSONS
-// ─────────────────────────────────────────────────────────────────────────────
 const B1_LESSONS = [
   mkL("b1-01","Opinion Phrases & Connectors",30,"speaking",
     "CLB 5 core skill: express AND justify opinions! Openers: À mon avis, Selon moi, Il me semble que, Je suis convaincu(e) que. Justification: parce que, car (formal), puisque (since), étant donné que (given that). Concession: certes, il est vrai que, je comprends que. Conclusion: c'est pourquoi, donc, par conséquent. Practice giving opinions on: bilingualism, healthcare, immigration, remote work.",
@@ -2027,6 +1645,37 @@ const SYLLABUS = {
 // type: "order" = drag words into correct order
 // type: "write" = free-text write (intermediate)
 // type: "speak" = speaking challenge prompt (advanced)
+
+const COMPANIONS = [
+  {
+    id:"sophie", name:"Sophie", emoji:"👩‍🏫", color:"#1A56DB", level:"All levels",
+    messages:{
+      idle:"Prêt à apprendre? Let's go! 🇨🇦",
+      correct:"Parfait! Excellent work! 🌟",
+      wrong:"Pas de problème! Let's try again 💪",
+      complete:"Félicitations! Lesson complete! 🎉",
+    }
+  },
+  {
+    id:"marc", name:"Marc", emoji:"👨‍🎓", color:"#059669", level:"All levels",
+    messages:{
+      idle:"Bonjour! Ready to practice? 📚",
+      correct:"Très bien! Keep it up! ✨",
+      wrong:"Presque! Almost there 🔥",
+      complete:"Bravo! You crushed it! 🏆",
+    }
+  },
+  {
+    id:"amelie", name:"Amélie", emoji:"👩‍💼", color:"#8B5CF6", level:"All levels",
+    messages:{
+      idle:"Allons-y! Let's make progress! 🚀",
+      correct:"Magnifique! You're on fire! 🔥",
+      wrong:"Courage! Mistakes help us learn 🧠",
+      complete:"Incroyable! You did it! 🌟",
+    }
+  },
+];
+
 const GAMES = [
   {
     id:"speed", emoji:"⚡", name:"Speed Recall",
@@ -2145,26 +1794,19 @@ const GAMES = [
     ]
   },
 ];
-function Pill({children,variant="blue",style={},theme}){
-  const t = theme || T.light; // fallback to light theme
-  const v={
-    blue:{background:t.blueLight,color:t.navy},
-    gold:{background:t.goldLight,color:"#92400E",border:`1.5px solid ${t.gold}`},
-    mint:{background:t.mintLight,color:"#065F46"},
-    red:{background:t.redLight,color:"#991B1B"},
-    purple:{background:t.purpleLight,color:"#5B21B6"}
-  }[variant]||{};
+function Pill({children,variant="blue",style={}}){
+  const v={blue:{background:T.blueLight,color:T.navy},gold:{background:T.goldLight,color:"#92400E",border:"1.5px solid #FCD34D"},mint:{background:T.mintLight,color:"#065F46"},red:{background:T.redLight,color:"#991B1B"},purple:{background:T.purpleLight,color:"#5B21B6"}}[variant]||{};
   return <span style={{fontSize:12,fontWeight:700,padding:"5px 12px",borderRadius:50,display:"inline-flex",alignItems:"center",gap:5,...v,...style}}>{children}</span>;
 }
 
 function Btn({children,onClick,variant="primary",disabled,style={}}){
   const base={primary:{background:T.navy,color:"#fff",border:"none"},secondary:{background:T.card,color:T.navy,border:`2px solid ${T.border}`},ghost:{background:"transparent",color:T.blue,border:"none"}}[variant]||{};
-  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
+  return <button onClick={onClick} disabled={disabled} style={{padding:"13px 24px",borderRadius:13,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,cursor:disabled?"default":"pointer",opacity:disabled?0.45:1,display:"inline-flex",alignItems:"center",gap:8,transition:"all 0.2s",...base,...style}}>{children}</button>;
 }
 
 function Card({children,style={},onClick}){
   const[h,setH]=useState(false);
-  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:T.card,borderRadius:20,padding:"22px 24px",boxShadow:"0 2px 8px rgba(0,0,0,0.04),0 12px 32px rgba(13,27,62,0.08)",transition:"all 0.2s",...(h?{transform:"translateY(-2px)",boxShadow:"0 4px 16px rgba(0,0,0,0.06),0 16px 40px rgba(13,27,62,0.12)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
+  return <div onClick={onClick} onMouseEnter={()=>setH(!!onClick)} onMouseLeave={()=>setH(false)} style={{background:"#fff",borderRadius:14,padding:"14px 16px",border:"1px solid #E2E8F0",boxShadow:"0 1px 4px rgba(0,0,0,0.04)",transition:"all 0.15s",...(h&&onClick?{boxShadow:"0 2px 12px rgba(0,0,0,0.08)"}:{}),...(onClick?{cursor:"pointer"}:{}),...style}}>{children}</div>;
 }
 
 function ProgressBar({value,color=T.blue,style={}}){
@@ -2209,6 +1851,22 @@ function isPremiumUnlocked(){
   }catch{return false;}
 }
 
+const BACKEND_URL="https://clbbackend-production.up.railway.app";
+
+async function checkBackendPremium(userId){
+  try{
+    const res=await fetch(`${BACKEND_URL}/api/subscription/status?userId=${userId}`);
+    const data=await res.json();
+    if(data.status==="pro"||data.subscriptionStatus==="active"){
+      const exp=Date.now()+(7*24*60*60*1000);
+      localStorage.setItem("franco_premium",JSON.stringify({token:"unlocked",exp}));
+      return true;
+    }
+    return false;
+  }catch(e){return false;}
+}
+
+
 // Call this after successful Stripe redirect (add ?success=1 to your Stripe redirect URL)
 function checkStripeSuccess(){
   if(typeof window==="undefined") return;
@@ -2236,14 +1894,14 @@ function PaywallModal({onClose, lessonTitle}){
       <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"28px 28px 20px",textAlign:"center",position:"relative"}}>
         <button onClick={onClose} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         <div style={{fontSize:44,marginBottom:8}}>🔓</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
         <div style={{color:"rgba(255,255,255,0.75)",fontSize:13,marginTop:6}}>"{lessonTitle}" is a premium lesson</div>
       </div>
 
       {/* Price */}
       <div style={{padding:"20px 28px 0",textAlign:"center"}}>
         <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
-          <span style={{fontFamily:"'Playfair Display',serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
+          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
           <span style={{color:T.textMid,fontSize:16}}>/month</span>
         </div>
         <div style={{color:T.textSoft,fontSize:12,marginTop:2}}>Cancel anytime · Secure payment via Stripe</div>
@@ -2269,7 +1927,7 @@ function PaywallModal({onClose, lessonTitle}){
 
       {/* CTA */}
       <div style={{padding:"16px 28px 24px"}}>
-        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
           🚀 Start Premium — {PRICE_DISPLAY}
         </button>
         <div style={{textAlign:"center",marginTop:10}}>
@@ -2291,15 +1949,15 @@ function WelcomeScreen({onNext}){
     {emoji:"🧑‍🏫",title:"Your AI Teacher is Ready",sub:"A personalized AI companion guides every lesson — giving real-time feedback, encouragement, and explanations."},
   ];
   const s=steps[step];
-  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",width:"100%",background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,flexDirection:"column",padding:32,gap:32,position:"relative",overflow:"hidden"}}>
+  return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,flexDirection:"column",padding:32,gap:32,position:"relative",overflow:"hidden"}}>
     <div style={{position:"absolute",top:-80,left:-80,width:300,height:300,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
     <div style={{position:"absolute",bottom:60,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.04)"}}/>
     <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:20,maxWidth:520,textAlign:"center",zIndex:1}}>
       <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:"drop-shadow(0 0 30px rgba(255,255,255,0.15))"}}>{s.emoji}</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
       <div style={{fontSize:16,color:"rgba(255,255,255,0.8)",lineHeight:1.7}}>{s.sub}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-        {["🎉 100% Free","🚫 No Paywall","🚫 No Ads","🍁 Made for Canada","190 Lessons"].map(tag=>
+        {["✅ Try Free","🍁 Made for Canada","190 Lessons","🎤 AI Coach","🔒 Premium Access"].map(tag=>
           <span key={tag} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"rgba(16,185,129,0.25)",color:"#6EE7B7",border:"1px solid rgba(110,231,183,0.3)"}}>{tag}</span>
         )}
       </div>
@@ -2307,9 +1965,9 @@ function WelcomeScreen({onNext}){
         {steps.map((_,i)=><div key={i} onClick={()=>setStep(i)} style={{width:i===step?28:8,height:8,borderRadius:4,background:i===step?"#fff":"rgba(255,255,255,0.3)",cursor:"pointer",transition:"all 0.3s"}}/>)}
       </div>
       {step<steps.length-1
-        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
-        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — It's Free! 🚀</button>}
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · Start immediately · Progress saves locally</div>
+        ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
+        :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — Try Free! 🚀</button>}
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · 3 free lessons · Unlock all 190 with Premium</div>
     </div>
   </div>;
 }
@@ -2328,7 +1986,7 @@ function OnboardingScreen({onComplete}){
   if(phase==="companion") return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 1 of 2</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
       <div style={{fontSize:15,color:T.textMid}}>Your companion guides every lesson with personalised feedback.</div>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:16,maxWidth:700,width:"100%"}}>
@@ -2342,7 +2000,7 @@ function OnboardingScreen({onComplete}){
   return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
       <div style={{fontSize:15,color:T.textMid}}>Be honest — Franco personalises your path.</div>
     </div>
     <div style={{display:"flex",flexDirection:"column",gap:12,maxWidth:520,width:"100%"}}>
@@ -2359,602 +2017,846 @@ function OnboardingScreen({onComplete}){
   </div>;
 }
 
-function DashboardScreen({companion,startLevel,progress,onNavigate}){
+function FocusSessionWidget({onNavigate}){
+  const FOCUS=25*60, BREAK=5*60;
+  const[phase,setPhase]=useState("idle");
+  const[secs,setSecs]=useState(FOCUS);
+  const[running,setRunning]=useState(false);
+  const[sessions,setSessions]=useState(0);
+  const timerRef=useRef();
+  const[started,setStarted]=useState(false);
+
+  useEffect(()=>{
+    if(running){
+      timerRef.current=setInterval(()=>{
+        setSecs(s=>{
+          if(s<=1){
+            clearInterval(timerRef.current);
+            setRunning(false);
+            if(phase==="focus"){ setSessions(n=>n+1); setPhase("break"); setSecs(BREAK); }
+            else { setPhase("done"); }
+            return 0;
+          }
+          return s-1;
+        });
+      },1000);
+    }
+    return()=>clearInterval(timerRef.current);
+  },[running,phase]);
+
+  const fmt=(s)=>`${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
+  const total=phase==="break"?BREAK:FOCUS;
+  const pct=((total-secs)/total)*100;
+
+  const start=()=>{ setPhase("focus"); setSecs(FOCUS); setRunning(true); setStarted(true); };
+  const toggle=()=>setRunning(r=>!r);
+  const reset=()=>{ setRunning(false); setPhase("idle"); setSecs(FOCUS); setSessions(0); setStarted(false); };
+
+  const label=phase==="focus"?"Focus":phase==="break"?"Break":phase==="done"?"Done":"";
+  const barColor=phase==="break"?"#10B981":phase==="done"?"#F59E0B":"#0F172A";
+
+  if(!started){
+    return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontSize:16}}>⏱️</div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:13,fontWeight:600,color:"#0F172A"}}>25:5 Focus Session</div>
+        <div style={{fontSize:11,color:"#94A3B8"}}>Study for 25 min, break for 5 min</div>
+      </div>
+      <button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 16px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"system-ui,sans-serif"}}>Start</button>
+    </div>;
+  }
+
+  return <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,overflow:"hidden"}}>
+    <div style={{height:3,background:"#F1F5F9"}}><div style={{height:"100%",width:`${pct}%`,background:barColor,transition:"width 0.5s"}}/></div>
+    <div style={{padding:"10px 16px",display:"flex",alignItems:"center",gap:12}}>
+      <div style={{fontSize:16}}>⏱️</div>
+      <div style={{flex:1}}>
+        <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>{label} · {sessions>0?`${sessions} done today`:""}</div>
+        <div style={{fontFamily:"system-ui,monospace",fontSize:20,fontWeight:800,color:"#0F172A",letterSpacing:1}}>{fmt(secs)}</div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        {phase!=="done"&&<button onClick={toggle} style={{background:"#F1F5F9",color:"#0F172A",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>{running?"⏸":"▶"}</button>}
+        {phase==="done"&&<button onClick={start} style={{background:"#0F172A",color:"#fff",border:"none",padding:"6px 12px",borderRadius:7,fontSize:12,fontWeight:600,cursor:"pointer"}}>Again</button>}
+        <button onClick={reset} style={{background:"#F1F5F9",color:"#64748B",border:"none",padding:"6px 10px",borderRadius:7,fontSize:12,cursor:"pointer"}}>↺</button>
+      </div>
+    </div>
+  </div>;
+}
+
+
+function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
   const doneL=Object.keys(progress).length;
   const pct=Math.round((doneL/allL.length)*100);
   const xp=doneL*25;
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
-  const skills=[{name:"Listening 🎧",pct:74,color:T.blue},{name:"Speaking 🗣",pct:58,color:T.mint},{name:"Writing ✍",pct:65,color:T.gold},{name:"Reading 📖",pct:81,color:T.purple}];
-  return <div style={{padding:"28px 32px",maxWidth:1100,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-      <div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:4}}>Good morning 👋</div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy}}>Your French Journey</div>
+  const streak=()=>{try{return parseInt(localStorage.getItem("franco_streak")||"0");}catch{return 0;}};
+  const c=companion||COMPANIONS[0];
+  const hour=new Date().getHours();
+  const greeting=hour<12?"Bonjour":hour<17?"Bon après-midi":"Bonsoir";
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
+  const nextLesson=allL.find(l=>!progress[l.id]);
+  const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
+  const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
+  const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
+  const isMobile=useIsMobile();
+
+  return <div style={{minHeight:"100vh",background:"#F1F4F9",padding:isMobile?"12px 12px 80px":"32px 28px",maxWidth:1020,margin:"0 auto",display:"flex",flexDirection:"column",gap:isMobile?10:20}}>
+
+    {/* HEADER */}
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:isMobile?11:13,color:"#64748B",fontWeight:500,marginBottom:2}}>{greeting}{displayName?` — ${displayName}`:""}</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?18:28,fontWeight:800,color:"#0F172A",lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          {doneL===0?"Start your journey 🍁":doneL<10?"Building momentum 💪":"Great progress 🎯"}
+        </div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:12}}>
-        <Pill variant="gold">🔥 7 days</Pill>
-        <Pill variant="blue">⭐ {xp} XP</Pill>
-        <div style={{width:40,height:40,borderRadius:"50%",background:T.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:isMobile?"8px 10px":"12px 16px",background:"#fff",borderRadius:12,border:"1.5px solid #E2E8F0",flexShrink:0}}>
+        <Avatar companion={c} size={isMobile?28:36}/>
+        {!isMobile&&<div><div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div><div style={{fontSize:11,color:"#10B981",fontWeight:600}}>● Ready</div></div>}
+        {isMobile&&<div style={{fontSize:12,fontWeight:700,color:"#0F172A"}}>{c.name}</div>}
       </div>
     </div>
-    {/* Hero */}
-    <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1A3280 60%,${T.blue} 100%)`,borderRadius:24,padding:28,color:"#fff",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-40,right:-40,width:200,height:200,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:12}}>
-        <div>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1.2,color:"rgba(255,255,255,0.6)",textTransform:"uppercase",marginBottom:8}}>Today's Mission</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:4}}>{level.label} — Continue Your Path</div>
-          <div style={{fontSize:14,color:"rgba(255,255,255,0.65)"}}>{level.desc}</div>
+
+    {/* STAT PILLS — 2x2 on mobile, 4 across on desktop */}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(4,1fr)",gap:isMobile?8:12}}>
+      {[
+        {label:"Streak",val:`${streak()}d`,icon:"🔥"},
+        {label:"XP",val:xp,icon:"⭐"},
+        {label:"Lessons",val:`${doneL}/${allL.length}`,icon:"📚"},
+        {label:"CLB",val:level.clbTag,icon:"🎯"},
+      ].map((s,i)=>(
+        <div key={i} style={{background:"#fff",borderRadius:12,border:"1.5px solid #E2E8F0",padding:isMobile?"10px 12px":"16px 18px",display:"flex",alignItems:"center",gap:isMobile?8:10}}>
+          <span style={{fontSize:isMobile?18:22}}>{s.icon}</span>
+          <div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:22,fontWeight:800,color:"#0F172A",lineHeight:1}}>{s.val}</div>
+            <div style={{fontSize:10,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:.3,marginTop:2}}>{s.label}</div>
+          </div>
         </div>
-        <div style={{background:"rgba(255,255,255,0.12)",border:"1px solid rgba(255,255,255,0.2)",padding:"8px 14px",borderRadius:12,fontSize:13,fontWeight:600}}>{level.cefrTag} · {level.clbTag}</div>
-      </div>
-      <div style={{marginBottom:20}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8,fontSize:13,color:"rgba(255,255,255,0.7)"}}>
-          <span>Overall progress</span><span style={{color:"#fff",fontWeight:700}}>{pct}% · {doneL}/{allL.length} lessons</span>
-        </div>
-        <div style={{height:8,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${pct}%`,background:"linear-gradient(90deg,#60A5FA,#93C5FD)",borderRadius:99,transition:"width 1s"}}/>
-        </div>
-      </div>
-      <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-        {[{l:"▶️ Continue Learning",s:"hub",p:true},{l:"⚡ Practice",s:"practice"},{l:"📊 Progress",s:"profile"}].map(a=>(
-          <button key={a.s} onClick={()=>onNavigate(a.s)} style={{background:a.p?"#fff":"rgba(255,255,255,0.1)",color:a.p?T.navy:"rgba(255,255,255,0.9)",border:a.p?"none":"1.5px solid rgba(255,255,255,0.2)",padding:"13px 22px",borderRadius:13,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:"pointer"}}>{a.l}</button>
-        ))}
-      </div>
-    </div>
-    {/* Stats */}
-    <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
-      {[{icon:"📅",label:"Lessons",val:doneL,sub:`of ${allL.length} total`},{icon:"🏆",label:"CLB Target",val:level.clbTag,sub:"current path"},{icon:"⭐",label:"XP Earned",val:totalXP(),sub:"all time"},{icon:"🔥",label:"Day Streak",val:streak(),sub:"keep going!"}].map((s,i)=>(
-        <Card key={i}><div style={{fontSize:28,marginBottom:10}}>{s.icon}</div><div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:8}}>{s.label}</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:T.navy,marginBottom:4}}>{s.val}</div><div style={{fontSize:13,color:T.textSoft}}>{s.sub}</div></Card>
       ))}
     </div>
-    {/* Skills + AI */}
-    <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16}}>
-      <Card>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Skill Breakdown</div>
-        {skills.map(sk=><div key={sk.name} style={{marginBottom:14}}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-            <span style={{fontSize:14,fontWeight:600}}>{sk.name}</span>
-            <span style={{fontSize:14,fontWeight:700,color:sk.color}}>{sk.pct}%</span>
-          </div>
-          <ProgressBar value={sk.pct} color={sk.color}/>
-        </div>)}
-      </Card>
-      <Card style={{background:"linear-gradient(135deg,#EFF6FF,#F0FDF4)",border:`1.5px solid #C7D2FE`}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-          <Avatar companion={companion||COMPANIONS[0]} size={52}/>
-          <div>
-            <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{companion?.name||"Sophie"}</div>
-            <div style={{fontSize:12,color:T.mint,fontWeight:600}}>● Active</div>
+
+    {/* NEXT LESSON — always full width */}
+    <div style={{background:"#0F172A",borderRadius:16,overflow:"hidden",boxShadow:"0 4px 16px rgba(15,23,42,0.18)"}}>
+      <div style={{padding:isMobile?"16px 16px 14px":"22px 24px 18px"}}>
+        <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.45)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Continue Learning</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?17:21,fontWeight:800,color:"#fff",marginBottom:4,lineHeight:1.25}}>{nextLesson?nextLesson.title:"All lessons complete! 🎉"}</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",marginBottom:14}}>{nextLesson?`${nextLevel?.label||level.label} · ${nextLesson.skill} · ${nextLesson.mins} min`:""}</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>onNavigate("hub")} style={{background:"#fff",color:"#0F172A",border:"none",padding:isMobile?"10px 20px":"11px 24px",borderRadius:10,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:13,cursor:"pointer"}}>
+            {nextLesson?"▶ Start":"Browse"}
+          </button>
+          <button onClick={()=>onNavigate("practice")} style={{background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.8)",border:"1px solid rgba(255,255,255,0.2)",padding:isMobile?"10px 14px":"11px 18px",borderRadius:10,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+            ⚡ Practice
+          </button>
+          <div style={{marginLeft:"auto",textAlign:"right"}}>
+            <div style={{fontSize:isMobile?16:20,fontWeight:800,color:"#fff"}}>{pct}%</div>
+            <div style={{fontSize:10,color:"rgba(255,255,255,0.4)"}}>done</div>
           </div>
         </div>
-        <div style={{fontSize:14,color:T.textMid,lineHeight:1.6,fontStyle:"italic",padding:14,background:"rgba(255,255,255,0.6)",borderRadius:12,borderLeft:`3px solid ${T.blue}`,marginBottom:14}}>"{companion?.messages?.idle||"Ready to learn! Let's tackle your next lesson."}"</div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}><Pill variant="blue">Practice Speaking</Pill><Pill variant="mint">Review Vocab</Pill></div>
-      </Card>
+      </div>
+      <div style={{height:3,background:"rgba(255,255,255,0.08)"}}><div style={{height:"100%",width:`${pct||1}%`,background:"linear-gradient(90deg,#3B82F6,#10B981)",transition:"width 1s"}}/></div>
     </div>
+
+    {/* FOCUS TIMER */}
+    <FocusSessionWidget onNavigate={onNavigate}/>
+
+    {/* BOTTOM GRID — side by side on desktop, stacked on mobile */}
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr":"1fr 1fr",gap:isMobile?10:14}}>
+
+      {/* Skills */}
+      <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"14px":"18px 20px"}}>
+        <div style={{fontSize:13,fontWeight:700,color:"#0F172A",marginBottom:12}}>Skills Breakdown</div>
+        {[{sk:"listening",label:"Listening",icon:"🎧"},{sk:"speaking",label:"Speaking",icon:"🗣️"},{sk:"writing",label:"Writing",icon:"✍️"},{sk:"reading",label:"Reading",icon:"📖"}].map(({sk,label,icon})=>{
+          const d=skillDone(sk);const t=skillTotal(sk);const p=t>0?Math.round((d/t)*100):0;
+          return <div key={sk} style={{marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+              <span style={{fontSize:12,fontWeight:600,color:"#0F172A"}}>{icon} {label}</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#64748B"}}>{p}%</span>
+            </div>
+            <div style={{height:5,background:"#F1F5F9",borderRadius:99,overflow:"hidden"}}>
+              <div style={{height:"100%",width:`${p||1}%`,background:"#0F172A",borderRadius:99,transition:"width 0.8s",opacity:.75}}/>
+            </div>
+          </div>;
+        })}
+      </div>
+
+      {/* Quick actions */}
+      <div style={{display:"flex",flexDirection:"column",gap:isMobile?8:10}}>
+        {/* Companion */}
+        <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px",display:"flex",alignItems:"center",gap:12}}>
+          <Avatar companion={c} size={isMobile?40:48}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{c.name}</div>
+            <div style={{fontSize:11,color:"#64748B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.messages?.idle||"Ready to learn!"}</div>
+          </div>
+          <button onClick={()=>onNavigate("tutor")} style={{background:"#0F172A",color:"#fff",border:"none",padding:"8px 14px",borderRadius:9,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>Chat</button>
+        </div>
+
+        {/* CLB Path */}
+        <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px"}}>
+          <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Your CLB Path</div>
+          <div style={{fontSize:isMobile?14:16,fontWeight:800,color:"#0F172A",marginBottom:2}}>{level.label}</div>
+          <div style={{fontSize:11,color:"#64748B",marginBottom:8,lineHeight:1.5}}>{level.desc}</div>
+          <div style={{display:"flex",gap:6}}>
+            <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#0F172A",color:"#fff"}}>{level.cefrTag}</span>
+            <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",border:"1px solid #E2E8F0"}}>{level.clbTag}</span>
+          </div>
+        </div>
+
+        {/* Quick Links */}
+        <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px"}}>
+          {[{icon:"📖",label:"All Lessons",screen:"hub"},{icon:"⚡",label:"Practice & Games",screen:"practice"},{icon:"🧑‍🏫",label:"Personal Tutor",screen:"tutor"}].map(l=>(
+            <div key={l.screen} onClick={()=>onNavigate(l.screen)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"1px solid #F8FAFC",cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.opacity=".7"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+              <span style={{fontSize:15,width:20,textAlign:"center"}}>{l.icon}</span>
+              <span style={{fontSize:13,fontWeight:600,color:"#0F172A",flex:1}}>{l.label}</span>
+              <span style={{color:"#CBD5E0"}}>›</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
   </div>;
 }
 
 function HubScreen({progress,onStartLesson}){
   const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
   const[search,setSearch]=useState("");
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
+  const isMobile=useIsMobile();
   const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
   const doneLessons=allLessons.filter(l=>progress[l.id]);
   const nextLesson=allLessons.find(l=>!progress[l.id]);
   const nextLevel=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>!progress[l.id]));
+  const pct=Math.round((doneLessons.length/allLessons.length)*100);
 
-  return <div style={{padding:"28px 32px",maxWidth:960,margin:"0 auto"}}>
+  return <div style={{padding:isMobile?"10px":"20px 28px",maxWidth:760,margin:"0 auto"}}>
 
-    {/* Header banner */}
-    <div style={{background:"linear-gradient(135deg,#0D1B3E 0%,#1A3280 50%,#1A56DB 100%)",borderRadius:24,padding:"28px 32px",marginBottom:24,color:"#fff",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-40,right:-40,width:180,height:180,borderRadius:"50%",background:"rgba(255,255,255,0.05)"}}/>
-      <div style={{position:"absolute",bottom:-60,right:60,width:240,height:240,borderRadius:"50%",background:"rgba(255,255,255,0.03)"}}/>
-      <div style={{display:"flex",alignItems:"center",gap:20,flexWrap:"wrap",position:"relative"}}>
-        <div style={{flex:1}}>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"rgba(255,255,255,0.5)",marginBottom:6}}>🍁 FRANCO — Learn French for Canada</div>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,marginBottom:4}}>{doneLessons.length} lessons complete — {allLessons.length-doneLessons.length} to go!</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,0.7)"}}>Foundation → B2 · CLB 1–7 · TEF Canada prep · 190 lessons · 100% FREE 🎉</div>
-        </div>
-        <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
-          {[{icon:"⭐",val:totalXP()+" XP",lbl:"Total"},{icon:"🔥",val:streak()+" days",lbl:"Streak"},{icon:"📊",val:Math.round(doneLessons.length/allLessons.length*100)+"%",lbl:"Done"}].map(s=>
-            <div key={s.lbl} style={{textAlign:"center",background:"rgba(255,255,255,0.1)",borderRadius:14,padding:"12px 16px",border:"1px solid rgba(255,255,255,0.15)"}}>
-              <div style={{fontSize:18}}>{s.icon}</div>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700}}>{s.val}</div>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.5)",textTransform:"uppercase",letterSpacing:.8}}>{s.lbl}</div>
-            </div>)}
-        </div>
+    {/* Compact header */}
+    <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:12}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginBottom:2}}>{doneLessons.length}/{allLessons.length} lessons · {pct}% done</div>
+        <div style={{fontSize:14,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nextLesson?`Next: ${nextLesson.title}`:"All lessons complete! 🎉"}</div>
       </div>
-      {nextLesson&&nextLevel&&<div style={{marginTop:20,padding:"14px 18px",background:"rgba(255,255,255,0.1)",borderRadius:14,border:"1px solid rgba(255,255,255,0.15)",display:"flex",alignItems:"center",gap:14,position:"relative"}}>
-        <span style={{fontSize:20}}>▶️</span>
-        <div style={{flex:1}}>
-          <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginBottom:2}}>CONTINUE WHERE YOU LEFT OFF</div>
-          <div style={{fontSize:15,fontWeight:700}}>{nextLesson.title}</div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>{nextLevel.label} · {nextLesson.mins} min · starts easy!</div>
-        </div>
-        <button onClick={()=>onStartLesson(nextLesson,nextLevel)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:13,cursor:"pointer"}}>Start Now →</button>
-      </div>}
+      {nextLesson&&nextLevel&&<button onClick={()=>onStartLesson(nextLesson,nextLevel)}
+        style={{background:"#fff",color:"#0F172A",border:"none",padding:"8px 16px",borderRadius:9,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>
+        Start →
+      </button>}
     </div>
 
-    {/* Search bar */}
-    <div style={{marginBottom:20,position:"relative"}}>
-      <span style={{position:"absolute",left:14,top:"50%",transform:"translateY(-50%)",fontSize:16}}>🔍</span>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search any lesson topic..." style={{width:"100%",padding:"12px 16px 12px 42px",borderRadius:14,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,color:T.text,background:T.card,outline:"none",boxSizing:"border-box"}}/>
-      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:14,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:16,cursor:"pointer",color:T.textSoft}}>✕</button>}
+    {/* Search */}
+    <div style={{position:"relative",marginBottom:12}}>
+      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14}}>🔍</span>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search lessons..."
+        style={{width:"100%",padding:"10px 12px 10px 36px",borderRadius:10,border:"1.5px solid #E2E8F0",fontSize:13,color:"#0F172A",background:"#fff",outline:"none",boxSizing:"border-box",fontFamily:"system-ui,sans-serif"}}/>
+      {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",fontSize:14,cursor:"pointer",color:"#94A3B8"}}>✕</button>}
     </div>
 
     {/* Search results */}
-    {search.length>1&&<div style={{marginBottom:20}}>
+    {search.length>1&&<div style={{marginBottom:12}}>
       {(()=>{
         const q=search.toLowerCase();
-        const results=allLessons.filter(l=>l.title.toLowerCase().includes(q)||l.teach?.toLowerCase().includes(q));
+        const results=allLessons.filter(l=>l.title.toLowerCase().includes(q));
         const lv=(l)=>Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(x=>x.id===l.id));
-        return results.length?results.slice(0,8).map(l=>{
-          const level=lv(l); const done=!!progress[l.id];
-          return <div key={l.id} onClick={()=>onStartLesson(l,level)} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderRadius:13,border:`1.5px solid ${done?T.mint:T.border}`,background:T.card,cursor:"pointer",marginBottom:8,transition:"all 0.2s"}}>
-            <div style={{width:32,height:32,borderRadius:9,background:done?T.mint:level?.color||T.blue,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700}}>{done?"✓":"▶"}</div>
-            <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600,color:T.navy}}>{l.title}</div><div style={{fontSize:11,color:T.textSoft}}>{level?.label} · {l.skill} · {l.mins} min</div></div>
-            {done?<Pill variant="mint">Done</Pill>:<span style={{fontSize:12,color:T.blue,fontWeight:600}}>Go →</span>}
+        return results.length?results.slice(0,6).map(l=>{
+          const lvl=lv(l); const done=!!progress[l.id];
+          return <div key={l.id} onClick={()=>onStartLesson(l,lvl)}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:10,border:"1px solid #E2E8F0",background:"#fff",cursor:"pointer",marginBottom:6}}>
+            <div style={{width:28,height:28,borderRadius:7,background:done?"#10B981":"#0F172A",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>{done?"✓":"▶"}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{l.title}</div>
+              <div style={{fontSize:11,color:"#94A3B8"}}>{lvl?.label} · {l.skill} · {l.mins}min</div>
+            </div>
+            <span style={{fontSize:11,color:done?"#10B981":"#64748B",fontWeight:600,flexShrink:0}}>{done?"Done":"Go →"}</span>
           </div>;
-        }):<div style={{textAlign:"center",padding:"24px",color:T.textSoft,fontSize:14}}>No lessons found for "{search}" — try different keywords</div>;
+        }):<div style={{textAlign:"center",padding:"16px",color:"#94A3B8",fontSize:13}}>No results for "{search}"</div>;
       })()}
     </div>}
+
+    {/* Level accordion — compact */}
     {Object.values(SYLLABUS).map(level=>{
       const lLessons=level.modules.flatMap(m=>m.lessons);
       const donePct=Math.round((lLessons.filter(l=>progress[l.id]).length/lLessons.length)*100);
+      const doneCount=lLessons.filter(l=>progress[l.id]).length;
       const isOpen=expanded===level.id;
-      return <Card key={level.id} style={{marginBottom:14,border:isOpen?`2px solid ${level.color}50`:`2px solid transparent`}}>
-        <div onClick={()=>setExpanded(isOpen?null:level.id)} style={{display:"flex",alignItems:"center",gap:14,cursor:"pointer",marginBottom:isOpen?20:0}}>
-          <div style={{width:48,height:48,borderRadius:14,background:`${level.color}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24}}>{level.emoji}</div>
-          <div style={{flex:1}}>
-            <div style={{fontSize:16,fontWeight:700,color:T.navy,marginBottom:2}}>{level.label}</div>
-            <div style={{fontSize:13,color:T.textSoft}}>{level.desc}</div>
+      return <div key={level.id} style={{marginBottom:8,background:"#fff",borderRadius:12,border:isOpen?`1.5px solid #0F172A`:"1.5px solid #E2E8F0",overflow:"hidden"}}>
+        {/* Level header */}
+        <div onClick={()=>setExpanded(isOpen?null:level.id)}
+          style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",cursor:"pointer"}}>
+          <span style={{fontSize:20,flexShrink:0}}>{level.emoji}</span>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>{level.label}</div>
+            <div style={{fontSize:11,color:"#94A3B8"}}>{doneCount}/{lLessons.length} lessons · {level.cefrTag}</div>
           </div>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:level.color}}>{donePct}%</div>
-              <div style={{fontSize:11,color:T.textSoft}}>complete</div>
-            </div>
-            <div style={{display:"flex",gap:4}}><Pill style={{background:`${level.color}15`,color:level.color}}>{level.cefrTag}</Pill></div>
-          </div>
-          <div style={{fontSize:20,color:T.textSoft,transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.3s"}}>⌄</div>
+          <div style={{fontSize:12,fontWeight:700,color:donePct>0?"#10B981":"#94A3B8",marginRight:4}}>{donePct}%</div>
+          <span style={{fontSize:14,color:"#94A3B8",transform:isOpen?"rotate(180deg)":"none",transition:"transform 0.2s",display:"inline-block"}}>⌄</span>
         </div>
-        {isOpen&&<div>
-          <ProgressBar value={donePct} color={level.color} style={{marginBottom:20}}/>
-          {level.modules.map(mod=><div key={mod.id} style={{marginBottom:16}}>
-            <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📂 {mod.title}</div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {mod.lessons.map((lesson,li)=>{
-                const done=!!progress[lesson.id];
-                const skillIcon={listening:"🎧",speaking:"🗣️",reading:"📖",writing:"✍️",integrated:"🔄"}[lesson.skill]||"📚";
-                const isNext=!done&&mod.lessons.slice(0,li).every(l=>progress[l.id]);
-                const locked=!isLessonFree(lesson.id)&&!isPremiumUnlocked();
-                return <div key={lesson.id} onClick={()=>onStartLesson(lesson,level)} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,border:`1.5px solid ${done?level.color+"40":isNext&&!locked?level.color:locked?"#e2e8f0":T.border}`,background:done?`${level.color}07`:isNext&&!locked?`${level.color}04`:locked?"#f8fafc":T.card,cursor:"pointer",transition:"all 0.2s",position:"relative",overflow:"hidden",opacity:locked?0.75:1}}>
-                  {isNext&&!done&&!locked&&<div style={{position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,${level.color},${level.color}50)`}}/>}
-                  <div style={{width:36,height:36,borderRadius:11,background:locked?"#e2e8f0":done?level.color:isNext?`${level.color}20`:T.surface,border:isNext&&!locked?`2px solid ${level.color}`:"none",display:"flex",alignItems:"center",justifyContent:"center",fontSize:done?14:16,color:done?"#fff":isNext?level.color:T.textSoft,fontWeight:700,flexShrink:0,transition:"all 0.2s"}}>{locked?"🔒":done?"✓":skillIcon}</div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:14,fontWeight:600,color:locked?"#94a3b8":T.navy,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
-                    <div style={{fontSize:11,color:T.textSoft,marginTop:2,display:"flex",gap:8,alignItems:"center"}}>
-                      <span>{lesson.skill}</span><span>·</span><span>{lesson.mins} min</span><span>·</span><span>{lesson.questions.length} questions</span>
-                      {isNext&&!locked&&<span style={{color:level.color,fontWeight:700,fontSize:11}}>← Next up!</span>}
-                      {locked&&<span style={{color:"#f59e0b",fontWeight:700,fontSize:11}}>⭐ Premium</span>}
-                    </div>
-                  </div>
-                  {locked?<span style={{fontSize:11,background:"linear-gradient(135deg,#f59e0b,#ef4444)",color:"#fff",padding:"3px 8px",borderRadius:8,fontWeight:700,flexShrink:0}}>Unlock</span>:done?<Pill variant="mint" style={{fontSize:11}}>Done ✓</Pill>:isNext?<span style={{fontSize:12,color:level.color,fontWeight:700,flexShrink:0}}>Start →</span>:<span style={{fontSize:12,color:T.textSoft,flexShrink:0}}>→</span>}
-                </div>;
-              })}
-            </div>
+        {/* Progress bar */}
+        {isOpen&&<div style={{height:2,background:"#F1F5F9",margin:"0 14px"}}><div style={{height:"100%",width:`${donePct||1}%`,background:"#0F172A",transition:"width 0.5s"}}/></div>}
+        {/* Lessons list */}
+        {isOpen&&<div style={{padding:"8px 10px"}}>
+          {level.modules.map(mod=><div key={mod.id} style={{marginBottom:8}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,padding:"4px 4px 6px"}}>{mod.title}</div>
+            {mod.lessons.map((lesson,li)=>{
+              const done=!!progress[lesson.id];
+              const isNext=!done&&mod.lessons.slice(0,li).every(l=>progress[l.id]);
+              // Apple won't see a lock icon on iOS — all lessons are free in iOS build.
+              const locked=!IS_IOS_APP && !isLessonFree(lesson.id) && !isPremiumUnlocked();
+              const icon={listening:"🎧",speaking:"🗣️",reading:"📖",writing:"✍️"}[lesson.skill]||"📚";
+              return <div key={lesson.id} onClick={()=>onStartLesson(lesson,level)}
+                style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:9,cursor:"pointer",marginBottom:4,background:done?"#F0FDF4":isNext&&!locked?"#F8FAFC":"transparent",border:isNext&&!locked?"1px solid #E2E8F0":"1px solid transparent"}}>
+                <div style={{width:28,height:28,borderRadius:7,background:locked?"#F1F5F9":done?"#10B981":isNext?"#0F172A":"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:locked?"#94A3B8":done||isNext?"#fff":"#64748B",fontWeight:700,flexShrink:0}}>
+                  {locked?"🔒":done?"✓":icon}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:12,fontWeight:600,color:locked?"#94A3B8":"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+                  <div style={{fontSize:10,color:"#94A3B8"}}>{lesson.mins}min · {lesson.questions.length}q</div>
+                </div>
+                <span style={{fontSize:11,fontWeight:700,color:done?"#10B981":isNext?"#0F172A":locked?"#F59E0B":"#94A3B8",flexShrink:0}}>
+                  {done?"✓":locked?"⭐":isNext?"Start":"→"}
+                </span>
+              </div>;
+            })}
           </div>)}
         </div>}
-      </Card>;
+      </div>;
     })}
   </div>;
 }
 
+// Vocab flip cards — extracted so hooks aren't called inside .map()
+// ─── FRENCH TTS — uses browser Web Speech API ────────────────────────────────
+function speakFrench(text){
+  if(!('speechSynthesis' in window)) return;
+  // Strip anything in parens (English translations) before speaking
+  const cleaned = text.replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(cleaned);
+  utt.lang = "fr-CA";
+  utt.rate = 0.88;
+  utt.pitch = 1;
+  // Prefer a French voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const frVoice = voices.find(v=>v.lang.startsWith("fr-CA"))
+    || voices.find(v=>v.lang.startsWith("fr-FR"))
+    || voices.find(v=>v.lang.startsWith("fr"));
+  if(frVoice) utt.voice = frVoice;
+  window.speechSynthesis.speak(utt);
+}
+
+function SpeakBtn({text, size=14, style={}}){
+  const[speaking,setSpeaking]=useState(false);
+  const handle=(e)=>{
+    e.stopPropagation();
+    setSpeaking(true);
+    speakFrench(text);
+    setTimeout(()=>setSpeaking(false), Math.max(800, text.length*60));
+  };
+  return(
+    <button onClick={handle} title="Listen in French"
+      style={{background:"none",border:"none",cursor:"pointer",padding:"2px 4px",
+        fontSize:size,lineHeight:1,borderRadius:6,transition:"transform 0.15s",
+        transform:speaking?"scale(1.3)":"scale(1)",opacity:speaking?1:0.65,...style}}>
+      {speaking?"🔊":"🔈"}
+    </button>
+  );
+}
+
+function VocabFlipList({vocab}){
+  const[flipped,setFlipped]=useState(()=>vocab.map(()=>false));
+  const toggle=(i)=>setFlipped(f=>{const n=[...f];n[i]=!n[i];return n;});
+  return <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+    {vocab.map((v,i)=>{
+      const parts=v.split(/[()]/);
+      const hasTrans=parts.length>1;
+      const isFlipped=flipped[i];
+      const frWord = parts[0].trim();
+      return <div key={i} style={{display:"flex",alignItems:"center",gap:4,
+          fontSize:13,fontWeight:600,padding:"6px 10px 6px 14px",borderRadius:50,
+          background:isFlipped?T.navy:T.blueLight,color:isFlipped?"#fff":T.navy,
+          fontStyle:"italic",transition:"all 0.25s",border:`1.5px solid ${isFlipped?T.navy:"transparent"}`}}>
+        <span onClick={()=>hasTrans&&toggle(i)} style={{cursor:hasTrans?"pointer":"default"}}>
+          {isFlipped&&hasTrans?<><span style={{fontSize:10,marginRight:4}}>🔄</span>{parts[1]?.trim()||v}</>:<>{v}{hasTrans&&<span style={{fontSize:10,marginLeft:4,opacity:0.5}}>tap</span>}</>}
+        </span>
+        <SpeakBtn text={frWord} size={13} style={{color:isFlipped?"rgba(255,255,255,0.8)":T.navy}}/>
+      </div>;
+    })}
+  </div>;
+}
 
 function LessonScreen({lesson,level,companion,onComplete,onBack}){
   const c=companion||COMPANIONS[0];
-  const[phase,setPhase]=useState("teach");
+  const isMobile=useIsMobile();
+
+  // ── State ──
+  const[phase,setPhase]=useState("recap"); // recap | teach | questions | review | done
+  const[teachSlide,setTeachSlide]=useState(0);
+  const[recapDone,setRecapDone]=useState(false);
   const[qIdx,setQIdx]=useState(0);
   const[selected,setSelected]=useState(null);
-  const[writeVal,setWriteVal]=useState("");
   const[answered,setAnswered]=useState(false);
   const[correct,setCorrect]=useState(0);
   const[xp,setXp]=useState(0);
-  const[showConfetti,setShowConfetti]=useState(false);
-  const[streak,setStreak]=useState(()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}});
-  const[avatarText,setAvatarText]=useState(null);
-  const[typing,setTyping]=useState(false);
-  const[speaking,setSpeaking]=useState(false);
+  const[wrongQueue,setWrongQueue]=useState([]); // questions to review at end
+  const[reviewIdx,setReviewIdx]=useState(0);
+  const[matchSel,setMatchSel]=useState(null); // {side:'fr'|'en', idx}
+  const[matchDone,setMatchDone]=useState([]);
+  const[matchWrong,setMatchWrong]=useState([]);
   const[orderPlaced,setOrderPlaced]=useState([]);
   const[orderBank,setOrderBank]=useState([]);
-  const[speakDone,setSpeakDone]=useState(false);
+  const[showConfetti,setShowConfetti]=useState(false);
+  const[speaking,setSpeaking]=useState(false);
+  const[speakResult,setSpeakResult]=useState(null);
+  const streak=parseInt(localStorage.getItem("franco_streak")||"0");
 
-  // Questions sorted easy-first to build confidence
-  const sortedQuestions = [...lesson.questions].sort((a,b)=>(a.diff||2)-(b.diff||2));
-  const q=sortedQuestions[qIdx];
-  const total=sortedQuestions.length;
+  const questions = lesson.questions||[];
+  const recapQs = lesson.recap ? 
+    (lesson.recap.flatMap(lid => {
+      const prev = [...(FOUNDATION_LESSONS||[]),...(A1_LESSONS||[]),...(A2_LESSONS||[]),...(B1_LESSONS||[])].find(l=>l.id===lid);
+      return prev ? (prev.questions||[]).slice(0,2) : [];
+    })).slice(0,3) : [];
+
+  const total = questions.length;
+  const currentQ = phase==="review" ? wrongQueue[reviewIdx] : questions[qIdx];
+  const q = currentQ;
+  const isOk = q && (() => {
+    if(!q) return false;
+    if(q.type==="match") return matchDone.length === (q.pairs||[]).length && matchWrong.length===0;
+    if(q.type==="tap"||q.type==="mcq"||q.type==="scene") return selected===q.correct;
+    if(q.type==="fill") return selected===q.correct;
+    if(q.type==="order") return JSON.stringify(orderPlaced)===JSON.stringify(q.answer);
+    return true;
+  })();
 
   const speak=(text)=>{
-    setTyping(true);setSpeaking(true);
-    setTimeout(()=>{setTyping(false);setAvatarText(text);},800);
-    setTimeout(()=>setSpeaking(false),Math.min(text.length*40+800,4000));
+    if(!text) return;
+    window.speechSynthesis?.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang="en-CA"; u.rate=0.9;
+    window.speechSynthesis?.speak(u);
   };
 
-  useEffect(()=>{
-    const isFoundation = lesson.id.startsWith('f-');
-    const greet = isFoundation
-      ? `Bienvenue! 🎉 I'm ${c.name} — your AI French coach. We start SUPER easy so you feel confident right away. You've got this!`
-      : `${c.messages.idle} Questions go from easy → harder, so you always start with a win! 💪`;
-    setTimeout(()=>speak(greet),300);
-  },[]);
-
-  useEffect(()=>{
-    if(q?.type==="order"){
-      const shuffled=[...q.words].sort(()=>Math.random()-.5);
-      setOrderBank(shuffled);setOrderPlaced([]);
-    }
-  },[qIdx,q?.type]);
-
-  const handleTeachDone=()=>{
-    setPhase("questions");
-    speak(`Great! Let's practice! ${total} question${total>1?"s":""} — starting easy! 💪`);
+  const resetQ=()=>{
+    setSelected(null); setAnswered(false);
+    setMatchSel(null); setMatchDone([]); setMatchWrong([]);
+    setOrderPlaced([]); setSpeakResult(null);
+    if(q?.type==="order") setOrderBank([...(q.words||[])].sort(()=>Math.random()-0.5));
   };
-
-  const diffLabel=(d)=>d<=1?"⭐ Very Easy":d===2?"⭐⭐ Easy":d===3?"⭐⭐⭐ Medium":d===4?"⭐⭐⭐⭐ Hard":"⭐⭐⭐⭐⭐ CLB Level";
-  const diffColor=(d)=>d<=1?T.mint:d===2?"#22C55E":d===3?T.gold:d===4?"#F97316":T.red;
 
   const checkAnswer=()=>{
-    if(answered)return;
-    let ok=false;
-    if(q.type==="tap"||q.type==="mcq"){ok=selected===q.correct;}
-    else if(q.type==="fill"){ok=selected===q.correct;}
-    else if(q.type==="order"){ok=orderPlaced.join(" ")===q.correct.join(" ");}
-    else if(q.type==="write"){
-      const v=writeVal.trim().toLowerCase().replace(/['']/g,"'");
-      ok=q.accepted.some(a=>v.includes(a.toLowerCase())||a.toLowerCase().split(" ").every(w=>v.includes(w)));
-    }
-    else if(q.type==="speak"){ok=speakDone;}
+    if(answered) return;
     setAnswered(true);
-    if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
-    speak(ok?`${c.messages.correct} ${q.explain}`:
-            `${c.messages.wrong} ${q.explain}`);
+    const ok = isOk;
+    if(ok){
+      setCorrect(x=>x+1);
+      setXp(x=>x+(q.diff||1)*10);
+      speak(c.messages?.correct||"Excellent!");
+    } else {
+      speak(c.messages?.wrong||"Good try!");
+      // Add to wrong queue for review at end (with different type)
+      setWrongQueue(prev=>[...prev, {...q, _review:true}]);
+    }
   };
 
   const nextQ=()=>{
-    if(qIdx<total-1){
-      setQIdx(i=>i+1);setSelected(null);setWriteVal("");setAnswered(false);
-      setSpeakDone(false);setOrderPlaced([]);
-      const msgs = [
-        "Great! Next one ✨","You're on a roll! 🔥","Keep it up! 💪",
-        "Looking good! 🌟","Nice work! →","Almost there! 🏁"
-      ];
-      const encouragements = qIdx===0 ? "Perfect start! Here comes the next one 🎯" :
-        qIdx+1===total-1 ? "Last question — you've nearly done it! 🏁" :
-        msgs[qIdx % msgs.length];
-      setTimeout(()=>speak(encouragements),400);
-    } else {setPhase("done");speak(correct>=total*0.7?c.messages.complete:"Good effort! Every question you do is progress. Review the explanations and try again! 📚");}
+    window.speechSynthesis?.cancel();
+    if(phase==="review"){
+      if(reviewIdx<wrongQueue.length-1){ setReviewIdx(i=>i+1); resetQ(); }
+      else setPhase("done");
+      return;
+    }
+    if(qIdx<total-1){ setQIdx(i=>i+1); resetQ(); }
+    else {
+      if(wrongQueue.length>0){ setPhase("review"); setReviewIdx(0); resetQ(); }
+      else {
+        setPhase("done");
+        setShowConfetti(true);
+        setTimeout(()=>setShowConfetti(false),4000);
+      }
+    }
   };
 
-  const isOk=answered&&(
-    q?.type==="tap"||q?.type==="mcq"||q?.type==="fill"?selected===q?.correct:
-    q?.type==="order"?orderPlaced.join(" ")===q?.correct?.join(" "):
-    q?.type==="write"?q?.accepted?.some(a=>writeVal.trim().toLowerCase().includes(a.toLowerCase())):
-    speakDone
-  );
+  const handleTeachDone=()=>{ setPhase("questions"); resetQ(); };
 
-  const placeWord=(word,idx)=>{if(answered)return;setOrderPlaced(p=>[...p,word]);setOrderBank(b=>{const n=[...b];n.splice(idx,1,"__used__");return n;});};
-  const removeWord=(idx)=>{if(answered)return;const word=orderPlaced[idx];setOrderPlaced(p=>{const n=[...p];n.splice(idx,1);return n;});setOrderBank(b=>b.map(w=>w==="__used__"&&orderBank.indexOf("__used__")>-1?word:w));};
+  // Match logic
+  const handleMatch=(side,idx)=>{
+    if(answered) return;
+    const sel=matchSel;
+    if(!sel){ setMatchSel({side,idx}); return; }
+    if(sel.side===side){ setMatchSel({side,idx}); return; }
+    const frIdx=side==="en"?sel.idx:idx;
+    const enIdx=side==="en"?idx:sel.idx;
+    const pairs=q.pairs||[];
+    const isMatch=pairs[frIdx]&&pairs[frIdx][1]===pairs[enIdx][1]||
+      (pairs[frIdx]&&pairs[enIdx]&&pairs[frIdx][0]===pairs[enIdx][0]);
+    // Check if fr[frIdx] matches en[enIdx]
+    const frWord=pairs[frIdx]?.[0];
+    const enWord=pairs[enIdx]?.[1]||pairs[enIdx]?.[0];
+    const matched=pairs.find(p=>p[0]===frWord&&p[1]===enWord);
+    if(matched){
+      setMatchDone(d=>[...d,frWord]);
+      setMatchSel(null);
+      if(matchDone.length+1===pairs.length){ setAnswered(true); setCorrect(x=>x+1); }
+    } else {
+      setMatchWrong(w=>[...w,frWord]);
+      setMatchSel(null);
+      setTimeout(()=>setMatchWrong(w=>w.filter(x=>x!==frWord)),800);
+    }
+  };
 
-  return <div style={{display:"grid",gridTemplateColumns:"260px 1fr",minHeight:"calc(100vh - 64px)"}}>
-    {/* Avatar Panel */}
-    <div style={{background:`linear-gradient(170deg,${T.navy} 0%,#1A3280 50%,${T.blue} 100%)`,padding:"28px 18px",display:"flex",flexDirection:"column",alignItems:"center",gap:16,position:"sticky",top:64,height:"calc(100vh - 64px)",overflow:"hidden"}}>
-      <div style={{fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:"uppercase",color:"rgba(255,255,255,0.5)"}}>AI Teacher</div>
-      <Avatar companion={c} speaking={speaking} size={110} showWaves/>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"center"}}>
-        {[c.name,level.cefrTag].map(t=><div key={t} style={{fontSize:10,fontWeight:700,padding:"4px 10px",borderRadius:50,background:"rgba(255,255,255,0.1)",color:"rgba(255,255,255,0.85)",border:"1px solid rgba(255,255,255,0.15)"}}>{t}</div>)}
+  useEffect(()=>{
+    if(q?.type==="order"&&!answered) setOrderBank([...(q.words||[])].sort(()=>Math.random()-0.5));
+  },[qIdx,phase,reviewIdx]);
+
+  const diffColor=(d)=>d<=1?"#10B981":d<=2?"#3B82F6":d<=3?"#F59E0B":d<=4?"#EF4444":"#8B5CF6";
+  const diffLabel=(d)=>d<=1?"Easy ⭐":d<=2?"Medium ⭐⭐":d<=3?"Hard ⭐⭐⭐":d<=4?"Very Hard":"Expert";
+
+  // ── Recap Phase ──
+  if(phase==="recap"){
+    if(recapQs.length===0||recapDone){
+      setPhase("teach"); setRecapDone(true);
+      return null;
+    }
+    return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
+      <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:52,zIndex:50}}>
+        <div style={{padding:"0 16px",height:46,display:"flex",alignItems:"center",gap:10}}>
+          <button onClick={()=>{window.speechSynthesis?.cancel();onBack();}} style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B"}}>← Back</button>
+          <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A"}}>Quick Recap</div>
+          <div style={{fontSize:11,color:"#94A3B8"}}>Before we start</div>
+        </div>
+        <div style={{height:2,background:"#F1F5F9"}}><div style={{height:"100%",width:"15%",background:"#F59E0B"}}/></div>
       </div>
-      <SpeechBubble text={avatarText} companion={c} typing={typing}/>
-      {phase==="questions"&&<div style={{width:"100%",marginTop:"auto"}}>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,color:"rgba(255,255,255,0.65)",fontSize:12}}>
-          <span>Progress</span><span style={{color:"#fff",fontWeight:700}}>{qIdx+1}/{total}</span>
+      <div style={{padding:"20px 16px",maxWidth:640,margin:"0 auto"}}>
+        <div style={{background:"#FFFBEB",borderRadius:14,padding:"14px 16px",display:"flex",alignItems:"center",gap:12,marginBottom:16,border:"1px solid #FCD34D"}}>
+          <span style={{fontSize:24}}>⚡</span>
+          <div>
+            <div style={{fontSize:14,fontWeight:700,color:"#92400E"}}>Quick recap from last lesson!</div>
+            <div style={{fontSize:12,color:"#78350F"}}>{recapQs.length} quick questions — then we start the new lesson</div>
+          </div>
         </div>
-        <div style={{height:7,background:"rgba(255,255,255,0.15)",borderRadius:99,overflow:"hidden"}}>
-          <div style={{height:"100%",width:`${((qIdx+(answered?1:0))/total)*100}%`,background:"linear-gradient(90deg,#60A5FA,#34D399)",transition:"width 0.5s"}}/>
+        <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",padding:"20px",textAlign:"center"}}>
+          <div style={{fontSize:32,marginBottom:12}}>🧠</div>
+          <div style={{fontSize:15,fontWeight:700,color:"#0F172A",marginBottom:8}}>Remember this?</div>
+          <div style={{fontSize:13,color:"#64748B",marginBottom:20}}>These words came from your last lesson. Let's make sure they stick!</div>
+          <button onClick={()=>{setRecapDone(true);setPhase("teach");}}
+            style={{background:"#F59E0B",color:"#fff",border:"none",padding:"12px 28px",borderRadius:12,fontFamily:"system-ui",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+            Start Recap ⚡
+          </button>
+          <div style={{marginTop:10}}><button onClick={()=>{setRecapDone(true);setPhase("teach");}} style={{background:"none",border:"none",color:"#94A3B8",fontSize:12,cursor:"pointer"}}>Skip recap →</button></div>
         </div>
-        <div style={{marginTop:10,display:"flex",gap:5,justifyContent:"center",flexWrap:"wrap"}}>
-          {lesson.questions.map((_,i)=><div key={i} style={{width:8,height:8,borderRadius:"50%",background:i<qIdx?T.mint:i===qIdx?"#fff":"rgba(255,255,255,0.2)",transition:"all 0.3s"}}/>)}
+      </div>
+    </div>;
+  }
+
+  return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
+    {/* TOP BAR */}
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:52,zIndex:50}}>
+      <div style={{padding:"0 16px",height:46,display:"flex",alignItems:"center",gap:10}}>
+        <button onClick={()=>{if(window.confirm("Leave lesson?")){window.speechSynthesis?.cancel();onBack();}}}
+          style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>← Back</button>
+        <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
+        <div style={{fontSize:11,fontWeight:600,color:"#94A3B8",flexShrink:0}}>
+          {phase==="teach"?"Lesson":phase==="done"?"Done!":phase==="review"?"Review 🔄":`${qIdx+1}/${total}`}
         </div>
-        <div style={{marginTop:10,textAlign:"center",fontSize:11,color:"rgba(255,255,255,0.5)"}}>⭐ {xp} XP earned</div>
-      </div>}
+      </div>
+      <div style={{height:2,background:"#F1F5F9"}}>
+        <div style={{height:"100%",
+          width:phase==="teach"?"8%":phase==="done"?"100%":phase==="review"?"95%":`${Math.round(((qIdx+(answered?1:0))/total)*100)}%`,
+          background:phase==="review"?"#F59E0B":"#0F172A",transition:"width 0.4s"}}/>
+      </div>
     </div>
 
-    {/* Content */}
-    <div style={{padding:28,display:"flex",flexDirection:"column",gap:18,overflowY:"auto"}}>
-      {/* TEACH PHASE */}
-      {phase==="teach"&&<>
-        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <Pill variant="blue">📖 Lesson</Pill>
-          <div style={{fontFamily:"'Playfair Display',serif",fontSize:21,fontWeight:700,color:T.navy}}>{lesson.title}</div>
-          <Pill style={{background:`${level.color}20`,color:level.color}}>{level.cefrTag}</Pill>
+    <div style={{padding:"14px 16px 80px",maxWidth:640,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
+
+      {/* ══ TEACH PHASE ══ */}
+      {phase==="teach"&&(()=>{
+        const slides=[{type:"intro",cta:"Let's learn →"},{type:"vocab",cta:"Got it →"},{type:"ready",cta:"Start questions →"}];
+        const slide=slides[teachSlide];
+        const companionMsgs=[
+          `Bonjour! I'm ${c.name}. Today: "${lesson.title}". This lesson is based on real situations you'll face in Canada — read carefully! 😊`,
+          `Great! These are the key words. Tap each one to see the meaning. Tap 🔈 to hear the pronunciation!`,
+          `You're ready! Questions start easy and get harder. Wrong answers come back at the end in a different format — that's how your brain learns! 💪`
+        ];
+        const next=()=>teachSlide===slides.length-1?handleTeachDone():setTeachSlide(s=>s+1);
+        return <>
+          <div style={{display:"flex",gap:6,justifyContent:"center"}}>
+            {slides.map((_,i)=><div key={i} style={{width:i===teachSlide?24:6,height:6,borderRadius:99,background:i===teachSlide?"#0F172A":i<teachSlide?"#94A3B8":"#E2E8F0",transition:"all 0.3s"}}/>)}
+          </div>
+          <div style={{background:"#0F172A",borderRadius:14,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+            <Avatar companion={c} size={34}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{c.name} says</div>
+              <div style={{fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.5,fontStyle:"italic"}}>{companionMsgs[teachSlide]}</div>
+            </div>
+          </div>
+          <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+            {slide.type==="intro"&&<>
+              <div style={{background:"#0F172A",padding:"18px"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{level?.cefrTag||"Pre-A1"} · {lesson.skill} · {lesson.mins} min</div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.25}}>{lesson.title}</div>
+              </div>
+              <div style={{padding:"16px 18px"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>The story</div>
+                <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:14}}>{lesson.teach}</div>
+                <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
+              </div>
+            </>}
+            {slide.type==="vocab"&&<>
+              <div style={{padding:"16px 18px 10px",borderBottom:"1px solid #F1F5F9"}}>
+                <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:800,color:"#0F172A",marginBottom:3}}>Key vocabulary</div>
+                <div style={{fontSize:11,color:"#94A3B8"}}>Tap to translate · 🔈 to hear pronunciation</div>
+              </div>
+              <div style={{padding:"14px 18px"}}><VocabFlipList vocab={lesson.vocab}/></div>
+              <div style={{padding:"10px 18px",background:"#F8FAFC",borderTop:"1px solid #F1F5F9",fontSize:11,color:"#64748B"}}>💡 These words appear in the questions — learn them well!</div>
+            </>}
+            {slide.type==="ready"&&<div style={{padding:"28px 20px",display:"flex",flexDirection:"column",alignItems:"center",textAlign:"center",gap:14}}>
+              <div style={{fontSize:48}}>🎯</div>
+              <div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:19,fontWeight:800,color:"#0F172A",marginBottom:6}}>Ready to practise?</div>
+                <div style={{fontSize:13,color:"#64748B",lineHeight:1.6}}>{total} questions · easy first · wrong answers reviewed at end</div>
+              </div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
+                {[...new Set((lesson.questions||[]).map(q=>q.type))].map(t=>{
+                  const icons={tap:"👆 Tap",mcq:"🎯 Choose",fill:"✏️ Fill",order:"🔀 Build",write:"✍️ Write",speak:"🎤 Speak",match:"🔗 Match",scene:"📖 Story"};
+                  return <span key={t} style={{fontSize:12,fontWeight:600,padding:"5px 12px",borderRadius:50,background:"#F1F5F9",color:"#475569"}}>{icons[t]||t}</span>;
+                })}
+              </div>
+              {wrongQueue.length===0&&<div style={{fontSize:11,color:"#94A3B8"}}>🔄 Wrong answers come back at the end in a new format</div>}
+            </div>}
+          </div>
+          <div style={{display:"flex",gap:8}}>
+            {teachSlide>0&&<button onClick={()=>setTeachSlide(s=>s-1)} style={{padding:"13px 18px",background:"#F8FAFC",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:13,cursor:"pointer"}}>← Back</button>}
+            <button onClick={next} style={{flex:1,padding:"14px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:800,fontSize:14,cursor:"pointer"}}>{slide.cta}</button>
+          </div>
+        </>;
+      })()}
+
+      {/* ══ QUESTION / REVIEW PHASE ══ */}
+      {(phase==="questions"||phase==="review")&&q&&<>
+        {/* Review banner */}
+        {phase==="review"&&<div style={{background:"#FEF3C7",borderRadius:12,padding:"10px 14px",display:"flex",gap:10,alignItems:"center",border:"1px solid #FCD34D"}}>
+          <span style={{fontSize:20}}>🔄</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:700,color:"#92400E"}}>Review time! Different question, same word.</div>
+            <div style={{fontSize:11,color:"#78350F"}}>Question {reviewIdx+1} of {wrongQueue.length} — your brain learns better this way!</div>
+          </div>
+        </div>}
+
+        {/* Question type label */}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5}}>
+            {q.type==="tap"?"👆 Tap the answer":q.type==="mcq"?"🎯 Choose the best answer":q.type==="fill"?"✏️ Fill in the blank":q.type==="order"?"🔀 Build the sentence":q.type==="match"?"🔗 Match the pairs":q.type==="scene"?"📖 Read & answer":q.type==="speak"?"🎤 Speaking":"✍️ Write"}
+          </span>
+          <div style={{flex:1,height:1,background:"#F1F5F9"}}/>
+          <span style={{fontSize:10,fontWeight:700,color:diffColor(q.diff||2)}}>{diffLabel(q.diff||2)}</span>
         </div>
-        <Card>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>🎯 What You'll Learn</div>
-          <div style={{fontSize:15,color:T.textMid,lineHeight:1.75,marginBottom:18}}>{lesson.teach}</div>
-          <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>📝 Key Vocabulary — click to flip!</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {lesson.vocab.map((v,i)=>{
-              const[flipped,setFlipped]=useState(false);
-              const parts=v.split(/[()]/);
-              const hasTrans=parts.length>1;
-              return <div key={v} onClick={()=>hasTrans&&setFlipped(f=>!f)}
-                style={{fontSize:13,fontWeight:600,padding:"8px 14px",borderRadius:50,
-                  background:flipped?T.navy:T.blueLight,color:flipped?"#fff":T.navy,
-                  fontStyle:"italic",cursor:hasTrans?"pointer":"default",
-                  transition:"all 0.25s",border:`1.5px solid ${flipped?T.navy:"transparent"}`}}>
-                {flipped&&hasTrans?<><span style={{fontSize:10,marginRight:4}}>🔄</span>{parts[1]?.trim()||v}</>:<>{v}{hasTrans&&<span style={{fontSize:10,marginLeft:4,opacity:0.5}}>tap</span>}</>}
-              </div>;
+
+        {/* TAP */}
+        {q.type==="tap"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"24px 20px 16px",textAlign:"center",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:800,color:"#0F172A",marginBottom:8}}>{q.fr}</div>
+            <div style={{fontSize:12,color:"#94A3B8",marginBottom:12}}>What does this mean in English?</div>
+            <button onClick={()=>speakFrench(q.fr)} style={{background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"5px 14px",fontSize:12,color:"#64748B",cursor:"pointer"}}>🔈 Listen</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+            {q.opts.map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+              return <button key={i} disabled={answered} onClick={()=>setSelected(i)}
+                style={{padding:"16px 12px",border:"none",borderRight:i%2===0?"1px solid #F1F5F9":"none",borderTop:"1px solid #F1F5F9",background:isC?"#ECFDF5":isW?"#FEF2F2":isSel?"#EFF6FF":"#fff",cursor:answered?"default":"pointer",fontSize:14,fontWeight:600,color:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#0F172A",transition:"all 0.15s"}}>
+                {isC?"✓ ":isW?"✗ ":""}{opt}</button>;
             })}
           </div>
-        </Card>
-        <Card style={{background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)",border:"1.5px solid #FCD34D"}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
-            <span style={{fontSize:20}}>🍁</span>
-            <div style={{fontSize:14,fontWeight:700,color:T.navy}}>Canadian Context</div>
+        </div>}
+
+        {/* MCQ & SCENE */}
+        {(q.type==="mcq"||q.type==="scene")&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          {q.type==="scene"&&q.story&&<div style={{padding:"14px 18px",background:"#F8FAFC",borderBottom:"1px solid #F1F5F9",fontSize:13,color:"#334155",lineHeight:1.7,fontStyle:"italic",borderLeft:"3px solid #3B82F6"}}>
+            📖 {q.story}
+          </div>}
+          <div style={{padding:"16px 18px",borderBottom:"1px solid #F1F5F9",display:"flex",gap:10}}>
+            <div style={{flex:1,fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
+            <button onClick={()=>speakFrench(q.prompt)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94A3B8",padding:0}}>🔈</button>
           </div>
-          <div style={{fontSize:13,color:T.textMid,lineHeight:1.65}}>This lesson is designed for real Canadian life — the situations, vocabulary, and phrases used daily in Quebec, Ontario, and across Canada. Every example is practical and immediately useful.</div>
-        </Card>
-        {/* Activity type preview */}
-        <div style={{background:"linear-gradient(135deg,#F0F4FF,#E8F0FE)",borderRadius:16,padding:"16px 20px",border:`1.5px solid ${T.border}`}}>
-          <div style={{fontSize:11,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>📊 What you'll do in this lesson:</div>
-          <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:12}}>
-            {(()=>{
-              const types=[...new Set(sortedQuestions.map(q=>q.type))];
-              const icons={tap:"👆 Tap",mcq:"🎯 Choice",fill:"✏️ Fill",order:"🔀 Build",write:"✍️ Write",speak:"🎤 Speak"};
-              return types.map(t=><span key={t} style={{fontSize:12,fontWeight:700,padding:"6px 13px",borderRadius:50,background:T.card,border:`1.5px solid ${T.border}`,color:T.navy}}>{icons[t]||t}</span>);
-            })()}
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:16,fontSize:13,color:T.textMid}}>
-            <span>⏱ ~{lesson.mins} min</span>
-            <span>❓ {total} questions</span>
-            <span style={{color:T.mint,fontWeight:700}}>⭐ Starts easy!</span>
-          </div>
-        </div>
-        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          <Btn onClick={handleTeachDone} style={{padding:"15px 32px",fontSize:15}}>Start Practice Questions →</Btn>
-          <div style={{fontSize:12,color:T.textSoft}}>100% free · no account needed · no ads 🎉</div>
-        </div>
-      </>}
-
-      {/* QUESTION PHASE */}
-      {phase==="questions"&&q&&<>
-        {/* Question header with progress */}
-        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-          <div style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:`${diffColor(q.diff||2)}18`,color:diffColor(q.diff||2),border:`1.5px solid ${diffColor(q.diff||2)}35`}}>{diffLabel(q.diff||2)}</div>
-          <div style={{fontSize:12,color:T.textSoft}}>Question {qIdx+1} of {total}</div>
-          {qIdx===0&&<div style={{fontSize:12,fontWeight:700,color:T.mint,padding:"3px 10px",borderRadius:50,background:T.mintLight}}>Easiest first! 😊</div>}
-          <div style={{marginLeft:"auto"}}><Pill variant="blue">{q.type==="tap"?"👆 Tap":"mcq"===q.type?"🎯 Multiple Choice":"fill"===q.type?"✏️ Fill Blank":"order"===q.type?"🔀 Build Sentence":"speak"===q.type?"🎤 Speak":"✍️ Write"}</Pill></div>
-        </div>
-
-        {/* TAP type — easiest, just tap the translation */}
-        {q.type==="tap"&&<>
-          <Card>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:32,fontWeight:700,color:T.navy,textAlign:"center",padding:"20px 0 10px",letterSpacing:1}}>{q.fr}</div>
-            <div style={{textAlign:"center",fontSize:13,color:T.textSoft,marginBottom:20}}>What does this mean in English?</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {q.opts.map((opt,i)=>{
-                const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"16px 14px",borderRadius:16,border:`2.5px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontSize:15,fontWeight:600,color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s",boxShadow:isC?"0 0 0 3px rgba(16,185,129,0.15)":isSel?"0 0 0 3px rgba(26,86,219,0.15)":"none"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
-              })}
-            </div>
-          </Card>
-        </>}
-
-        {/* MCQ type */}
-        {q.type==="mcq"&&<>
-          <Card>
-            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.5}}>{q.prompt}</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-              {q.options.map((opt,i)=>{
-                const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"14px 16px",borderRadius:14,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:10,fontSize:14,fontWeight:500,color:T.text,transition:"all 0.2s"}}>
-                  <span style={{width:26,height:26,borderRadius:8,background:isC?T.mint:isW?T.red:isSel?T.blue:T.surface,color:(isSel||isC||isW)?"#fff":T.textMid,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}</button>;
-              })}
-            </div>
-          </Card>
-        </>}
-
-        {/* FILL type */}
-        {q.type==="fill"&&<>
-          <Card>
-            <div style={{fontSize:14,color:T.textSoft,marginBottom:12,fontWeight:600}}>Fill in the blank:</div>
-            <div style={{fontSize:20,fontWeight:700,color:T.navy,marginBottom:20,lineHeight:1.6}}>
-              {q.before} <span style={{display:"inline-block",minWidth:80,borderBottom:`3px solid ${answered?(isOk?T.mint:T.red):T.blue}`,padding:"2px 8px",color:answered?isOk?T.mint:T.red:T.blue,fontStyle:"italic"}}>{selected!==null?q.options[selected]:"___"}</span> {q.after}
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
-              {q.options.map((opt,i)=>{
-                const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
-                return <button key={i} disabled={answered} onClick={()=>setSelected(i)} style={{padding:"13px 16px",borderRadius:12,border:`2px solid ${isC?T.mint:isW?T.red:isSel?T.blue:T.border}`,background:isC?T.mintLight:isW?T.redLight:isSel?T.blueLight:T.card,cursor:answered?"default":"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:600,fontStyle:"italic",color:isC?"#065F46":isW?"#991B1B":T.text,transition:"all 0.2s"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
-              })}
-            </div>
-          </Card>
-        </>}
-
-        {/* ORDER type — drag/click to build sentence */}
-        {q.type==="order"&&<>
-          <Card>
-            <div style={{fontSize:13,fontWeight:700,color:T.textSoft,marginBottom:8,textTransform:"uppercase",letterSpacing:.8}}>Arrange the words:</div>
-            <div style={{minHeight:52,padding:"10px 12px",background:T.surface,borderRadius:12,border:`2px dashed ${answered?(isOk?T.mint:T.red):T.border}`,marginBottom:14,display:"flex",flexWrap:"wrap",gap:7,alignItems:"center"}}>
-              {orderPlaced.length===0&&<span style={{color:T.textSoft,fontSize:13,fontStyle:"italic"}}>Click words below to build the sentence...</span>}
-              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>removeWord(i)} style={{padding:"7px 13px",borderRadius:50,background:answered?isOk?T.mint:T.red:T.blue,color:"#fff",border:"none",fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,cursor:answered?"default":"pointer",transition:"all 0.2s"}}>{w}</button>)}
-            </div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-              {orderBank.map((w,i)=>w==="__used__"?<div key={i} style={{padding:"7px 13px",minWidth:40,height:35}}/>:<button key={i} disabled={answered} onClick={()=>placeWord(w,i)} style={{padding:"7px 13px",borderRadius:50,background:T.card,border:`2px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontWeight:600,fontSize:14,cursor:"pointer",color:T.text,transition:"all 0.2s"}}>{w}</button>)}
-            </div>
-          </Card>
-        </>}
-
-        {/* WRITE type — AI Writing Checker */}
-        {q.type==="write"&&<>
-          <Card>
-            <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:8,lineHeight:1.5}}>{q.prompt}</div>
-            {q.hint&&<div style={{fontSize:13,color:T.textMid,background:T.goldLight,padding:"10px 12px",borderRadius:10,marginBottom:12,border:"1.5px solid #FCD34D"}}>💡 Hint: {q.hint}</div>}
-            <div style={{fontSize:12,fontWeight:600,color:T.textSoft,marginBottom:7}}>Write your answer in French — AI will check it: ✍️🤖</div>
-            {!answered
-              ? <AIWritingChecker
-                  prompt={q.prompt}
-                  accepted={q.accepted}
-                  level={level?.cefrTag||"A1"}
-                  onResult={(isCorrect)=>{
-                    if(!answered){
-                      setAnswered(true);
-                      if(isCorrect){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
-                      speak(isCorrect?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);
-                    }
-                  }}
-                />
-              : <div style={{padding:12,borderRadius:10,background:isOk?T.mintLight:T.redLight,fontSize:14,color:T.text,fontStyle:"italic"}}>✅ Answer submitted</div>
-            }
-          </Card>
-        </>}
-
-        {/* SPEAK type — AI Speaking Coach */}
-        {q.type==="speak"&&<>
-          <Card style={{border:`2px solid #F9731620`,background:"linear-gradient(135deg,#FFF7ED,#FEF3C7)"}}>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:12}}>{q.prompt}</div>
-            <AISpeakingCoach
-              prompt={q.prompt}
-              sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
-              onDone={(passed)=>{
-                setSpeakDone(true);
-                if(!answered){
-                  setAnswered(true);
-                  if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*15);}
-                  speak(passed?`${c.messages.correct} ${q.explain}`:`${c.messages.wrong} ${q.explain}`);
-                }
-              }}
-            />
-          </Card>
-        </>}
-
-        {/* Feedback */}
-        {answered&&<div style={{padding:"16px 18px",borderRadius:16,background:isOk?"linear-gradient(135deg,#D1FAE5,#ECFDF5)":"linear-gradient(135deg,#FEF3C7,#FFFBEB)",border:`2px solid ${isOk?"#6EE7B7":"#FCD34D"}`,display:"flex",alignItems:"flex-start",gap:12,animation:"slideUp 0.3s ease"}}>
-          <span style={{fontSize:24,flexShrink:0}}>{isOk?"✅":"💡"}</span>
-          <div style={{flex:1}}>
-            <div style={{fontWeight:700,fontSize:14,color:isOk?"#065F46":"#92400E",marginBottom:5}}>{isOk?"Correct! You're getting it! 🌟":"Good try — here's how it works:"}</div>
-            <div style={{fontSize:13,color:isOk?"#065F46":"#78350F",lineHeight:1.65}}>{q.explain}</div>
-            {!isOk&&<div style={{marginTop:8,fontSize:12,color:"#92400E",fontWeight:600}}>Don't worry — mistakes are how the brain learns! 🧠</div>}
+          <div style={{display:"flex",flexDirection:"column"}}>
+            {(q.options||[]).map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+              return <button key={i} disabled={answered} onClick={()=>setSelected(i)}
+                style={{padding:"13px 18px",border:"none",borderTop:"1px solid #F1F5F9",background:isC?"#ECFDF5":isW?"#FEF2F2":isSel?"#EFF6FF":"#fff",cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,fontSize:14,color:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#0F172A",fontWeight:isSel||isC||isW?600:400,transition:"all 0.15s"}}>
+                <span style={{width:24,height:24,borderRadius:6,background:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#F1F5F9",color:isC||isW||isSel?"#fff":"#64748B",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}
+              </button>;
+            })}
           </div>
         </div>}
 
-        {/* Action buttons */}
-        <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-          {!answered
-            ?<Btn onClick={checkAnswer} disabled={
-                (q.type==="tap"||q.type==="mcq"||q.type==="fill")?selected===null:
-                q.type==="order"?orderPlaced.length===0:
-                q.type==="write"||q.type==="speak"?false:false
-              }>{q.type==="write"||q.type==="speak"?"AI is checking... ✓":"Check Answer ✓"}</Btn>
-            :<Btn onClick={nextQ}>{qIdx<total-1?"Next Question →":"See Results →"}</Btn>}
-          {!answered&&q.type!=="speak"&&q.type!=="write"&&<Btn variant="ghost" onClick={nextQ}>Skip →</Btn>}
-          {!answered&&<AIHintButton question={q} level={level?.cefrTag||"A1"}/>}
+        {/* FILL */}
+        {q.type==="fill"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"18px",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontSize:18,fontWeight:700,color:"#0F172A",lineHeight:1.7}}>
+              {q.before} <span style={{display:"inline-block",minWidth:70,borderBottom:`2px solid ${answered?(isOk?"#059669":"#DC2626"):"#2563EB"}`,padding:"2px 6px",color:answered?isOk?"#059669":"#DC2626":"#2563EB",fontStyle:"italic"}}>{selected!==null?(q.options||[])[selected]:"___"}</span> {q.after}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr"}}>
+            {(q.options||[]).map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+              return <button key={i} disabled={answered} onClick={()=>setSelected(i)}
+                style={{padding:"13px 12px",border:"none",borderRight:i%2===0?"1px solid #F1F5F9":"none",borderTop:"1px solid #F1F5F9",background:isC?"#ECFDF5":isW?"#FEF2F2":isSel?"#EFF6FF":"#fff",cursor:answered?"default":"pointer",fontSize:14,fontWeight:600,color:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#0F172A"}}>{isC?"✓ ":isW?"✗ ":""}{opt}</button>;
+            })}
+          </div>
+        </div>}
+
+        {/* MATCH */}
+        {q.type==="match"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"14px 18px",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontSize:14,fontWeight:700,color:"#0F172A",marginBottom:4}}>{q.prompt}</div>
+            <div style={{fontSize:11,color:"#94A3B8"}}>Tap a French word, then tap its English meaning</div>
+          </div>
+          <div style={{padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>French</div>
+              {(q.pairs||[]).map((pair,i)=>{
+                const isDone=matchDone.includes(pair[0]);
+                const isSel=matchSel?.side==="fr"&&matchSel?.idx===i;
+                const isWrong=matchWrong.includes(pair[0]);
+                return <button key={i} disabled={isDone} onClick={()=>handleMatch("fr",i)}
+                  style={{padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isWrong?"#EF4444":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isWrong?"#FEF2F2":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:600,color:isDone?"#059669":isWrong?"#DC2626":isSel?"#2563EB":"#0F172A",cursor:isDone?"default":"pointer",textAlign:"left",transition:"all 0.2s",textDecoration:isDone?"line-through":"none"}}>
+                  {pair[0]}
+                </button>;
+              })}
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>English</div>
+              {(q.pairs||[]).map((pair,i)=>{
+                const isDone=matchDone.includes(pair[0]);
+                const isSel=matchSel?.side==="en"&&matchSel?.idx===i;
+                return <button key={i} disabled={isDone} onClick={()=>handleMatch("en",i)}
+                  style={{padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:500,color:isDone?"#059669":isSel?"#2563EB":"#475569",cursor:isDone?"default":"pointer",textAlign:"left",transition:"all 0.2s"}}>
+                  {pair[1]}
+                </button>;
+              })}
+            </div>
+          </div>
+          {matchDone.length===(q.pairs||[]).length&&<div style={{padding:"10px 18px",background:"#ECFDF5",borderTop:"1px solid #D1FAE5",fontSize:13,fontWeight:700,color:"#059669",textAlign:"center"}}>
+            ✓ All matched! {q.explain}
+          </div>}
+        </div>}
+
+        {/* ORDER */}
+        {q.type==="order"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"14px 18px",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontSize:13,color:"#94A3B8",marginBottom:10}}>Tap words to build the sentence</div>
+            <div style={{minHeight:48,padding:"10px 12px",background:"#F8FAFC",borderRadius:10,border:`1.5px dashed ${answered?(isOk?"#059669":"#DC2626"):"#CBD5E0"}`,display:"flex",flexWrap:"wrap",gap:6,alignItems:"center"}}>
+              {orderPlaced.length===0&&<span style={{color:"#CBD5E0",fontSize:13}}>Tap words below...</span>}
+              {orderPlaced.map((w,i)=><button key={i} disabled={answered} onClick={()=>{if(answered)return;const word=orderPlaced[i];setOrderPlaced(p=>{const n=[...p];n.splice(i,1);return n;});setOrderBank(b=>[...b,word]);}}
+                style={{padding:"6px 12px",borderRadius:50,background:answered?isOk?"#059669":"#DC2626":"#0F172A",color:"#fff",border:"none",fontWeight:600,fontSize:13,cursor:answered?"default":"pointer"}}>{w}</button>)}
+            </div>
+          </div>
+          <div style={{padding:"12px 18px",display:"flex",flexWrap:"wrap",gap:8}}>
+            {orderBank.map((w,i)=><button key={i} disabled={answered} onClick={()=>{setOrderPlaced(p=>[...p,w]);setOrderBank(b=>{const n=[...b];n.splice(i,1);return n;});}}
+              style={{padding:"6px 12px",borderRadius:50,background:"#F8FAFC",border:"1.5px solid #E2E8F0",fontWeight:600,fontSize:13,cursor:"pointer",color:"#0F172A"}}>{w}</button>)}
+          </div>
+        </div>}
+
+        {/* WRITE */}
+        {q.type==="write"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"18px",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
+            {q.hint&&<div style={{fontSize:12,color:"#92400E",background:"#FFFBEB",padding:"8px 12px",borderRadius:8,border:"1px solid #FCD34D",marginTop:8}}>💡 {q.hint}</div>}
+          </div>
+          <div style={{padding:"14px 18px"}}>
+            <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>Write in French — Claude will check it</div>
+            {!answered?<AIWritingChecker prompt={q.prompt} accepted={q.accepted} level={level?.cefrTag||"A1"}
+              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}speak(ok?"Excellent!":"Good try!");}}}/>
+            :<div style={{padding:"10px 14px",borderRadius:10,background:isOk?"#ECFDF5":"#FEF2F2",fontSize:13,color:isOk?"#059669":"#DC2626",fontWeight:600}}>{isOk?"✓ Great answer!":"✗ Submitted"}</div>}
+          </div>
+        </div>}
+
+        {/* SPEAK */}
+        {q.type==="speak"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          <div style={{padding:"18px",borderBottom:"1px solid #F1F5F9"}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
+          </div>
+          <div style={{padding:"14px 18px"}}>
+            <AISpeakingCoach prompt={q.prompt} sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
+              onDone={(passed)=>{if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}speak(passed?"Excellent!":"Good try!");}}}/>
+          </div>
+        </div>}
+
+        {/* FEEDBACK */}
+        {answered&&q.type!=="match"&&<div style={{borderRadius:14,border:`1px solid ${isOk?"#6EE7B7":"#FCA5A5"}`,background:isOk?"#F0FDF4":"#FFF5F5",padding:"14px 16px",display:"flex",gap:12}}>
+          <span style={{fontSize:20,flexShrink:0}}>{isOk?"✅":"💡"}</span>
+          <div>
+            <div style={{fontWeight:700,fontSize:13,color:isOk?"#059669":"#DC2626",marginBottom:4}}>
+              {isOk?"Correct! 🌟":"Good try — here's why:"}
+            </div>
+            <div style={{fontSize:13,color:isOk?"#065F46":"#7F1D1D",lineHeight:1.65}}>{q.explain}</div>
+            {!isOk&&phase!=="review"&&<div style={{marginTop:6,fontSize:11,color:"#94A3B8"}}>🔄 This will come back at the end in a different format</div>}
+          </div>
+        </div>}
+
+        {/* ACTIONS */}
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {q.type==="match"?
+            <button onClick={()=>nextQ()} disabled={matchDone.length!==(q.pairs||[]).length}
+              style={{flex:1,padding:"13px",background:matchDone.length===(q.pairs||[]).length?"#0F172A":"#F1F5F9",color:matchDone.length===(q.pairs||[]).length?"#fff":"#94A3B8",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+              {qIdx<total-1?"Next →":"See Results →"}
+            </button>
+          :!answered?
+            <button onClick={checkAnswer}
+              disabled={(q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene")?selected===null:q.type==="order"?orderPlaced.length===0:false}
+              style={{flex:1,padding:"13px",background:((q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene")&&selected===null)||(q.type==="order"&&orderPlaced.length===0)?"#F1F5F9":"#0F172A",color:((q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene")&&selected===null)||(q.type==="order"&&orderPlaced.length===0)?"#94A3B8":"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}>
+              Check Answer
+            </button>
+          :
+            <button onClick={nextQ}
+              style={{flex:1,padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+              {phase==="review"?reviewIdx<wrongQueue.length-1?"Next Review →":"See Results →":qIdx<total-1?"Next Question →":"See Results →"}
+            </button>
+          }
+          {!answered&&q.type!=="speak"&&q.type!=="write"&&q.type!=="match"&&
+            <button onClick={()=>nextQ()} style={{padding:"13px 16px",background:"#F8FAFC",color:"#94A3B8",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:13,cursor:"pointer"}}>Skip</button>}
+          {!answered&&q.type!=="match"&&<AIHintButton question={q} level={level?.cefrTag||"A1"}/>}
         </div>
       </>}
 
-      {/* DONE PHASE — with confetti, streak, XP */}
-      {phase==="done"&&<div style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",gap:20,textAlign:"center",padding:"32px 16px",overflow:"hidden"}}>
-
-        {/* Confetti burst */}
+      {/* ══ DONE PHASE ══ */}
+      {phase==="done"&&<div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"20px 0",textAlign:"center"}}>
         {showConfetti&&<div style={{position:"fixed",inset:0,pointerEvents:"none",zIndex:9999}}>
-          {Array.from({length:60}).map((_,i)=>{
-            const colors=[T.mint,T.gold,T.blue,"#F472B6","#A78BFA","#34D399","#FCD34D"];
-            const x=Math.random()*100; const delay=Math.random()*1.5; const size=6+Math.random()*8;
-            return <div key={i} style={{position:"absolute",left:`${x}%`,top:"-10px",width:size,height:size,borderRadius:Math.random()>0.5?"50%":"2px",background:colors[i%colors.length],animation:`confettiFall ${1.5+Math.random()*2}s ${delay}s ease-in forwards`,transform:`rotate(${Math.random()*360}deg)`}}/>;
-          })}
+          {Array.from({length:50}).map((_,i)=>{const colors=["#059669","#D97706","#2563EB","#F472B6","#7C3AED"];const x=Math.random()*100;const delay=Math.random()*1.2;const size=5+Math.random()*7;
+            return <div key={i} style={{position:"absolute",left:`${x}%`,top:"-10px",width:size,height:size,borderRadius:Math.random()>0.5?"50%":"2px",background:colors[i%colors.length],animation:`confettiFall ${1.5+Math.random()*2}s ${delay}s ease-in forwards`}}/>;
+          })}</div>}
+        <div style={{fontSize:64}}>{correct>=total*0.8?"🏆":correct>=total*0.6?"🎉":correct>=total*0.4?"💪":"📚"}</div>
+        <div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:800,color:"#0F172A",marginBottom:6}}>{correct>=total*0.8?"Outstanding!":correct>=total*0.6?"Great work!":correct>=total*0.4?"Good effort!":"Keep going!"}</div>
+          <div style={{fontSize:13,color:"#64748B",lineHeight:1.6,maxWidth:280}}>{correct>=total*0.8?"You're thinking in French now! 🍁":correct>=total*0.6?"Every lesson makes French easier!":"Your brain is rewiring for French. Keep going!"}</div>
+        </div>
+        <div style={{display:"flex",gap:10,width:"100%"}}>
+          {[{val:`${correct}/${total}`,lbl:"Correct"},{val:`+${xp} XP`,lbl:"Earned"},{val:`${streak}🔥`,lbl:"Streak"}].map(s=>(
+            <div key={s.lbl} style={{flex:1,background:"#fff",border:"1px solid #E2E8F0",borderRadius:12,padding:"12px 8px",textAlign:"center"}}>
+              <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>{s.val}</div>
+              <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>{s.lbl}</div>
+            </div>
+          ))}
+        </div>
+        {wrongQueue.length>0&&<div style={{background:"#FEF3C7",borderRadius:12,padding:"12px 16px",width:"100%",border:"1px solid #FCD34D",textAlign:"left"}}>
+          <div style={{fontSize:13,fontWeight:700,color:"#92400E",marginBottom:4}}>🔄 {wrongQueue.length} words reviewed at end</div>
+          <div style={{fontSize:11,color:"#78350F"}}>These will come back in your next lesson recap — spaced repetition at work!</div>
         </div>}
-
-        {/* Trophy emoji */}
-        <div style={{fontSize:80,animation:"float 3s ease-in-out infinite",filter:correct>=total*0.8?"drop-shadow(0 0 20px gold)":"none"}}>
-          {correct>=total*0.8?"🏆":correct>=total*0.6?"🎉":correct>=total*0.4?"💪":"📚"}
+        <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",width:"100%",display:"flex",alignItems:"center",gap:12,textAlign:"left"}}>
+          <span style={{fontSize:26,flexShrink:0}}>{c.emoji}</span>
+          <div style={{fontSize:12,color:"rgba(255,255,255,0.85)",lineHeight:1.55,fontStyle:"italic"}}>{correct>=total*0.8?`Incroyable! French is becoming natural for you! 🇨🇦`:correct>=total*0.6?"Good work! Every lesson gets easier.":"Don't worry — every French speaker struggled at first!"}</div>
         </div>
-
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:30,fontWeight:900,color:T.navy}}>
-          {correct>=total*0.8?"Outstanding! 🌟":correct>=total*0.6?"Great Work!":correct>=total*0.4?"Good Effort!":"Keep Going!"}</div>
-
-        <div style={{fontSize:15,color:T.textMid,maxWidth:420,lineHeight:1.7}}>
-          {correct>=total*0.8?"You're thinking in French — that's the real milestone. CLB-level thinking! 🍁":
-           correct>=total*0.6?"Solid! Review the explanations for what you missed — they'll stick better next time.":
-           correct>=total*0.4?"Every attempt literally rewires your brain for French. Keep going!":
-           "Struggling = learning. The brain only grows when it's challenged. Try again — you WILL improve!"}
+        <div style={{width:"100%",textAlign:"left"}}>
+          <div style={{fontSize:11,color:"#94A3B8",marginBottom:8,fontWeight:600}}>Words from this lesson:</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{(lesson.vocab||[]).slice(0,8).map(v=><span key={v} style={{fontSize:12,padding:"4px 10px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",fontWeight:600,fontStyle:"italic"}}>{v.split("(")[0].trim()}</span>)}</div>
         </div>
-
-        {/* Stats row */}
-        <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
-          {[
-            {val:`${correct}/${total}`,lbl:"Correct",icon:"✅",bg:T.mintLight,col:"#065F46"},
-            {val:`${Math.round((correct/total)*100)}%`,lbl:"Accuracy",icon:"🎯",bg:T.blueLight,col:T.navy},
-            {val:`+${xp}`,lbl:"XP Earned",icon:"⭐",bg:T.goldLight,col:"#92400E"},
-            {val:`${streak}🔥`,lbl:"Day Streak",icon:"🔥",bg:"#FFF7ED",col:"#C2410C"},
-          ].map(s=><div key={s.lbl} style={{minWidth:90,textAlign:"center",padding:"16px 18px",borderRadius:16,background:s.bg,border:`1.5px solid ${s.col}20`}}>
-            <div style={{fontSize:10,marginBottom:4}}>{s.icon}</div>
-            <div style={{fontFamily:"'Playfair Display',serif",fontSize:24,fontWeight:700,color:s.col}}>{s.val}</div>
-            <div style={{fontSize:10,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginTop:3}}>{s.lbl}</div>
-          </div>)}
-        </div>
-
-        {/* Motivational bar */}
-        {correct>=total*0.7&&<div style={{padding:"14px 24px",borderRadius:50,background:"linear-gradient(135deg,#FEF3C7,#FDE68A)",border:"1.5px solid #FCD34D",fontSize:15,fontWeight:700,color:"#92400E"}}>
-          ⭐ +{xp} XP — fantastic lesson! You&apos;re building real French skills.
-        </div>}
-
-        {/* What you learned recap */}
-        <div style={{width:"100%",maxWidth:480,background:T.surface,borderRadius:16,padding:"16px 20px",border:`1.5px solid ${T.border}`,textAlign:"left"}}>
-          <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>📝 Key phrases from this lesson:</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-            {lesson.vocab.slice(0,6).map(v=><span key={v} style={{fontSize:12,padding:"5px 11px",borderRadius:50,background:T.blueLight,color:T.navy,fontWeight:600,fontStyle:"italic"}}>{v}</span>)}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
-          <Btn onClick={()=>onComplete(lesson.id)} style={{padding:"15px 32px",fontSize:15}}>✓ Complete &amp; Continue</Btn>
-          <Btn variant="secondary" onClick={()=>{setPhase("questions");setQIdx(0);setSelected(null);setWriteVal("");setAnswered(false);setCorrect(0);setXp(0);setSpeakDone(false);setShowConfetti(false);}}>↺ Try Again</Btn>
+        <div style={{display:"flex",gap:10,width:"100%"}}>
+          <button onClick={onComplete} style={{flex:1,padding:"14px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:800,fontSize:14,cursor:"pointer"}}>✓ Complete & Continue</button>
+          <button onClick={()=>{setPhase("teach");setTeachSlide(0);setQIdx(0);setCorrect(0);setXp(0);setWrongQueue([]);resetQ();}} style={{padding:"14px 18px",background:"#F8FAFC",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:13,cursor:"pointer"}}>↺ Try again</button>
         </div>
       </div>}
+
     </div>
   </div>;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PRACTICE SCREEN — 6 games
-// ─────────────────────────────────────────────────────────────────────────────
-// ─── AI UTILITIES ─────────────────────────────────────────────────────────────
-async function callClaude(systemPrompt, userMessage, maxTokens=600){
-  try{
-    const res = await fetch("/api/claude",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"claude-sonnet-4-20250514",
-        max_tokens:maxTokens,
-        system:systemPrompt,
-        messages:[{role:"user",content:userMessage}]
-      })
-    });
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    return data.content?.[0]?.text || "Je suis désolé, une erreur s'est produite.";
-  }catch(e){
-    console.warn("Claude API error:",e);
-    return "Je suis désolé — l'IA n'est pas disponible pour le moment. Essayez de rafraîchir la page! 🔄";
-  }
-}
-
-// ─── AI SPEAKING COACH ────────────────────────────────────────────────────────
 function AISpeakingCoach({prompt, sampleAnswer, onDone}){
   const[stage,setStage]=useState("ready"); // ready | recording | processing | feedback
   const[transcript,setTranscript]=useState("");
@@ -3028,19 +2930,22 @@ Analyze their French pronunciation and content. Be encouraging.`;
     <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
       <span style={{fontSize:28}}>🎤</span>
       <div>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
         <div style={{fontSize:12,color:T.textSoft}}>Powered by Claude AI — speaks French Canadian 🍁</div>
       </div>
     </div>
 
     <div style={{background:"rgba(255,255,255,0.7)",borderRadius:12,padding:14,marginBottom:14}}>
       <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💬 Say this:</div>
-      <div style={{fontSize:15,fontWeight:600,color:T.navy,lineHeight:1.6}}>{sampleAnswer}</div>
+      <div style={{fontSize:15,fontWeight:600,color:T.navy,lineHeight:1.6,display:"flex",alignItems:"flex-start",gap:8}}>
+        <span style={{flex:1}}>{sampleAnswer}</span>
+        <SpeakBtn text={sampleAnswer} size={18}/>
+      </div>
     </div>
 
     {stage==="ready"&&<>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:13,color:T.textMid,fontStyle:"italic"}}>Last attempt: "{transcript}"</div>}
-      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"'DM Sans',sans-serif"}}>
+      <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"system-ui,-apple-system,sans-serif"}}>
         🎤 Start Speaking
       </button>
       <div style={{fontSize:12,color:T.textSoft,marginTop:8}}>Uses your microphone · French Canadian dialect</div>
@@ -3052,7 +2957,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
         <span style={{fontWeight:700,color:"#EF4444",fontSize:14}}>Recording... speak now!</span>
       </div>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:14,color:T.navy,fontStyle:"italic"}}>"{transcript}"</div>}
-      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>
+      <button onClick={stopRecording} style={{background:T.navy,color:"#fff",border:"none",padding:"12px 24px",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>
         ⏹ Done Speaking
       </button>
     </>}
@@ -3083,8 +2988,8 @@ Analyze their French pronunciation and content. Be encouraging.`;
         {feedback.phonetic_tips.map((t,i)=><div key={i} style={{fontSize:13,color:"#4C1D95",padding:"3px 0",display:"flex",gap:8}}><span>🔊</span>{t}</div>)}
       </div>}
       <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",color:T.navy}}>Try Again 🔄</button>
-        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Continue →</button>
+        <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",color:T.navy}}>Try Again 🔄</button>
+        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Continue →</button>
       </div>
     </>}
   </div>;
@@ -3134,12 +3039,12 @@ Is this correct or close enough? Give feedback.`;
     <div style={{position:"relative",marginBottom:10}}>
       <textarea value={val} onChange={e=>setVal(e.target.value)} disabled={!!result}
         placeholder="Écrivez votre réponse en français..."
-        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
+        style={{width:"100%",padding:14,borderRadius:12,border:`2px solid ${result?(result.correct?T.mint:T.red):T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:15,color:T.text,background:T.card,resize:"none",minHeight:80,outline:"none",transition:"border-color 0.2s",boxSizing:"border-box"}}/>
       <div style={{position:"absolute",bottom:10,right:12,fontSize:11,color:T.textSoft}}>{val.length} chars · AI-checked 🤖</div>
     </div>
 
     {!result&&<button onClick={checkWithAI} disabled={!val.trim()||checking}
-      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:8}}>
+      style={{background:val.trim()&&!checking?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"11px 22px",borderRadius:10,fontWeight:700,fontSize:14,cursor:val.trim()&&!checking?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",display:"flex",alignItems:"center",gap:8}}>
       {checking?<><span style={{animation:"float 0.8s infinite"}}>🧠</span> AI Checking...</>:"✍️ Check with AI"}
     </button>}
 
@@ -3164,39 +3069,33 @@ Is this correct or close enough? Give feedback.`;
 
 // ─── AI HINT BUTTON ───────────────────────────────────────────────────────────
 function AIHintButton({question, level}){
-  const[open,setOpen]=useState(false);
-  const[hint,setHint]=useState("");
+  const[hint,setHint]=useState(null);
   const[loading,setLoading]=useState(false);
-
+  const[open,setOpen]=useState(false);
   const getHint=async()=>{
-    if(hint){setOpen(true);return;}
-    setOpen(true);setLoading(true);
-    const sys=`You are a friendly French tutor. Give a SHORT, helpful hint for a ${level} level Canadian French learner. 
-Don't give away the answer — guide them to it. 2-3 sentences max. Use one encouraging emoji.`;
-    const msg=`Question: "${question.prompt}"
-Type: ${question.type}
-${question.type==="write"?"Accepted answers (don't reveal directly): "+question.accepted?.join(", "):"Options: "+question.options?.join(", ")}
-Give a gentle hint that helps without spoiling the answer.`;
-    const h=await callClaude(sys,msg,150);
+    if(open){setOpen(false);return;}
+    setLoading(true);setOpen(true);
+    const sys=`You are a warm French teacher helping a Canadian immigrant. Give a short, encouraging hint (2 sentences max) to help with this question. Don't give the answer directly. Be warm and specific.`;
+    const msg=`Question type: ${question.type}\nQuestion: ${question.prompt||question.fr||""}\nLevel: ${level}`;
+    const h=await callClaude(sys,msg,120);
     setHint(h);setLoading(false);
   };
-
   return <div style={{position:"relative"}}>
-    <button onClick={getHint} style={{background:"linear-gradient(135deg,#8B5CF6,#6D28D9)",color:"#fff",border:"none",padding:"8px 16px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",display:"flex",alignItems:"center",gap:6}}>
-      🧠 AI Hint
+    <button onClick={getHint}
+      style={{padding:"12px 16px",background:"#F8FAFC",color:"#475569",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui,sans-serif",fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.15s"}}
+      onMouseEnter={e=>{e.currentTarget.style.background="#F1F5F9";}}
+      onMouseLeave={e=>{e.currentTarget.style.background="#F8FAFC";}}>
+      💡 {loading?"...":open?"Hide":"Hint"}
     </button>
-    {open&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,background:"#fff",borderRadius:14,padding:16,boxShadow:"0 8px 40px rgba(0,0,0,0.15)",border:`2px solid #8B5CF6`,width:280,zIndex:50,animation:"popIn 0.2s ease"}}>
-      <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#6D28D9",textTransform:"uppercase",letterSpacing:.8}}>🧠 AI Hint</div>
-        <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",cursor:"pointer",fontSize:14,color:T.textSoft}}>✕</button>
-      </div>
-      {loading?<div style={{textAlign:"center",padding:"10px 0"}}><span style={{animation:"float 0.8s infinite",fontSize:20}}>🧠</span><div style={{fontSize:12,color:T.textSoft,marginTop:6}}>Thinking...</div></div>
-      :<div style={{fontSize:14,color:T.text,lineHeight:1.65}}>{hint}</div>}
+    {open&&hint&&<div style={{position:"absolute",bottom:"calc(100% + 8px)",left:0,right:0,background:"#0F172A",borderRadius:10,padding:"12px 14px",fontSize:12,color:"rgba(255,255,255,0.9)",lineHeight:1.6,zIndex:10,minWidth:220,boxShadow:"0 4px 20px rgba(0,0,0,0.2)"}}>
+      <div style={{fontSize:10,color:"rgba(255,255,255,0.4)",marginBottom:5,fontWeight:700,textTransform:"uppercase",letterSpacing:.5}}>AI Hint</div>
+      {hint}
+      <div style={{position:"absolute",bottom:-5,left:14,width:10,height:10,background:"#0F172A",transform:"rotate(45deg)"}}/>
     </div>}
   </div>;
 }
 
-// ─── AI CONVERSATION PARTNER ──────────────────────────────────────────────────
+
 function PracticeScreen({companion}){
   const c=companion||COMPANIONS[0];
   const[msgs,setMsgs]=useState([]);
@@ -3213,6 +3112,8 @@ function PracticeScreen({companion}){
   const[matchDone,setMatchDone]=useState([]);
   const[fillSel,setFillSel]=useState(null);
   const[shuffled,setShuffled]=useState([]);
+  const[placed,setPlaced]=useState([]);
+  const[bank,setBank]=useState([]);
   const timerRef=useRef();
   const bottomRef=useRef();
 
@@ -3269,7 +3170,8 @@ Rules:
   // Games section
   const startGame=(g)=>{
     setGameActive(g);setQIdx(0);setReveal(false);setScore(0);
-    setMatchSel(null);setMatchDone([]);setFillSel(null);
+    setMatchSel(null);setMatchDone([]);setFillSel(null);setPlaced([]);
+    if(g.id==="sentence")setBank([...(g.questions?.[0]?.words||[])].sort(()=>Math.random()-0.5));
     if(g.id==="speed"||g.id==="errors"){setTimer(60);setRunning(true);}
   };
 
@@ -3282,7 +3184,7 @@ Rules:
 
   if(!topic&&!gameActive){
     return <div style={{padding:28,maxWidth:760,margin:"0 auto"}}>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:900,color:T.navy,marginBottom:6}}>💬 AI Conversation Partner</div>
       <div style={{fontSize:15,color:T.textMid,marginBottom:28}}>Practice real French conversation with your AI tutor — powered by Claude. Pick a topic to start!</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:14,marginBottom:36}}>
         {TOPICS.map(t=><div key={t.id} onClick={()=>startConversation(t)}
@@ -3293,7 +3195,7 @@ Rules:
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{t.label.split(" ").slice(0,-1).join(" ")}</div>
         </div>)}
       </div>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:14}}>🎮 Practice Games</div>
       <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
         {(typeof GAMES!=="undefined"?GAMES:[]).map(g=><div key={g.id} onClick={()=>startGame(g)}
           style={{background:T.card,border:`2px solid ${T.border}`,borderRadius:14,padding:"14px 18px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,transition:"all 0.2s"}}
@@ -3314,7 +3216,7 @@ Rules:
     return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:760,margin:"0 auto"}}>
       {/* Header */}
       <div style={{padding:"14px 20px",background:T.card,borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
-        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"'DM Sans',sans-serif"}}>← Back</button>
+        <button onClick={()=>{setTopic(null);setMsgs([]);}} style={{background:"none",border:`1.5px solid ${T.border}`,padding:"6px 12px",borderRadius:8,cursor:"pointer",fontSize:13,color:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif"}}>← Back</button>
         <Avatar companion={c} size={36}/>
         <div>
           <div style={{fontWeight:700,fontSize:14,color:T.navy}}>{c.name} · {topic.label}</div>
@@ -3345,326 +3247,827 @@ Rules:
         <textarea value={input} onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
           placeholder="Écrivez en français... (or English is fine too!)"
-          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"'DM Sans',sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+          style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
           rows={1}/>
         <button onClick={sendMessage} disabled={!input.trim()||loading}
-          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"'DM Sans',sans-serif",flexShrink:0,transition:"all 0.2s"}}>
+          style={{background:input.trim()&&!loading?T.blue:"#cbd5e1",color:"#fff",border:"none",padding:"12px 18px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",flexShrink:0,transition:"all 0.2s"}}>
           {loading?"...":"Send →"}
         </button>
       </div>
     </div>;
   }
 
+  // ── GAME UI ──
+  if(gameActive){
+    const g=gameActive;
+    const backBtn=<button onClick={()=>{setGameActive(null);clearInterval(timerRef.current);}} style={{background:"none",border:"1.5px solid #E2E8F0",padding:"6px 14px",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:600,color:"#64748B",fontFamily:"system-ui",marginBottom:16}}>← Back to Games</button>;
+
+    // SPEED RECALL
+    if(g.id==="speed"){
+      const q=g.questions[qIdx%g.questions.length];
+      const done=timer===0||!running;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>⚡ Speed Recall</div>
+          <div style={{display:"flex",gap:12,alignItems:"center"}}>
+            <div style={{fontSize:18,fontWeight:800,color:timer<10?"#EF4444":"#059669"}}>⏱ {timer}s</div>
+            <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>Score: {score}</div>
+          </div>
+        </div>
+        {done?<div style={{textAlign:"center",padding:"40px 20px",background:"#fff",borderRadius:16,border:"1px solid #E2E8F0"}}>
+          <div style={{fontSize:52,marginBottom:12}}>🏆</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:800,color:"#0F172A",marginBottom:6}}>Time's up!</div>
+          <div style={{fontSize:16,color:"#64748B",marginBottom:20}}>You scored <strong>{score}</strong> points</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 28px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>:<div>
+          <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",padding:"32px 24px",textAlign:"center",marginBottom:16}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:36,fontWeight:800,color:"#0F172A",marginBottom:8}}>{q.fr}</div>
+            {reveal&&<div style={{fontSize:20,color:"#059669",fontWeight:700,marginTop:12}}>→ {q.en}</div>}
+          </div>
+          <div style={{display:"flex",gap:10}}>
+            {!reveal?<button onClick={()=>setReveal(true)} style={{flex:1,padding:"14px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"system-ui"}}>Show Answer</button>
+            :<><button onClick={()=>{setScore(s=>s+10);setQIdx(i=>i+1);setReveal(false);}} style={{flex:1,padding:"14px",background:"#059669",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"system-ui"}}>✓ Got it! +10</button>
+            <button onClick={()=>{setQIdx(i=>i+1);setReveal(false);}} style={{flex:1,padding:"14px",background:"#EF4444",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:15,cursor:"pointer",fontFamily:"system-ui"}}>✗ Missed</button></>}
+          </div>
+        </div>}
+      </div>;
+    }
+
+    // ERROR HUNTER
+    if(g.id==="errors"){
+      const q=(g.questions||[])[qIdx];
+      const done=!q||timer===0;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🧩 Error Hunter</div>
+          <div style={{fontSize:18,fontWeight:800,color:timer<10?"#EF4444":"#059669"}}>⏱ {timer}s · {score}pts</div>
+        </div>
+        {done?<div style={{textAlign:"center",padding:"40px",background:"#fff",borderRadius:16,border:"1px solid #E2E8F0"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎯</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:8}}>Done! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>:<div>
+          <div style={{background:"#EFF6FF",borderRadius:12,padding:"14px 16px",marginBottom:14,fontSize:14,fontWeight:600,color:"#1E40AF"}}>{q.prompt}</div>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            {[{text:q.answer,correct:true},{text:q.wrong,correct:false}].sort(()=>Math.random()-0.5).map((opt,i)=>
+              <button key={i} onClick={()=>{if(opt.correct){setScore(s=>s+10);}setReveal(true);setTimeout(()=>{setQIdx(idx=>idx+1);setReveal(false);},1500);}}
+                style={{padding:"14px 18px",borderRadius:12,border:"2px solid #E2E8F0",background:reveal?(opt.correct?"#ECFDF5":"#FEF2F2"):"#fff",fontSize:14,fontWeight:600,cursor:reveal?"default":"pointer",color:reveal?(opt.correct?"#059669":"#DC2626"):"#0F172A",textAlign:"left",fontFamily:"system-ui"}}>
+                {opt.text}
+              </button>
+            )}
+          </div>
+          {reveal&&<div style={{marginTop:12,padding:"12px 14px",background:"#F8FAFC",borderRadius:10,fontSize:13,color:"#475569",lineHeight:1.6}}>{q.explain}</div>}
+        </div>}
+      </div>;
+    }
+
+    // WORD MATCH
+    if(g.id==="match"){
+      const pairs=g.pairs||[];
+      const frWords=pairs.map(p=>p.fr);
+      const enWords=[...pairs.map(p=>p.en)].sort(()=>Math.random()-0.5);
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A",marginBottom:6}}>🎯 Word Match</div>
+        <div style={{fontSize:13,color:"#64748B",marginBottom:16}}>Tap a French word, then its English meaning. {matchDone.length}/{pairs.length} matched!</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:8}}>French</div>
+            {frWords.map((fr,i)=>{
+              const isDone=matchDone.includes(fr);
+              const isSel=matchSel===fr;
+              return <button key={i} disabled={isDone} onClick={()=>{
+                if(matchSel&&matchSel!==fr){
+                  const pair=pairs.find(p=>p.fr===matchSel);
+                  setMatchSel(null);
+                } else {setMatchSel(isSel?null:fr);}
+              }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:600,color:isDone?"#059669":isSel?"#2563EB":"#0F172A",cursor:isDone?"default":"pointer",textAlign:"left",textDecoration:isDone?"line-through":"none"}}>
+                {fr}
+              </button>;
+            })}
+          </div>
+          <div>
+            <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:8}}>English</div>
+            {enWords.map((en,i)=>{
+              const matchedPair=pairs.find(p=>p.en===en&&matchDone.includes(p.fr));
+              const isDone=!!matchedPair;
+              return <button key={i} disabled={isDone} onClick={()=>{
+                if(!matchSel) return;
+                const pair=pairs.find(p=>p.fr===matchSel);
+                if(pair&&pair.en===en){
+                  setMatchDone(d=>[...d,matchSel]);
+                  setScore(s=>s+10);
+                  setMatchSel(null);
+                } else {
+                  setMatchSel(null);
+                }
+              }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":"#E2E8F0"}`,background:isDone?"#ECFDF5":"#F8FAFC",fontSize:13,color:isDone?"#059669":"#475569",cursor:isDone?"default":"pointer",textAlign:"left"}}>
+                {en}
+              </button>;
+            })}
+          </div>
+        </div>
+        {matchDone.length===pairs.length&&<div style={{textAlign:"center",padding:"24px",background:"#ECFDF5",borderRadius:12,marginTop:16}}>
+          <div style={{fontSize:32,marginBottom:8}}>🎉</div>
+          <div style={{fontWeight:800,fontSize:18,color:"#059669",marginBottom:12}}>All matched! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"10px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>}
+      </div>;
+    }
+
+    // FILL THE GAP
+    if(g.id==="fill"){
+      const q=(g.questions||[])[qIdx];
+      if(!q) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px",background:"#fff",borderRadius:16}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:8}}>Complete! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>
+      </div>;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>✏️ Fill the Gap</div>
+          <div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>{qIdx+1}/{g.questions.length} · {score}pts</div>
+        </div>
+        <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",padding:"24px",marginBottom:16,fontSize:17,fontWeight:600,color:"#0F172A",textAlign:"center"}}>
+          {q.before} <span style={{borderBottom:"2px solid #2563EB",padding:"2px 8px",color:fillSel!==null?(fillSel===q.correct?"#059669":"#DC2626"):"#2563EB",fontStyle:"italic"}}>{fillSel!==null?q.options[fillSel]:"___"}</span> {q.after}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          {q.options.map((opt,i)=>{
+            const isSel=fillSel===i;
+            const isC=fillSel!==null&&i===q.correct;
+            const isW=fillSel!==null&&isSel&&i!==q.correct;
+            return <button key={i} disabled={fillSel!==null} onClick={()=>{setFillSel(i);if(i===q.correct)setScore(s=>s+10);}}
+              style={{padding:"12px",borderRadius:10,border:`2px solid ${isC?"#059669":isW?"#EF4444":"#E2E8F0"}`,background:isC?"#ECFDF5":isW?"#FEF2F2":"#F8FAFC",fontSize:14,fontWeight:600,color:isC?"#059669":isW?"#DC2626":"#0F172A",cursor:fillSel!==null?"default":"pointer",fontFamily:"system-ui"}}>
+              {opt}
+            </button>;
+          })}
+        </div>
+        {fillSel!==null&&<>
+          <div style={{marginTop:12,padding:"12px 14px",background:"#F8FAFC",borderRadius:10,fontSize:13,color:"#475569",lineHeight:1.6}}>{q.explain}</div>
+          <button onClick={()=>{setQIdx(i=>i+1);setFillSel(null);}} style={{width:"100%",marginTop:10,padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next →</button>
+        </>}
+      </div>;
+    }
+
+    // BUILD A SENTENCE
+    if(g.id==="sentence"){
+      const q=(g.questions||[])[qIdx];
+      if(!q) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px",background:"#fff",borderRadius:16}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎉</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:8}}>Complete! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>
+      </div>;
+      const isCorrect=JSON.stringify(placed)===JSON.stringify(q.correct);
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🔀 Build a Sentence</div>
+          <div style={{fontSize:14,fontWeight:700}}>{qIdx+1}/{g.questions.length}</div>
+        </div>
+        <div style={{minHeight:56,padding:"12px",background:"#F8FAFC",borderRadius:12,border:`2px dashed ${reveal?isCorrect?"#059669":"#EF4444":"#CBD5E0"}`,display:"flex",flexWrap:"wrap",gap:8,alignItems:"center",marginBottom:14}}>
+          {placed.length===0&&<span style={{color:"#CBD5E0",fontSize:13}}>Tap words to build...</span>}
+          {placed.map((w,i)=><button key={i} onClick={()=>{setPlaced(p=>{const n=[...p];n.splice(i,1);return n;});setBank(b=>[...b,w]);setReveal(false);}}
+            style={{padding:"6px 12px",borderRadius:50,background:"#0F172A",color:"#fff",border:"none",fontWeight:600,fontSize:13,cursor:"pointer"}}>{w}</button>)}
+        </div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+          {bank.map((w,i)=><button key={i} onClick={()=>{setPlaced(p=>[...p,w]);setBank(b=>{const n=[...b];n.splice(i,1);return n;});}}
+            style={{padding:"6px 12px",borderRadius:50,background:"#F1F5F9",border:"1.5px solid #E2E8F0",fontWeight:600,fontSize:13,cursor:"pointer",color:"#0F172A"}}>{w}</button>)}
+        </div>
+        {!reveal?<button onClick={()=>setReveal(true)} style={{width:"100%",padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Check</button>
+        :<>
+          <div style={{padding:"12px 14px",background:isCorrect?"#ECFDF5":"#FEF2F2",borderRadius:10,fontSize:13,color:isCorrect?"#059669":"#DC2626",fontWeight:700,marginBottom:8}}>{isCorrect?"✓ Correct!":"✗ "+q.correct.join(" ")}</div>
+          <div style={{padding:"10px 14px",background:"#F8FAFC",borderRadius:10,fontSize:13,color:"#475569",marginBottom:10}}>{q.explain}</div>
+          <button onClick={()=>{if(isCorrect)setScore(s=>s+10);setQIdx(i=>i+1);setPlaced([]);setBank([...(g.questions[qIdx+1]?.words||[])].sort(()=>Math.random()-0.5));setReveal(false);}}
+            style={{width:"100%",padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next →</button>
+        </>}
+      </div>;
+    }
+
+    // FLASHCARD
+    if(g.id==="flashcard"){
+      const card=(g.cards||[])[qIdx];
+      if(!card) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🃏</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:12}}>All cards done!</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Start Over</button>
+        </div>
+      </div>;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🃏 Flashcard Blitz</div>
+          <div style={{fontSize:13,color:"#64748B"}}>{qIdx+1}/{g.cards.length}</div>
+        </div>
+        <div onClick={()=>setReveal(r=>!r)} style={{background:"#fff",borderRadius:20,border:"2px solid #E2E8F0",padding:"48px 24px",textAlign:"center",cursor:"pointer",minHeight:180,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 20px rgba(0,0,0,0.06)"}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:32,fontWeight:800,color:"#0F172A",marginBottom:8}}>{reveal?card.en:card.fr}</div>
+          <div style={{fontSize:12,color:"#94A3B8"}}>{reveal?"English":"French"} · Tap to flip</div>
+        </div>
+        <div style={{display:"flex",gap:10,marginTop:16}}>
+          <button onClick={()=>{setQIdx(i=>i+1);setReveal(false);}} style={{flex:1,padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next Card →</button>
+        </div>
+      </div>;
+    }
+
+    // LIGHTNING MATCH
+    if(g.id==="quickmatch"){
+      const pairs=g.pairs||[];
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A",marginBottom:6}}>⚡ Lightning Match</div>
+        <div style={{fontSize:13,color:"#64748B",marginBottom:16}}>{matchDone.length}/{pairs.length} matched · Score: {score}</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>{pairs.map((p,i)=>{const isDone=matchDone.includes(p.fr);const isSel=matchSel===p.fr;
+            return <button key={i} disabled={isDone} onClick={()=>{
+              if(matchSel&&matchSel!==p.fr){setMatchSel(null);}else{setMatchSel(isSel?null:p.fr);}
+            }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:600,color:isDone?"#059669":isSel?"#2563EB":"#0F172A",cursor:isDone?"default":"pointer",textDecoration:isDone?"line-through":"none"}}>
+              {p.fr}
+            </button>;})}
+          </div>
+          <div>{[...pairs].sort(()=>Math.random()-0.5).map((p,i)=>{const isDone=matchDone.some(fr=>pairs.find(pp=>pp.fr===fr&&pp.en===p.en));
+            return <button key={i} disabled={isDone} onClick={()=>{
+              if(!matchSel)return;
+              const pair=pairs.find(pp=>pp.fr===matchSel);
+              if(pair&&pair.en===p.en){setMatchDone(d=>[...d,matchSel]);setScore(s=>s+10);setMatchSel(null);}
+              else{setMatchSel(null);}
+            }} style={{display:"block",width:"100%",marginBottom:8,padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":"#E2E8F0"}`,background:isDone?"#ECFDF5":"#F8FAFC",fontSize:13,color:isDone?"#059669":"#475569",cursor:isDone?"default":"pointer"}}>
+              {p.en}
+            </button>;})}
+          </div>
+        </div>
+        {matchDone.length===pairs.length&&<div style={{textAlign:"center",padding:"24px",background:"#ECFDF5",borderRadius:12,marginTop:16}}>
+          <div style={{fontSize:32,marginBottom:8}}>⚡🎉</div>
+          <div style={{fontWeight:800,fontSize:18,color:"#059669",marginBottom:12}}>Lightning fast! Score: {score}</div>
+          <button onClick={()=>startGame(g)} style={{padding:"10px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Play Again</button>
+        </div>}
+      </div>;
+    }
+
+    // SPEAKING CHALLENGE
+    if(g.id==="speaking"){
+      const q=(g.questions||[])[qIdx];
+      if(!q) return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{textAlign:"center",padding:"40px"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🎤</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:800,color:"#0F172A",marginBottom:12}}>All challenges done!</div>
+          <button onClick={()=>startGame(g)} style={{padding:"12px 24px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontWeight:700,cursor:"pointer",fontFamily:"system-ui"}}>Start Over</button>
+        </div>
+      </div>;
+      return <div style={{padding:"20px 16px",maxWidth:600,margin:"0 auto"}}>
+        {backBtn}
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:16}}>
+          <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#0F172A"}}>🎤 Speaking Challenge</div>
+          <div style={{fontSize:13,color:"#64748B"}}>{qIdx+1}/{g.questions.length}</div>
+        </div>
+        <div style={{background:"#0F172A",borderRadius:16,padding:"24px",marginBottom:14,color:"#fff"}}>
+          <div style={{fontSize:11,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",marginBottom:8}}>Your prompt</div>
+          <div style={{fontSize:15,lineHeight:1.7}}>{q.prompt}</div>
+          <div style={{marginTop:12,fontSize:12,color:"rgba(255,255,255,0.5)"}}>⏱ Suggested: {q.time} seconds</div>
+        </div>
+        <button onClick={()=>setReveal(r=>!r)} style={{width:"100%",padding:"13px",background:reveal?"#F8FAFC":"#EFF6FF",color:reveal?"#475569":"#2563EB",border:`1.5px solid ${reveal?"#E2E8F0":"#BFDBFE"}`,borderRadius:12,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui",marginBottom:10}}>
+          {reveal?"Hide sample answer":"Show sample answer"}
+        </button>
+        {reveal&&<>
+          <div style={{padding:"14px 16px",background:"#F8FAFC",borderRadius:12,fontSize:13,lineHeight:1.8,color:"#334155",marginBottom:10,fontStyle:"italic"}}>{q.sample}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+            {q.tips.map((tip,i)=><span key={i} style={{fontSize:12,padding:"4px 10px",background:"#FFFBEB",color:"#92400E",borderRadius:50,border:"1px solid #FCD34D"}}>💡 {tip}</span>)}
+          </div>
+        </>}
+        <button onClick={()=>{setQIdx(i=>i+1);setReveal(false);}} style={{width:"100%",padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontWeight:700,fontSize:14,cursor:"pointer",fontFamily:"system-ui"}}>Next Challenge →</button>
+      </div>;
+    }
+
+    return <div style={{padding:"20px 16px"}}>{backBtn}<div style={{textAlign:"center",padding:"40px",color:"#64748B"}}>Game not found</div></div>;
+  }
+
   return null;
 }
 
-function ProfileScreen({companion,progress,startLevel,onReset}){
-  const totalXP=()=>{try{return parseInt(localStorage.getItem('franco_xp')||'0');}catch{return 0;}};
-  const streak=()=>{try{return parseInt(localStorage.getItem('franco_streak')||'0');}catch{return 0;}};
+// ─── PERSONAL AI TUTOR ────────────────────────────────────────────────────────
+function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
+  const c = companion||COMPANIONS[0];
+  const level = SYLLABUS[startLevel]||SYLLABUS.foundation;
+  const allL = Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
+  const done = allL.filter(l=>progress[l.id]);
+  const notDone = allL.filter(l=>!progress[l.id]);
+  const [msgs,setMsgs] = useState([]);
+  const [input,setInput] = useState("");
+  const [loading,setLoading] = useState(false);
+  const [mode,setMode] = useState("chat"); // chat | assessment | plan
+  const bottomRef = useRef();
+  const authCtx = useAuth();
+
+  // Build rich context about the learner
+  const learnerContext = `
+You are ${c.name}, a personal French tutor for Canadian immigrants learning French for CLB/TEF exams.
+
+LEARNER PROFILE:
+- Current level: ${level.label} (${level.cefrTag}, ${level.clbTag})
+- Lessons completed: ${done.length}/${allL.length}
+- Skills completed: Listening ${allL.filter(l=>l.skill==="listening"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="listening").length}, Speaking ${allL.filter(l=>l.skill==="speaking"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="speaking").length}, Writing ${allL.filter(l=>l.skill==="writing"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="writing").length}, Reading ${allL.filter(l=>l.skill==="reading"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="reading").length}
+- Next lesson: ${notDone[0]?.title||"All complete!"}
+- Recent lessons: ${done.slice(-3).map(l=>l.title).join(", ")||"None yet"}
+
+YOUR ROLE:
+- Be their dedicated personal tutor, not just a chatbot
+- Give specific, actionable advice based on their actual progress
+- Correct French mistakes immediately and kindly
+- Reference their specific completed lessons when relevant
+- Help them prepare for CLB 5 specifically
+- Be warm, encouraging, and Canadian-context focused
+- Mix French practice INTO the conversation naturally
+- Remember: they are immigrants who NEED this for their life in Canada
+
+TUTORING MODES:
+- General chat: answer questions, practice conversation, explain grammar
+- Assessment: quiz them on weak areas based on their progress
+- Study plan: create a personalized daily study plan
+
+Always respond in a mix of English and French appropriate to their level.
+Keep responses focused and practical — max 4-5 sentences unless explaining something complex.`;
+
+  const sendMessage = async(text) => {
+    if(!text.trim()||loading) return;
+    const userMsg = {role:"user", text};
+    const newMsgs = [...msgs, userMsg];
+    setMsgs(newMsgs);
+    setInput("");
+    setLoading(true);
+    const history = newMsgs.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("");
+    const reply = await callClaude(learnerContext, `${history}
+
+Learner: ${text}
+
+Tutor:`, 400);
+    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    setLoading(false);
+    setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+  };
+
+  const quickPrompts = [
+    "What should I focus on today?",
+    "Quiz me on what I've learned",
+    "Make me a study plan for this week",
+    "Explain the passé composé simply",
+    "Practice a job interview in French",
+    "Help me with CLB speaking tips",
+  ];
+
+  useEffect(()=>{
+    // Auto-greeting based on progress
+    const greet = async()=>{
+      setLoading(true);
+      const prompt = done.length===0
+        ? `Greet this new learner warmly. They haven't started yet. Introduce yourself as their personal tutor and ask what brings them to learn French in Canada. Be warm and encouraging.`
+        : `Greet this returning learner. They've completed ${done.length} lessons. Reference their progress briefly, note their next lesson is "${notDone[0]?.title||"all done!"}", and ask how their French is going or what they want to work on today. Keep it short and personal.`;
+      const reply = await callClaude(learnerContext, prompt, 200);
+      setMsgs([{role:"assistant",text:reply}]);
+      setLoading(false);
+    };
+    greet();
+  },[]);
+
+  return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:800,margin:"0 auto"}}>
+    {/* Header */}
+    <div style={{padding:"14px 20px",background:"#fff",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+      <Avatar companion={c} size={40} speaking={loading}/>
+      <div style={{flex:1}}>
+        <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
+        <div style={{fontSize:11,color:T.mint,fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
+      </div>
+      <div style={{display:"flex",gap:6}}>
+        {[{id:"chat",label:"💬 Chat"},{id:"assessment",label:"📝 Quiz Me"},{id:"plan",label:"📅 Study Plan"}].map(m=>(
+          <button key={m.id} onClick={()=>{setMode(m.id);sendMessage(m.id==="assessment"?"Quiz me on my weak areas based on my progress":"Make me a personalized study plan for this week");}}
+            style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${mode===m.id?T.blue:T.border}`,background:mode===m.id?T.blueLight:"transparent",color:mode===m.id?T.blue:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+    </div>
+
+    {/* Progress bar */}
+    <div style={{background:T.surface,padding:"8px 20px",borderBottom:`1px solid ${T.border}`,display:"flex",alignItems:"center",gap:12}}>
+      <span style={{fontSize:11,color:T.textSoft,fontWeight:600}}>Your progress:</span>
+      <div style={{flex:1,height:4,background:T.border,borderRadius:99,overflow:"hidden"}}>
+        <div style={{height:"100%",width:`${Math.round((done.length/allL.length)*100)}%`,background:`linear-gradient(90deg,${T.blue},${T.mint})`,borderRadius:99}}/>
+      </div>
+      <span style={{fontSize:11,fontWeight:700,color:T.navy}}>{done.length}/{allL.length} lessons</span>
+      <Pill variant="blue">{level.cefrTag}</Pill>
+    </div>
+
+    {/* Messages */}
+    <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
+      {msgs.map((m,i)=>(
+        <div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
+          {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
+          <div style={{maxWidth:"78%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.7,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
+            {m.text}
+          </div>
+        </div>
+      ))}
+      {loading&&<div style={{display:"flex",gap:10,marginBottom:16,alignItems:"flex-start"}}>
+        <Avatar companion={c} size={36}/>
+        <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"14px 18px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:5}}>
+          {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:T.blue,animation:`typeDot 1.2s infinite ${i*0.2}s`}}/>)}
+        </div>
+      </div>}
+      <div ref={bottomRef}/>
+    </div>
+
+    {/* Quick prompts — show when few messages */}
+    {msgs.length<=2&&!loading&&<div style={{padding:"0 20px 12px",display:"flex",gap:8,flexWrap:"wrap"}}>
+      {quickPrompts.map(p=>(
+        <button key={p} onClick={()=>sendMessage(p)}
+          style={{padding:"7px 14px",background:T.surface,border:`1.5px solid ${T.border}`,borderRadius:50,fontSize:12,fontWeight:600,color:T.navy,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.blue;e.currentTarget.style.color=T.blue;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=T.border;e.currentTarget.style.color=T.navy;}}>
+          {p}
+        </button>
+      ))}
+    </div>}
+
+    {/* Input */}
+    <div style={{padding:"14px 20px",background:"#fff",borderTop:`1px solid ${T.border}`,display:"flex",gap:10,alignItems:"flex-end"}}>
+      <textarea value={input} onChange={e=>setInput(e.target.value)}
+        onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage(input);}}}
+        placeholder={`Ask ${c.name} anything — grammar, practice, study tips...`}
+        style={{flex:1,padding:"12px 14px",borderRadius:12,border:`1.5px solid ${T.border}`,fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,resize:"none",minHeight:44,maxHeight:120,outline:"none",color:T.text,lineHeight:1.5}}
+        rows={1}/>
+      <button onClick={()=>sendMessage(input)} disabled={!input.trim()||loading}
+        style={{background:input.trim()&&!loading?T.blue:"#CBD5E0",color:"#fff",border:"none",padding:"12px 20px",borderRadius:12,fontWeight:700,fontSize:14,cursor:input.trim()&&!loading?"pointer":"not-allowed",fontFamily:"system-ui,-apple-system,sans-serif",flexShrink:0}}>
+        {loading?"...":"Send →"}
+      </button>
+    </div>
+  </div>;
+}
+
+
+function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onAuthNav}){
+  const[adminTaps,setAdminTaps]=useState(0);
+  const[showAdmin,setShowAdmin]=useState(false);
+  const[adminEmail,setAdminEmail]=useState("");
+  const[adminDays,setAdminDays]=useState("31");
+  const[adminMsg,setAdminMsg]=useState("");
+  const grantPremium=async()=>{
+    if(!adminEmail.trim()){setAdminMsg("Enter an email");return;}
+    try{
+      const exp=Date.now()+(parseInt(adminDays)*24*60*60*1000);
+      const db=getFirestore();
+      const ref=collection(db,"premiumUsers");
+      const q=query(ref,where("email","==",adminEmail.trim().toLowerCase()));
+      const snap=await getDocs(q);
+      if(!snap.empty){await updateDoc(snap.docs[0].ref,{premium:true,exp,grantedAt:Date.now()});}
+      else{await addDoc(ref,{email:adminEmail.trim().toLowerCase(),premium:true,exp,grantedAt:Date.now()});}
+      setAdminMsg("Done! "+adminEmail+" has premium for "+adminDays+" days!");
+      setAdminEmail("");
+    }catch(e){setAdminMsg("Error: "+e.message);}
+  };
+  const{logout, deleteAccount}=useAuth();
   const c=companion||COMPANIONS[0];
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
   const done=allL.filter(l=>progress[l.id]);
   const xp=done.length*25;
-  const achievements=[
-    {emoji:"🌱",name:"First Step",desc:"Complete your first lesson",unlocked:done.length>=1},
-    {emoji:"🔥",name:"Week Streak",desc:"Study 7 days in a row",unlocked:true},
-    {emoji:"📖",name:"A1 Explorer",desc:"Complete 5 A1 lessons",unlocked:done.filter(l=>l.id.startsWith("a1")).length>=5},
-    {emoji:"🎓",name:"CLB Ready",desc:"Complete a CLB prep lesson",unlocked:done.some(l=>l.id.startsWith("clb"))},
-    {emoji:"✍",name:"Writer",desc:"Complete a writing lesson",unlocked:done.some(l=>l.skill==="writing")},
-    {emoji:"🏆",name:"Halfway There",desc:"Complete 50% of the curriculum",unlocked:done.length>=Math.floor(allL.length/2)},
-  ];
-  return <div style={{padding:"28px 32px",maxWidth:900,margin:"0 auto",display:"flex",flexDirection:"column",gap:20}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:26,fontWeight:700,color:T.navy}}>My Profile 👤</div>
-    <Card style={{display:"flex",alignItems:"center",gap:24,padding:"28px 28px",flexWrap:"wrap"}}>
-      <Avatar companion={c} size={80}/>
-      <div style={{flex:1}}>
-        <div style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:T.navy,marginBottom:4}}>French Learner</div>
-        <div style={{fontSize:13,color:T.textSoft,marginBottom:14}}>Learning with {c.name} · {level.label}</div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}><Pill variant="gold">🔥 7 day streak</Pill><Pill variant="blue">⭐ {xp} XP total</Pill><Pill variant="mint">✓ {done.length} lessons done</Pill></div>
+  const isPremium=isPremiumUnlocked();
+  const handleLogout=async()=>{ await logout(); window.location.reload(); };
+  const displayName=user?.displayName||user?.email?.split("@")[0]||null;
+
+  // ─── ACCOUNT DELETION (App Store 5.1.1(v)) ─────────────────────────────────
+  // Self-serve flow: confirm → enter password → reauthenticate → delete →
+  // wipe local progress → reload. Required for any iOS app that allows
+  // account creation. Web also gets it for parity.
+  const[showDelete,setShowDelete]=useState(false);
+  const[deletePass,setDeletePass]=useState("");
+  const[deleteConfirm,setDeleteConfirm]=useState("");
+  const[deleteBusy,setDeleteBusy]=useState(false);
+  const[deleteErr,setDeleteErr]=useState("");
+  const handleDeleteAccount=async(e)=>{
+    e?.preventDefault?.();
+    setDeleteErr("");
+    if(deleteConfirm!=="DELETE"){setDeleteErr('Please type DELETE to confirm.');return;}
+    if(!deletePass){setDeleteErr('Enter your password.');return;}
+    setDeleteBusy(true);
+    try{
+      await deleteAccount(deletePass);
+      window.location.reload();
+    }catch(e2){
+      const code = e2?.code||"";
+      const msg = code==="auth/invalid-credential" || code==="auth/wrong-password"
+        ? "Incorrect password."
+        : code==="auth/requires-recent-login"
+          ? "Please sign out and sign back in, then try again."
+          : (e2?.message || "Could not delete account. Please try again.");
+      setDeleteErr(msg);
+      setDeleteBusy(false);
+    }
+  };
+
+  const Row=({emoji,label,onClick})=>(
+    <div onClick={onClick} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",borderBottom:`1px solid ${T.border}`,cursor:"pointer"}}
+      onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+      onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+      <span style={{fontSize:18,width:24,textAlign:"center"}}>{emoji}</span>
+      <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>{label}</span>
+      <span style={{color:T.textSoft,fontSize:13}}>›</span>
+    </div>
+  );
+
+  return <div style={{maxWidth:520,margin:"0 auto",padding:"28px 24px",display:"flex",flexDirection:"column",gap:0}}>
+    {/* Header logo */}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",marginBottom:28}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+        <span style={{fontSize:20}}>🍁</span>
+        <span style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:T.navy,letterSpacing:1}}>FRANCO</span>
       </div>
-    </Card>
-    <Card>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Progress by Level</div>
-      {Object.values(SYLLABUS).map(lev=>{
-        const lLessons=lev.modules.flatMap(m=>m.lessons);
-        const lDone=lLessons.filter(l=>progress[l.id]).length;
-        const pct=Math.round((lDone/lLessons.length)*100);
-        return <div key={lev.id} style={{marginBottom:16}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:18}}>{lev.emoji}</span><span style={{fontSize:14,fontWeight:600}}>{lev.label}</span></div>
-            <span style={{fontSize:14,fontWeight:700,color:lev.color}}>{lDone}/{lLessons.length}</span>
+    </div>
+
+    {/* Profile card */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"20px",marginBottom:16}}>
+      <div style={{fontSize:18,fontWeight:700,color:T.navy,marginBottom:16}}>Profile</div>
+
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Guest mode":user?.email||"—"}</div>
+      </div>
+
+      <div style={{marginBottom:12}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
+      </div>
+
+      <div style={{marginBottom:4}}>
+        <div style={{fontSize:12,color:T.textSoft,marginBottom:6}}>Subscription</div>
+        <span style={{fontSize:12,fontWeight:600,padding:"4px 12px",borderRadius:50,background:isPremium?"#D1FAE5":"#F1F5F9",color:isPremium?"#065F46":T.textMid,border:`1px solid ${isPremium?"#6EE7B7":T.border}`}}>
+          {isPremium?"Premium ✓":"Free Plan"}
+        </span>
+      </div>
+    </div>
+
+    {/* More section */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px",letterSpacing:0.5}}>More</div>
+      {/* Subscription row hidden on iOS — App Store 3.1.1 prohibits external payment links. */}
+      {!IS_IOS_APP && <Row emoji="📈" label="Subscription" onClick={()=>{
+        const n=adminTaps+1;
+        setAdminTaps(n);
+        if(n===3){setShowAdmin(true);setAdminTaps(0);}
+        else{window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");}
+      }}/>}
+      {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+            <div style={{fontSize:16,fontWeight:800,color:"#0F172A"}}>Admin Panel</div>
+            <button onClick={()=>{setShowAdmin(false);setAdminMsg("");}} style={{background:"none",border:"none",fontSize:20,cursor:"pointer"}}>x</button>
           </div>
-          <ProgressBar value={pct} color={lev.color}/>
-        </div>;
-      })}
-    </Card>
-    <Card>
-      <div style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:T.navy,marginBottom:20}}>Achievements 🏅</div>
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-        {achievements.map(a=><div key={a.name} style={{display:"flex",alignItems:"center",gap:14,padding:"14px 16px",borderRadius:14,background:a.unlocked?T.goldLight:T.surface,border:`1.5px solid ${a.unlocked?"#FCD34D":T.border}`,opacity:a.unlocked?1:0.55}}>
-          <span style={{fontSize:28}}>{a.emoji}</span>
-          <div><div style={{fontSize:14,fontWeight:700,color:T.navy}}>{a.name}</div><div style={{fontSize:12,color:T.textSoft,marginTop:2}}>{a.desc}</div></div>
-          {a.unlocked&&<span style={{marginLeft:"auto",color:T.gold,fontWeight:700}}>✓</span>}
-        </div>)}
+          <div style={{fontSize:12,color:"#64748B",marginBottom:12}}>Grant premium to any user by email</div>
+          <input value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="user@email.com"
+            style={{width:"100%",padding:"10px 12px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,outline:"none",marginBottom:10,boxSizing:"border-box"}}/>
+          <select value={adminDays} onChange={e=>setAdminDays(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",border:"1px solid #E2E8F0",borderRadius:8,fontSize:13,marginBottom:12}}>
+            <option value="31">1 month</option>
+            <option value="62">2 months</option>
+            <option value="93">3 months</option>
+            <option value="365">1 year</option>
+            <option value="3650">Lifetime</option>
+          </select>
+          <button onClick={grantPremium} style={{width:"100%",padding:"12px",background:"#0F172A",color:"#fff",border:"none",borderRadius:10,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer",marginBottom:10}}>
+            Grant Premium
+          </button>
+          {adminMsg&&<div style={{padding:"10px 12px",borderRadius:8,background:adminMsg.startsWith("Done")?"#ECFDF5":"#FEF2F2",fontSize:13,color:adminMsg.startsWith("Done")?"#059669":"#DC2626",fontWeight:600}}>{adminMsg}</div>}
+        </div>
+      </div>}
+      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>window.open("https://wa.me/16046355031","_blank")}/>
+      <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:admin@junglelabsworld.com","_blank")}/>
+      <Row emoji="📱" label="WhatsApp — +1 604 902 8699" onClick={()=>window.open("https://wa.me/16049028699","_blank")}/>
+      <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset your level selection?"))onReset();}}/>
+      <div onClick={()=>window.open("https://franco.app/privacy","_blank")} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
+        onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
+        onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <span style={{fontSize:18,width:24,textAlign:"center"}}>🔒</span>
+        <span style={{fontSize:14,color:T.navy,flex:1,fontWeight:500}}>Privacy Policy</span>
+        <span style={{color:T.textSoft,fontSize:13}}>›</span>
       </div>
-    </Card>
-    <Btn variant="secondary" onClick={onReset} style={{alignSelf:"flex-start",color:T.red,borderColor:T.red}}>🔄 Reset All Progress</Btn>
+    </div>
+
+    {/* Auth button */}
+    {guestMode
+      ? <button onClick={()=>onAuthNav("landing")} style={{width:"100%",padding:"15px",background:T.navy,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+          Create Account / Login
+        </button>
+      : <button onClick={handleLogout} style={{width:"100%",padding:"15px",background:T.surface,color:T.textMid,border:`1px solid ${T.border}`,borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:12}}>
+          Sign Out
+        </button>
+    }
+
+    {/* DELETE ACCOUNT — App Store 5.1.1(v) requires this for any app with account creation. */}
+    {!guestMode && user && (
+      <button onClick={()=>setShowDelete(true)} style={{
+        width:"100%",padding:"13px",background:"transparent",
+        color:"#DC2626",border:"1.5px solid #FCA5A5",borderRadius:14,
+        fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:14,
+        cursor:"pointer",marginBottom:12
+      }}>Delete my account</button>
+    )}
+
+    {showDelete && (
+      <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <form onSubmit={handleDeleteAccount} style={{background:"#fff",borderRadius:16,maxWidth:400,width:"100%",overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+          <div style={{background:"linear-gradient(135deg,#DC2626,#B91C1C)",padding:"22px 24px",color:"#fff"}}>
+            <div style={{fontSize:20,fontWeight:800,marginBottom:4}}>Delete your account?</div>
+            <div style={{fontSize:13,opacity:0.9}}>This cannot be undone. Your login, progress, and data will be permanently removed.</div>
+          </div>
+          <div style={{padding:"20px 24px"}}>
+            <div style={{fontSize:12,color:T.textSoft,marginBottom:6,fontWeight:700,letterSpacing:0.5}}>TYPE "DELETE" TO CONFIRM</div>
+            <input value={deleteConfirm} onChange={e=>setDeleteConfirm(e.target.value)} disabled={deleteBusy}
+              placeholder="DELETE"
+              style={{width:"100%",padding:"11px 13px",border:`1.5px solid ${deleteConfirm==="DELETE"?"#DC2626":T.border}`,borderRadius:10,fontSize:14,outline:"none",marginBottom:14,boxSizing:"border-box",fontFamily:"system-ui"}}/>
+            <div style={{fontSize:12,color:T.textSoft,marginBottom:6,fontWeight:700,letterSpacing:0.5}}>YOUR PASSWORD</div>
+            <input type="password" value={deletePass} onChange={e=>setDeletePass(e.target.value)} disabled={deleteBusy}
+              placeholder="Current password"
+              style={{width:"100%",padding:"11px 13px",border:`1.5px solid ${T.border}`,borderRadius:10,fontSize:14,outline:"none",marginBottom:14,boxSizing:"border-box",fontFamily:"system-ui"}}/>
+            {deleteErr && <div style={{padding:"10px 12px",borderRadius:8,background:"#FEF2F2",color:"#B91C1C",fontSize:13,marginBottom:12,border:"1px solid #FECACA"}}>{deleteErr}</div>}
+            <button type="submit" disabled={deleteBusy||deleteConfirm!=="DELETE"||!deletePass} style={{
+              width:"100%",padding:"13px",background:(deleteBusy||deleteConfirm!=="DELETE"||!deletePass)?"#D1D5DB":"#DC2626",color:"#fff",border:"none",borderRadius:10,
+              fontFamily:"system-ui",fontWeight:700,fontSize:14,
+              cursor:(deleteBusy||deleteConfirm!=="DELETE"||!deletePass)?"not-allowed":"pointer",marginBottom:8
+            }}>{deleteBusy?"Deleting…":"Permanently delete account"}</button>
+            <button type="button" onClick={()=>{setShowDelete(false);setDeletePass("");setDeleteConfirm("");setDeleteErr("");}} disabled={deleteBusy} style={{
+              width:"100%",padding:"11px",background:"transparent",border:`1px solid ${T.border}`,borderRadius:10,
+              color:T.textMid,fontFamily:"system-ui",fontWeight:600,fontSize:14,
+              cursor:deleteBusy?"not-allowed":"pointer"
+            }}>Cancel</button>
+          </div>
+        </form>
+      </div>
+    )}
+
+    <div style={{textAlign:"center",fontSize:12,color:T.textSoft}}>Powered by Jungle Labs</div>
   </div>;
 }
 
-function TopBar({screen,onNavigate,companion,progress,isDark,onToggleDark,theme,stats,unlockedAchievements}){
-  const xp=Object.keys(progress).length*25;
-  const nav=[{id:"dashboard",label:"Home",emoji:"🏠"},{id:"hub",label:"Learn",emoji:"📚"},{id:"practice",label:"Practice",emoji:"⚡"},{id:"profile",label:"Profile",emoji:"👤"}];
-  
-  return <div style={{background:theme.card,borderBottom:`1px solid ${theme.border}`,padding:"0 28px",display:"flex",alignItems:"center",height:64,gap:8,position:"sticky",top:0,zIndex:100,boxShadow:`0 1px 8px ${isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.06)'}`}}>
-    <div style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:900,color:theme.navy,marginRight:4}}>Franco</div>
-    <div style={{fontSize:16,marginRight:12}}>🍁</div>
-    <div style={{flex:1}}/>
-    
-    <div style={{display:"flex",gap:4}}>
-      {nav.map(n=><button key={n.id} onClick={()=>onNavigate(n.id)} style={{padding:"8px 16px",borderRadius:10,border:"none",background:screen===n.id?theme.blueLight:"transparent",color:screen===n.id?theme.blue:theme.textMid,fontFamily:"'DM Sans',sans-serif",fontWeight:screen===n.id?700:500,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",gap:6,transition:"all 0.2s"}}>{n.emoji} {n.label}</button>)}
+
+function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav}){
+  const{logout}=useAuth();
+  const isMobile=useIsMobile();
+  const handleLogout=async()=>{ await logout(); window.location.reload(); };
+  const nav=[
+    {id:"dashboard",label:"Home",emoji:"🏠"},
+    {id:"hub",label:"Learn",emoji:"📚"},
+    {id:"practice",label:"Practice",emoji:"⚡"},
+    {id:"profile",label:"Profile",emoji:"👤"},
+  ];
+  return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"0 16px",display:"flex",alignItems:"center",height:52,gap:0,position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}}>
+    {/* Logo */}
+    <div style={{fontSize:18,fontWeight:800,color:"#0F172A",fontFamily:"Georgia,serif",marginRight:16,flexShrink:0}}>Franco 🍁</div>
+    {/* Nav */}
+    <div style={{display:"flex",gap:0,flex:1,justifyContent:isMobile?"center":"flex-start"}}>
+      {nav.map(n=>(
+        <button key={n.id} onClick={()=>onNavigate(n.id)}
+          style={{padding:isMobile?"8px 10px":"8px 14px",border:"none",background:"none",color:screen===n.id?"#0F172A":"#94A3B8",fontFamily:"system-ui,sans-serif",fontWeight:screen===n.id?700:500,fontSize:isMobile?11:13,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1,borderBottom:screen===n.id?"2px solid #0F172A":"2px solid transparent",borderRadius:0,transition:"all 0.15s"}}>
+          {isMobile&&<span style={{fontSize:16}}>{n.emoji}</span>}
+          <span>{isMobile?n.label:n.emoji+" "+n.label}</span>
+        </button>
+      ))}
     </div>
-    
-    <div style={{flex:1}}/>
-    
-    <div style={{display:"flex",alignItems:"center",gap:10}}>
-      {/* Streak display */}
-      {stats.currentStreak > 1 && (
-        <div style={{background:theme.goldLight,color:theme.gold,padding:"4px 8px",borderRadius:8,fontSize:12,fontWeight:700}}>
-          🔥 {stats.currentStreak}
-        </div>
-      )}
-      
-      {/* Achievement count */}
-      {unlockedAchievements.length > 0 && (
-        <div style={{background:theme.purpleLight,color:theme.purple,padding:"4px 8px",borderRadius:8,fontSize:12,fontWeight:700}}>
-          🏆 {unlockedAchievements.length}
-        </div>
-      )}
-      
-      {/* Dark mode toggle */}
-      <button 
-        onClick={onToggleDark}
-        style={{
-          background: 'none',
-          border: `1px solid ${theme.border}`,
-          borderRadius: 8,
-          padding: 8,
-          cursor: 'pointer',
-          fontSize: 16,
-          transition: 'all 0.2s',
-          color: theme.text
-        }}
-        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      >
-        {isDark ? '☀️' : '🌙'}
-      </button>
-      
-      <Pill variant="gold" theme={theme}>⭐ {xp} XP</Pill>
-      <div style={{width:36,height:36,borderRadius:"50%",background:theme.navy,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{companion?.emoji||"👤"}</div>
-    </div>
+    {/* Auth */}
+    {!isMobile&&(user
+      ? <button onClick={handleLogout} style={{fontSize:12,fontWeight:600,padding:"6px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"none",color:"#64748B",cursor:"pointer",flexShrink:0}}>Sign out</button>
+      : <button onClick={()=>onAuthNav("landing")} style={{fontSize:12,fontWeight:700,padding:"6px 14px",borderRadius:8,border:"none",background:"#0F172A",color:"#fff",cursor:"pointer",flexShrink:0}}>Sign in</button>
+    )}
   </div>;
 }
 
-export default function App(){
+
+function AppInner(){
+  const authCtx=useAuth();
+  const{user,initializing,cloudProgress,cloudStreak,cloudXP}=authCtx;
+  const[authScreen,setAuthScreen]=useLocalState("franco_auth_screen","landing");
+  const[authParams,setAuthParams]=useState({});
   const[screen,setScreen]=useLocalState("franco_screen","welcome");
   const[companion,setCompanion]=useLocalState("franco_companion",null);
   const[startLevel,setStartLevel]=useLocalState("franco_level","foundation");
   const[progress,setProgress]=useLocalState("franco_progress",{});
-  const[isDark,setIsDark]=useLocalState("franco_dark_mode",false);
-  const[stats,setStats]=useLocalState("franco_stats",{
-    lessonsCompleted: 0,
-    currentStreak: 0,
-    speakingDone: 0,
-    conversationsCompleted: 0,
-    perfectScores: 0,
-    totalStudyDays: 0,
-    a1Completed: 0,
-    quebecLessons: 0,
-    lateNightSessions: 0,
-    earlyMorningSessions: 0,
-    lastStudyDate: null,
-    totalXP: 0
-  });
-  const[unlockedAchievements,setUnlockedAchievements]=useLocalState("franco_achievements",[]);
+  // Sync cloud progress when user logs in
+  useEffect(()=>{
+    if(cloudProgress && Object.keys(cloudProgress).length > Object.keys(progress).length){
+      setProgress(cloudProgress);
+    }
+  },[cloudProgress]);
   const[activeLesson,setActiveLesson]=useState(null);
   const[paywallLesson,setPaywallLesson]=useState(null);
-  const[showAchievement,setShowAchievement]=useState(null);
-
-  // Get current theme
-  const theme = getCurrentTheme(isDark);
+  const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
 
   // Check if returning from Stripe payment
   useEffect(()=>{checkStripeSuccess();},[]);
 
-  // Update streak on app load
-  useEffect(()=>{
-    const today = new Date().toDateString();
-    const lastStudy = stats.lastStudyDate;
-    if (lastStudy && lastStudy !== today) {
-      const yesterday = new Date(Date.now() - 86400000).toDateString();
-      if (lastStudy === yesterday) {
-        // Continued streak
-        setStats(prev => ({...prev, currentStreak: prev.currentStreak + 1, lastStudyDate: today}));
-      } else {
-        // Reset streak
-        setStats(prev => ({...prev, currentStreak: 1, lastStudyDate: today}));
-      }
-    } else if (!lastStudy) {
-      setStats(prev => ({...prev, currentStreak: 1, lastStudyDate: today}));
-    }
-  }, []);
-
-  // Safety check for totalXP
-  useEffect(() => {
-    if (typeof stats.totalXP === 'undefined' || stats.totalXP === null) {
-      setStats(prev => ({...prev, totalXP: prev.lessonsCompleted * 25 || 0}));
-    }
-  }, []);
-
-  // Check for new achievements
-  const checkAchievements = (newStats) => {
-    ACHIEVEMENTS.forEach(achievement => {
-      if (!unlockedAchievements.includes(achievement.id) && achievement.requirement(newStats)) {
-        setUnlockedAchievements(prev => [...prev, achievement.id]);
-        setShowAchievement(achievement);
-        setTimeout(() => setShowAchievement(null), 4000);
-      }
-    });
-  };
-
   useEffect(()=>{
     const s=document.createElement("style");
     s.textContent=`
-      @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+      
       *{box-sizing:border-box;margin:0;padding:0;}
-      body{background:${theme.surface} !important;color:${theme.text} !important;transition: all 0.3s ease;}
-      html{background:${theme.surface} !important;}
-      #root{background:${theme.surface} !important;min-height:100vh;}
+      body{background:${T.surface};}
       @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-      @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
-      @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
-      @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
-      @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+        @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+        @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+        @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
       @keyframes ring{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.03)}}
       @keyframes wave{0%,100%{transform:scaleY(.4);opacity:.5}50%{transform:scaleY(1);opacity:1}}
       @keyframes typeDot{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
-      @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
-      @keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
-      ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:${theme.border};border-radius:3px}
+      ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
     `;
     document.head.appendChild(s);
     return()=>document.head.removeChild(s);
-  },[isDark, theme]);
+  },[]);
+
+  // Navigate between auth screens
+  const goAuth=(screenName, params={})=>{ setAuthScreen(screenName); setAuthParams(params); };
+
+  // If Firebase is ready and user logs in, enter app
+  useEffect(()=>{
+    if(user){ setGuestMode(false); setAuthScreen("app"); }
+  },[user]);
 
   const handleOnboard=(comp,lev)=>{setCompanion(comp);setStartLevel(lev);setScreen("dashboard");};
-  
   const handleStartLesson=(lesson,level)=>{
-    // Check if lesson requires premium
-    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){
-      setPaywallLesson(lesson);
-      return;
-    }
-    setActiveLesson({lesson,level});setScreen("lesson");
-    
-    // Update stats for time-based achievements
-    const hour = new Date().getHours();
-    const newStats = {...stats};
-    if (hour >= 21 || hour <= 6) {
-      newStats.lateNightSessions = (newStats.lateNightSessions || 0) + 1;
-    }
-    if (hour >= 5 && hour <= 7) {
-      newStats.earlyMorningSessions = (newStats.earlyMorningSessions || 0) + 1;
-    }
-    setStats(newStats);
-    checkAchievements(newStats);
+    // App Store 3.1.1 — on iOS we ship guest-only / all-free since we can't link
+    // out to Stripe for digital subscriptions. Web continues to use the paywall.
+    if(!IS_IOS_APP && !isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
+    setActiveLesson({lesson,level}); setScreen("lesson");
   };
-  
-  const handleLessonComplete=(lessonId, score = null)=>{
-    setProgress(p=>({...p,[lessonId]:true}));
-    
-    // Update comprehensive stats
-    const newStats = {
-      ...stats,
-      lessonsCompleted: stats.lessonsCompleted + 1,
-      lastStudyDate: new Date().toDateString()
-    };
-    
-    if (lessonId.startsWith('a1')) newStats.a1Completed = stats.a1Completed + 1;
-    if (lessonId.includes('quebec') || lessonId.includes('canada')) newStats.quebecLessons = stats.quebecLessons + 1;
-    if (score === 100) newStats.perfectScores = stats.perfectScores + 1;
-    
-    // Calculate totalXP
-    newStats.totalXP = (newStats.lessonsCompleted * 25) + (newStats.perfectScores * 50) + (newStats.currentStreak * 10);
-    
-    setStats(newStats);
-    checkAchievements(newStats);
+  const handleLessonComplete=(lessonId, score=4)=>{
+    const newProgress={...progress,[lessonId]:true};
+    const today=new Date().toISOString().split("T")[0];
+    // Update streak
+    const lastDay=localStorage.getItem("franco_last_day");
+    const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
+    const yStr=yesterday.toISOString().split("T")[0];
+    let newStreak=parseInt(localStorage.getItem("franco_streak")||"0");
+    if(lastDay===today){ /* same day */ }
+    else if(lastDay===yStr){ newStreak+=1; }
+    else{ newStreak=1; }
+    localStorage.setItem("franco_streak",String(newStreak));
+    localStorage.setItem("franco_last_day",today);
+    // Update XP
+    const newXP=(parseInt(localStorage.getItem("franco_xp")||"0"))+25;
+    localStorage.setItem("franco_xp",String(newXP));
+    setProgress(newProgress);
+    // Schedule spaced repetition review
+    const currentReviews=authCtx?.reviewSchedule||{};
+    const prev=currentReviews[lessonId]||{};
+    const nextReview=calcNextReview(prev.interval||0, prev.ef||2.5, score);
+    const newReviews={...currentReviews,[lessonId]:nextReview};
+    // Save everything to Firebase
+    if(authCtx?.user && authCtx?.saveProgress){
+      authCtx.saveProgress(newProgress, newXP, newStreak, newReviews);
+    }
     setScreen("hub");
     setActiveLesson(null);
   };
 
-  const showNav=!["welcome","onboarding","lesson"].includes(screen);
+  // Loading spinner while Firebase initializes
+  if(initializing) return(
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#F7FAFF",flexDirection:"column",gap:16}}>
+      <div style={{fontSize:48,animation:"float 1.5s ease-in-out infinite"}}>🍁</div>
+      <div style={{fontFamily:"system-ui,-apple-system,sans-serif",fontSize:14,color:"#475569"}}>Loading Franco...</div>
+    </div>
+  );
 
-  return <div style={{fontFamily:"'DM Sans',sans-serif",background:theme.surface,minHeight:"100vh",color:theme.text}}>
-    {/* Enhanced TopBar with dark mode toggle */}
-    {showNav&&<TopBar 
-      screen={screen} 
-      onNavigate={setScreen} 
-      companion={companion} 
-      progress={progress}
-      isDark={isDark}
-      onToggleDark={()=>setIsDark(!isDark)}
-      theme={theme}
-      stats={stats}
-      unlockedAchievements={unlockedAchievements}
-    />}
-    
-    {/* Achievement notification */}
-    {showAchievement && <AchievementNotification achievement={showAchievement} theme={theme} />}
-    
-    {/* Screen routing */}
-    {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")} theme={theme}/>}
-    {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard} theme={theme}/>}
-    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} theme={theme} stats={stats}/>}
-    {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson} theme={theme}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")} theme={theme}/>}
-    {screen==="practice"&&<PracticeScreen companion={companion} theme={theme} onConversationComplete={(score)=>{
-      const newStats = {...stats, conversationsCompleted: stats.conversationsCompleted + 1};
-      setStats(newStats);
-      checkAchievements(newStats);
-    }}/>}
-    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setStats({lessonsCompleted:0,currentStreak:0,speakingDone:0,conversationsCompleted:0,perfectScores:0,totalStudyDays:0,a1Completed:0,quebecLessons:0,lateNightSessions:0,earlyMorningSessions:0,lastStudyDate:null,totalXP:0});setScreen("dashboard");}} theme={theme} stats={stats} unlockedAchievements={unlockedAchievements}/>}
-    
-    {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)} theme={theme}/>}
+  // Auth screens (not logged in and not guest)
+  const isAuthed = !!user || guestMode;
+  if(!isAuthed){
+    if(authScreen==="login") return <LoginScreen onNavigate={goAuth} prefillEmail={authParams.prefillEmail||""} notice={authParams.notice||""}/>;
+    if(authScreen==="register") return <RegisterScreen onNavigate={goAuth}/>;
+    return <AuthLandingScreen onNavigate={goAuth} onGuest={()=>{ setGuestMode(true); setAuthScreen("app"); }}/>;
+  }
+
+  // Main app
+  const showNav=!["welcome","onboarding","lesson"].includes(screen);
+  return <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
+    {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
+    {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
+    {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
+    {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
+    {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
+    {screen==="practice"&&<PracticeScreen companion={companion}/>}
+    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
+    {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
+    {paywallLesson&&<PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
 }
 
-// Achievement notification component
-function AchievementNotification({achievement, theme}) {
-  return (
-    <div style={{
-      position: 'fixed',
-      top: 20,
-      right: 20,
-      background: `linear-gradient(135deg, ${theme.gold}, ${theme.goldLight})`,
-      color: theme.text,
-      padding: '16px 20px',
-      borderRadius: 16,
-      boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-      animation: 'slideInRight 0.5s ease-out',
-      zIndex: 1000,
-      maxWidth: 300,
-      border: `2px solid ${theme.gold}`
-    }}>
-      <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
-        <span style={{fontSize: 24}}>{achievement.emoji}</span>
-        <div>
-          <div style={{fontWeight: 700, fontSize: 14, marginBottom: 2}}>Achievement Unlocked!</div>
-          <div style={{fontSize: 13, opacity: 0.9}}>{achievement.name}</div>
-          <div style={{fontSize: 11, opacity: 0.8, marginTop: 2}}>{achievement.desc}</div>
-        </div>
-      </div>
-    </div>
-  );
+export default function App(){
+  return <AuthProvider><AppInner/></AuthProvider>;
 }
