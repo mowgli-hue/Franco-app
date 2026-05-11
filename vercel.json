@@ -2,6 +2,6 @@
   "rewrites": [
     { "source": "/support", "destination": "/support.html" },
     { "source": "/privacy", "destination": "/privacy.html" },
-    { "source": "/((?!support|privacy|assets|favicon).*)", "destination": "/index.html" }
+    { "source": "/((?!api|support|privacy|assets|favicon).*)", "destination": "/index.html" }
   ]
 }
