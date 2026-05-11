@@ -2590,6 +2590,46 @@ function isPremiumUnlocked(){
 
 const BACKEND_URL="https://clbbackend-production.up.railway.app";
 
+// ─── AI TUTOR — CALL CLAUDE ────────────────────────────────────────────────
+// Hits the Vercel serverless function at https://www.franco.app/api/claude
+// which proxies to Anthropic. We use the absolute URL because the iOS
+// Capacitor WebView runs at capacitor://localhost — relative URLs would
+// resolve to a non-existent local server.
+//
+// Safety: 15-second AbortController so iOS never "loads indefinitely"
+// (Apple App Store rejection 2.1(a) — fixed by this timeout).
+const CLAUDE_API_URL = "https://www.franco.app/api/claude";
+
+async function callClaude(systemPrompt, userMessage, maxTokens=600){
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  try{
+    const res = await fetch(CLAUDE_API_URL, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{role: "user", content: userMessage}]
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.content?.[0]?.text || data.message || "Je suis désolé, une erreur s'est produite. Essayez à nouveau.";
+  }catch(e){
+    clearTimeout(timeoutId);
+    // eslint-disable-next-line no-console
+    console.warn("[callClaude] error:", e?.name, e?.message);
+    if(e?.name === "AbortError"){
+      return "Désolé, ma réponse prend trop de temps. Vérifiez votre connexion internet et réessayez! 🌐";
+    }
+    return "Désolé, l'IA n'est pas disponible pour le moment. Essayez de rafraîchir la page ou revenez plus tard! 🔄";
+  }
+}
+
 async function checkBackendPremium(userId){
   try{
     const res=await fetch(`${BACKEND_URL}/api/subscription/status?userId=${userId}`);
