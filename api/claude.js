@@ -41,7 +41,7 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    console.error("[api/claude] ANTHROPIC_API_KEY not set in Vercel env vars");
+    console.error("[api/claude] ANTHROPIC_API_KEY not set");
     return res.status(500).json({
       error: "Server misconfigured — Anthropic API key missing.",
       content: [{ text: "Désolé, le service IA n'est pas configuré. Contactez le support." }]
