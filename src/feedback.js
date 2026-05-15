@@ -123,13 +123,15 @@ export function playTick() {
 }
 
 // ─── Haptics ──────────────────────────────────────────────────────────────────
-// iOS native taptic engine via Capacitor when available; fall back to
-// navigator.vibrate (Android web).
+// iOS native taptic engine via the Capacitor global Plugins object when
+// available; fall back to navigator.vibrate (Android web). We avoid importing
+// "@capacitor/haptics" so the web bundle builds without that dependency —
+// the native iOS plugin is registered globally if it's installed in the
+// Capacitor project, otherwise we fall through gracefully.
 async function nativeHaptic(style) {
   if (!IS_IOS) return false;
   try {
-    const mod = await import("@capacitor/haptics");
-    const H = mod.Haptics;
+    const H = window.Capacitor?.Plugins?.Haptics;
     if (!H) return false;
     if (style === "success") await H.notification({ type: "SUCCESS" });
     else if (style === "warning") await H.notification({ type: "WARNING" });
