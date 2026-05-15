@@ -1,151 +1,186 @@
-// iOS In-App Purchase integration for Franco Premium.
+// Apple In-App Purchase via RevenueCat for the Franco iOS app.
 //
-// Apple requires digital subscriptions on iOS to use IAP (App Store
-// guideline 3.1.1). On web we keep the existing Stripe flow; this module is
-// ONLY called when running inside the iOS Capacitor wrapper.
+// Flow:
+//   1. iapInit() — call once on app load (only on iOS)
+//   2. iapGetOfferings() — fetch the Premium subscription product
+//   3. iapPurchase(pkg) — launch Apple's IAP sheet
+//   4. iapRestore() — restore previous purchases
+//   5. isPremiumActive() — check if user has active subscription
 //
-// We use the `@capacitor-community/in-app-purchases` plugin (installed via
-// `npm i @capacitor-community/in-app-purchases` and `npx cap sync ios`).
+// The app uses Apple's StoreKit (managed by RevenueCat) to handle:
+//   - Subscription billing through Apple
+//   - Receipt validation
+//   - Renewal tracking
+//   - Restore purchases on reinstall
 //
-// If the plugin isn't installed yet (e.g. the user hasn't run `npm install`
-// yet), the lazy dynamic import will throw — we wrap every call so the app
-// continues to work on web and never crashes in the UI.
-//
-// Flow (PaywallModal uses these helpers):
-//   1. iapInit()        — call once at app load to register the product
-//   2. iapBuy()         — launches the native purchase sheet
-//   3. iapRestore()     — restores entitlement from App Store receipts
-//   4. onEntitlementChange(cb) — listener; fires when subscription becomes
-//      active or expires. We flip localStorage("franco_premium") accordingly
-//      so existing isPremiumUnlocked() keeps working unchanged.
+// Setup required (one time):
+//   1. App Store Connect → Subscriptions → create "Franco Premium Monthly" product
+//   2. RevenueCat dashboard → connect App Store Connect API key
+//   3. Add the subscription product to RevenueCat → create entitlement "premium"
+//   4. Get RevenueCat API key (Public SDK key) → put in .env as VITE_REVENUECAT_KEY
 
-const PRODUCT_ID = "Franco_123"; // Must match exactly the product ID in App Store Connect.
-const ENTITLEMENT_KEY = "franco_premium";
+const REVENUECAT_KEY = import.meta.env.VITE_REVENUECAT_KEY || "";
+const ENTITLEMENT_ID = "premium"; // Must match what you create in RevenueCat
+const ENTITLEMENT_KEY = "franco_premium"; // localStorage key (compatible with existing isPremiumUnlocked)
 
-// Grant premium for 31 days locally. For a proper production setup, validate
-// the receipt server-side and store an entitlement in Firestore keyed by uid.
-function grantLocalEntitlement(days = 31) {
+const IS_IOS = (() => {
   try {
-    const exp = Date.now() + days * 24 * 60 * 60 * 1000;
-    localStorage.setItem(
-      ENTITLEMENT_KEY,
-      JSON.stringify({ token: "unlocked", exp })
-    );
-  } catch {
-    /* private mode or quota — silently ignore */
-  }
+    return typeof window !== "undefined" &&
+      window.Capacitor?.getPlatform?.() === "ios";
+  } catch { return false; }
+})();
+
+let _purchases = null;
+let _initialized = false;
+
+// Mirror RevenueCat's entitlement state into localStorage so the existing
+// isPremiumUnlocked() function (which reads localStorage) keeps working
+// without a refactor. The ground truth is RevenueCat — this is a UI cache.
+function syncToLocalStorage(isActive, expiresAt) {
+  try {
+    if (isActive) {
+      const exp = expiresAt ? new Date(expiresAt).getTime() : Date.now() + 31 * 24 * 60 * 60 * 1000;
+      localStorage.setItem(ENTITLEMENT_KEY, JSON.stringify({ token: "unlocked", exp }));
+    } else {
+      localStorage.removeItem(ENTITLEMENT_KEY);
+    }
+  } catch { /* ignore */ }
 }
 
-function clearLocalEntitlement() {
+async function loadPurchases() {
+  if (_purchases) return _purchases;
   try {
-    localStorage.removeItem(ENTITLEMENT_KEY);
-  } catch {
-    /* ignore */
-  }
-}
-
-// Load the plugin lazily so the web bundle doesn't try to resolve a native
-// module that doesn't exist on web.
-// The IAP plugin is loaded via runtime-only dynamic import. The @vite-ignore
-// comment tells Vite NOT to try to resolve this at build time — on web the
-// package doesn't exist and that's fine. The iOS build installs the real
-// package via `npx cap sync ios` after `npm i <plugin>`.
-//
-// Plugin choice — the team should pick one and install it before TestFlight:
-//   - RevenueCat's @revenuecat/purchases-capacitor (recommended; handles receipt
-//     validation server-side and gives cross-platform entitlements out of the box)
-//   - @capgo/capacitor-purchases (simpler, no backend required)
-//
-// Whichever is installed, we read it off `window.Capacitor.Plugins` so there
-// is no hardcoded import path for Vite to resolve.
-async function loadPlugin() {
-  try {
-    if (typeof window === "undefined") return null;
-    const plugins = window?.Capacitor?.Plugins;
-    if (!plugins) return null;
-    // Try both known plugin names in order of preference.
-    return (
-      plugins.InAppPurchases ||
-      plugins.Purchases ||
-      plugins.CdvPurchase ||
-      null
-    );
+    const mod = await import("@revenuecat/purchases-capacitor");
+    _purchases = mod.Purchases || mod.default;
+    return _purchases;
   } catch (e) {
     // eslint-disable-next-line no-console
-    console.warn("[iap] plugin lookup failed:", e);
+    console.warn("[iap] @revenuecat/purchases-capacitor not installed:", e?.message);
     return null;
   }
 }
 
-export async function iapInit() {
-  const IAP = await loadPlugin();
-  if (!IAP) return { ok: false, reason: "plugin-missing" };
+// Initialize RevenueCat. Call once at app start (only on iOS — no-op on web).
+export async function iapInit(userIdentifier = null) {
+  if (!IS_IOS) return { ok: true, skipped: "not-ios" };
+  if (_initialized) return { ok: true, alreadyInitialized: true };
+  if (!REVENUECAT_KEY) {
+    // eslint-disable-next-line no-console
+    console.warn("[iap] VITE_REVENUECAT_KEY missing — IAP disabled");
+    return { ok: false, reason: "no-key" };
+  }
+  const Purchases = await loadPurchases();
+  if (!Purchases) return { ok: false, reason: "plugin-missing" };
   try {
-    // Register the product so queryProducts can return pricing info.
-    await IAP.register?.({
-      productIdentifier: PRODUCT_ID,
-      productType: "PAID_SUBSCRIPTION",
+    await Purchases.configure({
+      apiKey: REVENUECAT_KEY,
+      appUserID: userIdentifier || undefined,
     });
-    // Listen for transaction events — receipts that come in after a purchase,
-    // restore, or subscription renewal. The plugin API varies slightly by
-    // version; we try common event names.
-    const markActive = () => grantLocalEntitlement();
-    IAP.addListener?.("purchaseCompleted", markActive);
-    IAP.addListener?.("purchaseRestored", markActive);
-    IAP.addListener?.("subscriptionRenewed", markActive);
-    IAP.addListener?.("subscriptionExpired", () => clearLocalEntitlement());
+    _initialized = true;
+    // Pull current entitlement state immediately and mirror to localStorage.
+    await refreshEntitlementCache();
     return { ok: true };
   } catch (e) {
     // eslint-disable-next-line no-console
     console.warn("[iap] init failed:", e);
-    return { ok: false, reason: "init-error", error: e };
+    return { ok: false, reason: "init-error", error: e?.message };
   }
 }
 
-export async function iapGetPrice() {
-  const IAP = await loadPlugin();
-  if (!IAP) return null;
+// Refresh the local entitlement cache from RevenueCat. Called after init,
+// after purchase, after restore, and periodically.
+export async function refreshEntitlementCache() {
+  if (!IS_IOS) return false;
+  const Purchases = await loadPurchases();
+  if (!Purchases) return false;
   try {
-    const result = await IAP.queryProductDetails?.({
-      productIdentifiers: [PRODUCT_ID],
-    });
-    const details = result?.products?.[0] || result?.[0] || null;
-    return details?.price || details?.priceFormatted || null;
-  } catch {
+    const result = await Purchases.getCustomerInfo();
+    const info = result?.customerInfo || result;
+    const entitlement = info?.entitlements?.active?.[ENTITLEMENT_ID];
+    const isActive = !!entitlement;
+    const expiresAt = entitlement?.expirationDate || null;
+    syncToLocalStorage(isActive, expiresAt);
+    return isActive;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[iap] refreshEntitlementCache failed:", e);
+    return false;
+  }
+}
+
+// Fetch available offerings (what the user can buy). Returns the package
+// for the "current" offering, or null if RevenueCat isn't configured.
+export async function iapGetOfferings() {
+  if (!IS_IOS) return null;
+  const Purchases = await loadPurchases();
+  if (!Purchases) return null;
+  try {
+    const result = await Purchases.getOfferings();
+    const offerings = result?.offerings || result;
+    const current = offerings?.current;
+    if (!current) {
+      // eslint-disable-next-line no-console
+      console.warn("[iap] no current offering — set one in RevenueCat dashboard");
+      return null;
+    }
+    return current;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn("[iap] getOfferings failed:", e);
     return null;
   }
 }
 
-export async function iapBuy() {
-  const IAP = await loadPlugin();
-  if (!IAP) throw new Error("In-app purchase is not available right now.");
-  // The plugin names the purchase method slightly differently across versions.
-  const purchase =
-    IAP.purchaseProduct || IAP.purchase || IAP.purchaseSubscription;
-  if (!purchase) throw new Error("Purchase API not found.");
-  const result = await purchase.call(IAP, {
-    productIdentifier: PRODUCT_ID,
-    productType: "PAID_SUBSCRIPTION",
-  });
-  // Success is usually signaled both by the returned promise AND the
-  // purchaseCompleted listener. Be defensive and mark entitlement either way.
-  if (result && (result.transactionState === "purchased" || result.state === "PURCHASED" || result.success)) {
-    grantLocalEntitlement();
+// Launch Apple's IAP purchase sheet for the given package.
+// Returns { ok: true, purchased: true } if successful.
+export async function iapPurchase(pkg) {
+  if (!IS_IOS) throw new Error("In-app purchase only available on iOS.");
+  const Purchases = await loadPurchases();
+  if (!Purchases) throw new Error("IAP plugin not available.");
+  if (!pkg) throw new Error("No package to purchase.");
+  try {
+    const result = await Purchases.purchasePackage({ aPackage: pkg });
+    const info = result?.customerInfo;
+    const entitlement = info?.entitlements?.active?.[ENTITLEMENT_ID];
+    if (entitlement) {
+      syncToLocalStorage(true, entitlement.expirationDate);
+      return { ok: true, purchased: true };
+    }
+    return { ok: false, purchased: false, reason: "entitlement-not-active" };
+  } catch (e) {
+    // User cancellation isn't really an error — return cleanly.
+    if (e?.userCancelled || /cancel/i.test(e?.message || "")) {
+      return { ok: true, cancelled: true };
+    }
+    throw e;
   }
-  return result;
 }
 
+// Restore previous purchases (required by Apple — must be exposed in UI).
 export async function iapRestore() {
-  const IAP = await loadPlugin();
-  if (!IAP) throw new Error("Restore is not available right now.");
-  const restore = IAP.restorePurchases || IAP.restore;
-  if (!restore) throw new Error("Restore API not found.");
-  const result = await restore.call(IAP);
-  // If any transaction comes back as purchased, grant locally. Listener also
-  // fires so this is belt-and-braces.
-  const txs = result?.transactions || result?.purchases || [];
-  if (txs.some((t) => t.productIdentifier === PRODUCT_ID || t.productId === PRODUCT_ID)) {
-    grantLocalEntitlement();
+  if (!IS_IOS) throw new Error("Restore only available on iOS.");
+  const Purchases = await loadPurchases();
+  if (!Purchases) throw new Error("IAP plugin not available.");
+  try {
+    const result = await Purchases.restorePurchases();
+    const info = result?.customerInfo;
+    const entitlement = info?.entitlements?.active?.[ENTITLEMENT_ID];
+    if (entitlement) {
+      syncToLocalStorage(true, entitlement.expirationDate);
+      return { ok: true, restored: true };
+    }
+    return { ok: true, restored: false, message: "No previous purchases found." };
+  } catch (e) {
+    throw e;
   }
-  return result;
+}
+
+// Convenience check — does the user currently have premium?
+export function isPremiumActiveLocal() {
+  try {
+    const v = localStorage.getItem(ENTITLEMENT_KEY);
+    if (!v) return false;
+    const { token, exp } = JSON.parse(v);
+    return token === "unlocked" && Date.now() < exp;
+  } catch { return false; }
 }

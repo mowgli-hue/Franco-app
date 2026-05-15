@@ -2657,38 +2657,91 @@ function checkStripeSuccess(){
 }
 
 function PaywallModal({onClose, lessonTitle}){
-  const handleUpgrade=()=>{
-    // Append success redirect param to payment link
-    const link=STRIPE_PAYMENT_LINK.includes("?")
-      ? STRIPE_PAYMENT_LINK+"&client_reference_id=franco&success_url="+encodeURIComponent(window.location.href+"?success=1")
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [iosOffering, setIosOffering] = useState(null);
+
+  // Web → Stripe
+  const handleStripeUpgrade = () => {
+    if (!STRIPE_PAYMENT_LINK) { setErr("Payment unavailable. Try again later."); return; }
+    const link = STRIPE_PAYMENT_LINK.includes("?")
+      ? STRIPE_PAYMENT_LINK + "&client_reference_id=franco&success_url=" + encodeURIComponent(window.location.href + "?success=1")
       : STRIPE_PAYMENT_LINK;
-    window.open(link,"_blank");
+    window.open(link, "_blank");
   };
 
-  return <div style={{position:"fixed",inset:0,background:"rgba(13,27,62,0.75)",backdropFilter:"blur(6px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+  // iOS → Apple IAP via RevenueCat
+  const handleIosPurchase = async () => {
+    setErr("");
+    setBusy(true);
+    try {
+      const { iapGetOfferings, iapPurchase } = await import("./iap.js");
+      const offering = iosOffering || await iapGetOfferings();
+      const pkg = offering?.availablePackages?.[0] || offering?.monthly || offering?.annual;
+      if (!pkg) { throw new Error("No subscription available. Please try again later."); }
+      const result = await iapPurchase(pkg);
+      if (result.purchased) { onClose(); window.location.reload(); }
+      else if (result.cancelled) { setBusy(false); /* no-op */ }
+      else { throw new Error("Purchase did not complete."); }
+    } catch (e) {
+      setErr(e?.message || "Purchase failed. Please try again.");
+      setBusy(false);
+    }
+  };
+
+  // iOS → Restore previous purchases (Apple requires this in UI)
+  const handleIosRestore = async () => {
+    setErr("");
+    setBusy(true);
+    try {
+      const { iapRestore } = await import("./iap.js");
+      const result = await iapRestore();
+      if (result.restored) { onClose(); window.location.reload(); }
+      else { setErr("No previous purchases found on this Apple ID."); setBusy(false); }
+    } catch (e) {
+      setErr(e?.message || "Restore failed.");
+      setBusy(false);
+    }
+  };
+
+  // On iOS, fetch the offering price up front so we can display the right price.
+  useEffect(() => {
+    if (!IS_IOS_APP) return;
+    (async () => {
+      try {
+        const { iapGetOfferings } = await import("./iap.js");
+        const offering = await iapGetOfferings();
+        setIosOffering(offering);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  // Display price — use the price from the App Store offering if available,
+  // otherwise fall back to the configured PRICE_DISPLAY.
+  const iosPrice = iosOffering?.availablePackages?.[0]?.product?.priceString || iosOffering?.monthly?.product?.priceString;
+  const displayPrice = IS_IOS_APP ? (iosPrice || PRICE_DISPLAY) : PRICE_DISPLAY;
+  const billingNote = IS_IOS_APP ? "Cancel anytime · Billed via Apple" : "Cancel anytime · Secure payment via Stripe";
+
+  return <div style={{position:"fixed",inset:0,background:"rgba(13,27,62,0.75)",backdropFilter:"blur(6px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={busy ? undefined : onClose}>
     <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:24,maxWidth:400,width:"100%",overflow:"hidden",boxShadow:"0 24px 80px rgba(13,27,62,0.3)",animation:"popIn 0.3s ease"}}>
-      {/* Header */}
       <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"28px 28px 20px",textAlign:"center",position:"relative"}}>
-        <button onClick={onClose} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        <button onClick={onClose} disabled={busy} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:busy?"not-allowed":"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         <div style={{fontSize:44,marginBottom:8}}>🔓</div>
         <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
         <div style={{color:"rgba(255,255,255,0.75)",fontSize:13,marginTop:6}}>"{lessonTitle}" is a premium lesson</div>
       </div>
 
-      {/* Price */}
       <div style={{padding:"20px 28px 0",textAlign:"center"}}>
         <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
-          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy}}>$49</span>
-          <span style={{color:T.textMid,fontSize:16}}>/month</span>
+          <span style={{fontFamily:"Georgia,serif",fontSize:36,fontWeight:900,color:T.navy}}>{displayPrice}</span>
         </div>
-        <div style={{color:T.textSoft,fontSize:12,marginTop:2}}>Cancel anytime · Secure payment via Stripe</div>
+        <div style={{color:T.textSoft,fontSize:12,marginTop:6}}>{billingNote}</div>
       </div>
 
-      {/* Features */}
       <div style={{padding:"16px 28px"}}>
         {[
           ["🎓","190 lessons","Foundation → B2/CLB 7"],
-          ["🃏","8 practice games","Flashcard, Match, Speed & more"],
+          ["🤖","AI Tutor — Sophie","Personalized practice & feedback"],
           ["🍁","Made for Canada","CLB + TEF exam prep included"],
           ["📈","Track progress","XP, streaks, lesson history"],
         ].map(([icon,title,sub])=>
@@ -2702,15 +2755,29 @@ function PaywallModal({onClose, lessonTitle}){
         )}
       </div>
 
-      {/* CTA */}
+      {err && (
+        <div style={{margin:"8px 28px 0",background:"#FEF2F2",border:"1px solid #FECACA",color:"#B91C1C",padding:"10px 12px",borderRadius:10,fontSize:13}}>{err}</div>
+      )}
+
       <div style={{padding:"16px 28px 24px"}}>
-        <button onClick={handleUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
-          🚀 Start Premium — {PRICE_DISPLAY}
-        </button>
+        {IS_IOS_APP ? (
+          <>
+            <button onClick={handleIosPurchase} disabled={busy} style={{width:"100%",padding:"16px",background:busy?"#D1D5DB":`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:busy?"wait":"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+              {busy ? "Processing…" : `🚀 Subscribe — ${displayPrice}`}
+            </button>
+            <button onClick={handleIosRestore} disabled={busy} style={{width:"100%",marginTop:10,padding:"12px",background:"transparent",border:`1.5px solid ${T.border}`,color:T.textMid,borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:14,cursor:busy?"wait":"pointer"}}>
+              Restore Purchases
+            </button>
+          </>
+        ) : (
+          <button onClick={handleStripeUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+            🚀 Start Premium — {PRICE_DISPLAY}
+          </button>
+        )}
         <div style={{textAlign:"center",marginTop:10}}>
           <span style={{fontSize:12,color:T.textSoft}}>3 free lessons included · No credit card for free tier</span>
         </div>
-        <button onClick={onClose} style={{width:"100%",marginTop:8,padding:"10px",background:"transparent",border:"none",color:T.textSoft,fontSize:13,cursor:"pointer"}}>
+        <button onClick={onClose} disabled={busy} style={{width:"100%",marginTop:8,padding:"10px",background:"transparent",border:"none",color:T.textSoft,fontSize:13,cursor:busy?"not-allowed":"pointer"}}>
           Continue with free lessons
         </button>
       </div>
@@ -3079,7 +3146,7 @@ function HubScreen({progress,onStartLesson}){
               const done=!!progress[lesson.id];
               const isNext=!done&&mod.lessons.slice(0,li).every(l=>progress[l.id]);
               // Apple won't see a lock icon on iOS — all lessons are free in iOS build.
-              const locked=!IS_IOS_APP && !isLessonFree(lesson.id) && !isPremiumUnlocked();
+              const locked=!isLessonFree(lesson.id) && !isPremiumUnlocked();
               const icon={listening:"🎧",speaking:"🗣️",reading:"📖",writing:"✍️"}[lesson.skill]||"📚";
               return <div key={lesson.id} onClick={()=>onStartLesson(lesson,level)}
                 style={{display:"flex",alignItems:"center",gap:10,padding:"9px 10px",borderRadius:9,cursor:"pointer",marginBottom:4,background:done?"#F0FDF4":isNext&&!locked?"#F8FAFC":"transparent",border:isNext&&!locked?"1px solid #E2E8F0":"1px solid transparent"}}>
@@ -4594,12 +4661,24 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
     {/* More section */}
     <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"4px 20px 8px",marginBottom:16}}>
       <div style={{fontSize:13,fontWeight:700,color:T.textSoft,padding:"14px 0 8px",letterSpacing:0.5}}>More</div>
-      {/* Subscription row hidden on iOS — App Store 3.1.1 prohibits external payment links. */}
+      {/* Web subscription row (Stripe). Hidden on iOS — App Store 3.1.1
+          prohibits external payment links for digital subscriptions. */}
       {!IS_IOS_APP && <Row emoji="📈" label="Subscription" onClick={()=>{
         const n=adminTaps+1;
         setAdminTaps(n);
         if(n===3){setShowAdmin(true);setAdminTaps(0);}
         else{window.open("https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00","_blank");}
+      }}/>}
+
+      {/* iOS-only: Restore Purchases. Apple requires this in the UI for any
+          app with subscriptions (StoreKit / Guideline 3.1.1). */}
+      {IS_IOS_APP && <Row emoji="🔄" label="Restore Purchases" onClick={async ()=>{
+        try {
+          const { iapRestore } = await import("./iap.js");
+          const result = await iapRestore();
+          if (result.restored) { window.alert("Premium restored! Welcome back."); window.location.reload(); }
+          else { window.alert("No previous purchases found on this Apple ID."); }
+        } catch(e) { window.alert("Restore failed: " + (e?.message || "Unknown error")); }
       }}/>}
       {showAdmin&&<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
         <div style={{background:"#fff",borderRadius:16,padding:24,width:"100%",maxWidth:380}}>
@@ -4763,8 +4842,20 @@ function AppInner(){
   const[paywallLesson,setPaywallLesson]=useState(null);
   const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
 
-  // Check if returning from Stripe payment
+  // Check if returning from Stripe payment (web only)
   useEffect(()=>{checkStripeSuccess();},[]);
+
+  // Initialize Apple IAP (RevenueCat) on iOS. No-op on web.
+  // After init, the local entitlement cache is populated automatically.
+  useEffect(() => {
+    if (!IS_IOS_APP) return;
+    (async () => {
+      try {
+        const { iapInit } = await import("./iap.js");
+        await iapInit();
+      } catch (e) { /* ignore — iap.js logs its own warnings */ }
+    })();
+  }, []);
 
   useEffect(()=>{
     const s=document.createElement("style");
@@ -4798,7 +4889,9 @@ function AppInner(){
   const handleStartLesson=(lesson,level)=>{
     // App Store 3.1.1 — on iOS we ship guest-only / all-free since we can't link
     // out to Stripe for digital subscriptions. Web continues to use the paywall.
-    if(!IS_IOS_APP && !isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
+    // Lesson gating: if not free AND not premium, show paywall.
+    // Web → Stripe paywall. iOS → IAP paywall (handled in PaywallModal).
+    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
     setActiveLesson({lesson,level}); setScreen("lesson");
   };
   const handleLessonComplete=(lessonId, score=4)=>{
@@ -4862,11 +4955,11 @@ function AppInner(){
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
     {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
-    {/* Belt-and-suspenders: on iOS the Stripe PaywallModal is NEVER rendered.
-        App Store guideline 3.1.1 forbids external payment links for digital
-        subscriptions. paywallLesson should already be null on iOS (set in
-        handleStartLesson), but this extra guard prevents any leak. */}
-    {!IS_IOS_APP && paywallLesson && <PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
+    {/* PaywallModal handles BOTH platforms internally:
+         - Web: shows Stripe upgrade button
+         - iOS: shows Apple IAP "Subscribe" button + "Restore Purchases"
+        See PaywallModal definition for the platform branching logic. */}
+    {paywallLesson && <PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
   </div>;
 }
 
