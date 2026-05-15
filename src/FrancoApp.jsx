@@ -10,8 +10,9 @@ const IS_IOS_APP = (() => {
   } catch { return false; }
 })();
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, deleteDoc, collection, addDoc, getDocs, updateDoc, query, where } from "firebase/firestore";
-import { buildSophieSystemPrompt } from "./sophie";
+import { buildSophieSystemPrompt, sophieOpener } from "./sophie";
 import { getLessonVideo, youTubeEmbedUrl } from "./lessonVideos";
+import { celebrateCorrect, commiserateWrong, celebrateLevelUp } from "./feedback";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2573,8 +2574,8 @@ function SpeechBubble({text,companion,typing}){
 
 // ─── PAYWALL CONFIG ───────────────────────────────────────────────────────────
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51TAGxlLohI268vGqWybDPJOq3kRWcjIQkvcqs7Xe1B0HBqSRCQZmzrsUsTQJXDQdqC0qv2e98NPWzCUeZKkRuBfT000nkN1Cmi";
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00"; // ← paste your buy.stripe.com link here
-const PRICE_DISPLAY = "$49/month";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00"; // ← your Stripe MONTHLY payment link
+const PRICE_DISPLAY = "$19.99/month";
 const FREE_LESSON_IDS = new Set(["f-01","f-02","f-03","f1l1","f1l2","f2l1"]); // first 3 Foundation lessons free
 
 function isLessonFree(lessonId){
@@ -2722,36 +2723,50 @@ function PaywallModal({onClose, lessonTitle}){
   // otherwise fall back to the configured PRICE_DISPLAY.
   const iosPrice = iosOffering?.availablePackages?.[0]?.product?.priceString || iosOffering?.monthly?.product?.priceString;
   const displayPrice = IS_IOS_APP ? (iosPrice || PRICE_DISPLAY) : PRICE_DISPLAY;
-  const billingNote = IS_IOS_APP ? "Cancel anytime · Billed via Apple" : "Cancel anytime · Secure payment via Stripe";
+  const billingNote = IS_IOS_APP ? "Cancel anytime · Billed monthly via Apple" : "Cancel anytime · Secure monthly billing via Stripe";
 
   return <div style={{position:"fixed",inset:0,background:"rgba(13,27,62,0.75)",backdropFilter:"blur(6px)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={busy ? undefined : onClose}>
-    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:24,maxWidth:400,width:"100%",overflow:"hidden",boxShadow:"0 24px 80px rgba(13,27,62,0.3)",animation:"popIn 0.3s ease"}}>
-      <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"28px 28px 20px",textAlign:"center",position:"relative"}}>
+    <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:24,maxWidth:420,width:"100%",overflow:"hidden",boxShadow:"0 24px 80px rgba(13,27,62,0.3)",animation:"popIn 0.3s ease",maxHeight:"92vh",overflowY:"auto"}}>
+      {/* Header — bold value prop */}
+      <div style={{background:`linear-gradient(135deg,${T.navy} 0%,#1a3a7a 100%)`,padding:"30px 28px 22px",textAlign:"center",position:"relative"}}>
         <button onClick={onClose} disabled={busy} style={{position:"absolute",top:14,right:14,background:"rgba(255,255,255,0.15)",border:"none",color:"#fff",borderRadius:50,width:28,height:28,cursor:busy?"not-allowed":"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
-        <div style={{fontSize:44,marginBottom:8}}>🔓</div>
-        <div style={{fontFamily:"Georgia,serif",fontSize:22,fontWeight:900,color:"#fff",lineHeight:1.2}}>Unlock Franco Premium</div>
-        <div style={{color:"rgba(255,255,255,0.75)",fontSize:13,marginTop:6}}>"{lessonTitle}" is a premium lesson</div>
+        <div style={{fontSize:38,marginBottom:6}}>🍁</div>
+        <div style={{fontFamily:"Georgia,serif",fontSize:24,fontWeight:900,color:"#fff",lineHeight:1.15}}>Unlock the Full Path to Fluency</div>
+        <div style={{color:"rgba(255,255,255,0.85)",fontSize:13,marginTop:8,lineHeight:1.5}}>195 lessons. CLB-ready. Built for Canadian immigrants.</div>
+        {lessonTitle && <div style={{color:"rgba(255,255,255,0.55)",fontSize:11,marginTop:10,fontStyle:"italic"}}>You tapped: "{lessonTitle}"</div>}
       </div>
 
-      <div style={{padding:"20px 28px 0",textAlign:"center"}}>
+      {/* Price block */}
+      <div style={{padding:"22px 28px 4px",textAlign:"center",background:"linear-gradient(180deg,#FAFBFF 0%,#fff 100%)"}}>
         <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
-          <span style={{fontFamily:"Georgia,serif",fontSize:36,fontWeight:900,color:T.navy}}>{displayPrice}</span>
+          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy,lineHeight:1}}>{displayPrice}</span>
         </div>
-        <div style={{color:T.textSoft,fontSize:12,marginTop:6}}>{billingNote}</div>
+        <div style={{color:T.text,fontSize:13,marginTop:10,fontWeight:600,lineHeight:1.5}}>A private French tutor in Quebec costs <span style={{textDecoration:"line-through",color:T.textSoft}}>$50+/hour</span>.<br/>Franco gives you one — 24/7 — for less.</div>
+        <div style={{color:T.textSoft,fontSize:11,marginTop:8}}>{billingNote}</div>
       </div>
 
-      <div style={{padding:"16px 28px"}}>
+      {/* Social proof */}
+      <div style={{padding:"14px 28px 0"}}>
+        <div style={{background:"#F0FDF4",border:"1px solid #BBF7D0",borderRadius:12,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:18}}>🇨🇦</span>
+          <div style={{fontSize:12,color:"#166534",lineHeight:1.4}}><b>Join Canadian immigrants</b> learning French for CLB, citizenship, and Quebec life.</div>
+        </div>
+      </div>
+
+      {/* Value bullets — bigger, more specific */}
+      <div style={{padding:"14px 28px 8px"}}>
         {[
-          ["🎓","190 lessons","Foundation → B2/CLB 7"],
-          ["🤖","AI Tutor — Sophie","Personalized practice & feedback"],
-          ["🍁","Made for Canada","CLB + TEF exam prep included"],
-          ["📈","Track progress","XP, streaks, lesson history"],
+          ["🎓","195 structured lessons","Foundation → A1 → A2 → B1 → B2 → CLB Intensive"],
+          ["👩‍🏫","Sophie — your AI French teacher","One-on-one practice, gentle corrections, real Quebec context"],
+          ["🎬","New video lessons every week","Filmed in real Montreal locations"],
+          ["📝","CLB + TEF Canada exam prep","Real mocks for CLB 4-9 — Express Entry-ready"],
+          ["📈","Progress tracking + spaced review","XP, streaks, smart lesson recap"],
         ].map(([icon,title,sub])=>
-          <div key={title} style={{display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:`1px solid ${T.border}`}}>
-            <span style={{fontSize:22,width:32,textAlign:"center"}}>{icon}</span>
+          <div key={title} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"9px 0",borderBottom:`1px solid ${T.border}`}}>
+            <span style={{fontSize:22,width:32,textAlign:"center",flexShrink:0,paddingTop:2}}>{icon}</span>
             <div>
-              <div style={{fontWeight:700,fontSize:14,color:T.text}}>{title}</div>
-              <div style={{fontSize:12,color:T.textSoft}}>{sub}</div>
+              <div style={{fontWeight:700,fontSize:14,color:T.text,lineHeight:1.3}}>{title}</div>
+              <div style={{fontSize:12,color:T.textSoft,lineHeight:1.4,marginTop:2}}>{sub}</div>
             </div>
           </div>
         )}
@@ -2761,23 +2776,24 @@ function PaywallModal({onClose, lessonTitle}){
         <div style={{margin:"8px 28px 0",background:"#FEF2F2",border:"1px solid #FECACA",color:"#B91C1C",padding:"10px 12px",borderRadius:10,fontSize:13}}>{err}</div>
       )}
 
+      {/* CTA */}
       <div style={{padding:"16px 28px 24px"}}>
         {IS_IOS_APP ? (
           <>
-            <button onClick={handleIosPurchase} disabled={busy} style={{width:"100%",padding:"16px",background:busy?"#D1D5DB":`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:busy?"wait":"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
-              {busy ? "Processing…" : `🚀 Subscribe — ${displayPrice}`}
+            <button onClick={handleIosPurchase} disabled={busy} style={{width:"100%",padding:"17px",background:busy?"#D1D5DB":`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:16,cursor:busy?"wait":"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+              {busy ? "Processing…" : `🚀 Start Premium — ${displayPrice}`}
             </button>
             <button onClick={handleIosRestore} disabled={busy} style={{width:"100%",marginTop:10,padding:"12px",background:"transparent",border:`1.5px solid ${T.border}`,color:T.textMid,borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:14,cursor:busy?"wait":"pointer"}}>
               Restore Purchases
             </button>
           </>
         ) : (
-          <button onClick={handleStripeUpgrade} style={{width:"100%",padding:"16px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
+          <button onClick={handleStripeUpgrade} style={{width:"100%",padding:"17px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
             🚀 Start Premium — {PRICE_DISPLAY}
           </button>
         )}
-        <div style={{textAlign:"center",marginTop:10}}>
-          <span style={{fontSize:12,color:T.textSoft}}>3 free lessons included · No credit card for free tier</span>
+        <div style={{textAlign:"center",marginTop:12}}>
+          <span style={{fontSize:11,color:T.textSoft,lineHeight:1.5}}>✓ Foundation 25 lessons stay free forever &nbsp; · &nbsp; ✓ Cancel anytime</span>
         </div>
         <button onClick={onClose} disabled={busy} style={{width:"100%",marginTop:8,padding:"10px",background:"transparent",border:"none",color:T.textSoft,fontSize:13,cursor:busy?"not-allowed":"pointer"}}>
           Continue with free lessons
@@ -2803,7 +2819,7 @@ function WelcomeScreen({onNext}){
       <div style={{fontFamily:"Georgia,serif",fontSize:34,fontWeight:900,color:"#fff",lineHeight:1.15}}>{s.title}</div>
       <div style={{fontSize:16,color:"rgba(255,255,255,0.8)",lineHeight:1.7}}>{s.sub}</div>
       <div style={{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"}}>
-        {["✅ Try Free","🍁 Made for Canada","190 Lessons","🎤 AI Coach","🔒 Premium Access"].map(tag=>
+        {["✅ Try Free","🍁 Made for Canada","195 Lessons","🎤 AI Coach","🔒 Premium Access"].map(tag=>
           <span key={tag} style={{fontSize:11,fontWeight:700,padding:"5px 12px",borderRadius:50,background:"rgba(16,185,129,0.25)",color:"#6EE7B7",border:"1px solid rgba(110,231,183,0.3)"}}>{tag}</span>
         )}
       </div>
@@ -2813,7 +2829,7 @@ function WelcomeScreen({onNext}){
       {step<steps.length-1
         ?<button onClick={()=>setStep(s=>s+1)} style={{background:"#fff",color:T.navy,border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:16,cursor:"pointer",boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>Next →</button>
         :<button onClick={onNext} style={{background:"linear-gradient(135deg,#10B981,#059669)",color:"#fff",border:"none",padding:"16px 40px",borderRadius:16,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:700,fontSize:17,cursor:"pointer",boxShadow:"0 8px 32px rgba(16,185,129,0.4)"}}>Start Learning — Try Free! 🚀</button>}
-      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · 3 free lessons · Unlock all 190 with Premium</div>
+      <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>No account required · 3 free lessons · Unlock all 195 with Premium</div>
     </div>
   </div>;
 }
@@ -2822,6 +2838,7 @@ function OnboardingScreen({onComplete}){
   const[phase,setPhase]=useState("companion");
   const[companion,setCompanion]=useState(null);
   const[level,setLevel]=useState(null);
+  const[clbGoal,setClbGoal]=useState(null);
   const levels=[
     {id:"foundation",label:"Complete Beginner",hint:"I know almost no French",emoji:"🌱"},
     {id:"a1",label:"A1 — Basic",hint:"I know a few words and greetings",emoji:"🔤"},
@@ -2829,9 +2846,18 @@ function OnboardingScreen({onComplete}){
     {id:"b1",label:"B1 — Intermediate",hint:"I can express opinions on familiar topics",emoji:"💬"},
     {id:"clb",label:"CLB Test Prep",hint:"I need focused Canadian benchmark prep",emoji:"🎓"},
   ];
+  // CLB goals — the most relevant immigrant motivations.
+  const clbGoals=[
+    {id:4,label:"CLB 4 — Citizenship",hint:"Basic French for citizenship test",emoji:"🇨🇦"},
+    {id:5,label:"CLB 5 — Express Entry minimum",hint:"Open the doors to more PR points",emoji:"🎯"},
+    {id:7,label:"CLB 7 — Maximum CRS points",hint:"Big Express Entry boost (NCLC 7)",emoji:"🚀"},
+    {id:9,label:"CLB 9 — Professional fluency",hint:"University, work in francophone Quebec",emoji:"🏆"},
+    {id:0,label:"Just for me",hint:"Family, travel, personal growth",emoji:"❤️"},
+  ];
+
   if(phase==="companion") return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
-      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 1 of 2</div>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 1 of 3</div>
       <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>Choose Your AI Teacher</div>
       <div style={{fontSize:15,color:T.textMid}}>Your companion guides every lesson with personalised feedback.</div>
     </div>
@@ -2843,9 +2869,10 @@ function OnboardingScreen({onComplete}){
       </Card>)}
     </div>
   </div>;
-  return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
+
+  if(phase==="level") return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:32}}>
     <div style={{textAlign:"center"}}>
-      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 2</div>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 2 of 3</div>
       <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Current Level?</div>
       <div style={{fontSize:15,color:T.textMid}}>Be honest — Franco personalises your path.</div>
     </div>
@@ -2859,7 +2886,27 @@ function OnboardingScreen({onComplete}){
         {level===l.id&&<div style={{color:T.blue,fontSize:20}}>✓</div>}
       </Card>)}
     </div>
-    <Btn onClick={()=>onComplete(companion,level)} disabled={!level} style={{padding:"15px 40px",fontSize:16}}>Start Learning →</Btn>
+    <Btn onClick={()=>setPhase("clb")} disabled={!level} style={{padding:"15px 40px",fontSize:16}}>Next →</Btn>
+  </div>;
+
+  // Step 3 — CLB goal. Saved to localStorage; Sophie references it in every chat.
+  return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:24}}>
+    <div style={{textAlign:"center"}}>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 3 of 3</div>
+      <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Goal?</div>
+      <div style={{fontSize:15,color:T.textMid,maxWidth:480,lineHeight:1.55}}>Choose your target — Sophie will tailor every lesson to it.</div>
+    </div>
+    <div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:520,width:"100%"}}>
+      {clbGoals.map(g=><Card key={g.id} onClick={()=>setClbGoal(g.id)} style={{display:"flex",alignItems:"center",gap:14,border:`2px solid ${clbGoal===g.id?T.blue:T.border}`,background:clbGoal===g.id?T.blueLight:T.card,padding:"14px 18px"}}>
+        <div style={{fontSize:24}}>{g.emoji}</div>
+        <div style={{flex:1}}>
+          <div style={{fontSize:14,fontWeight:700,color:T.navy}}>{g.label}</div>
+          <div style={{fontSize:12,color:T.textSoft,marginTop:2}}>{g.hint}</div>
+        </div>
+        {clbGoal===g.id&&<div style={{color:T.blue,fontSize:18}}>✓</div>}
+      </Card>)}
+    </div>
+    <Btn onClick={()=>{ try{ localStorage.setItem("franco_clb_goal", String(clbGoal||5)); }catch{}; onComplete(companion,level); }} disabled={clbGoal===null} style={{padding:"15px 40px",fontSize:16}}>Start Learning 🚀</Btn>
   </div>;
 }
 
@@ -3231,7 +3278,7 @@ function VocabFlipList({vocab}){
   </div>;
 }
 
-function LessonScreen({lesson,level,companion,onComplete,onBack}){
+function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSophie}){
   const c=companion||COMPANIONS[0];
   const isMobile=useIsMobile();
 
@@ -3298,8 +3345,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
       setCorrect(x=>x+1);
       setXp(x=>x+(q.diff||1)*10);
       speak(c.messages?.correct||"Excellent!");
+      celebrateCorrect();
     } else {
       speak(c.messages?.wrong||"Good try!");
+      commiserateWrong();
       // Add to wrong queue for review at end (with different type)
       setWrongQueue(prev=>[...prev, {...q, _review:true}]);
     }
@@ -3318,6 +3367,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
       else {
         setPhase("done");
         setShowConfetti(true);
+        celebrateLevelUp();
         setTimeout(()=>setShowConfetti(false),4000);
       }
     }
@@ -3471,7 +3521,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
               <div style={{padding:"16px 18px"}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>The story</div>
                 <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:14}}>{lesson.teach}</div>
-                <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
+                  {onPracticeWithSophie && <button onClick={()=>onPracticeWithSophie(lesson)} style={{display:"flex",alignItems:"center",gap:6,background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#1E40AF",cursor:"pointer",fontWeight:700}}>🎓 Practice with Sophie</button>}
+                </div>
               </div>
             </>}
             {slide.type==="vocab"&&<>
@@ -3719,6 +3772,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
           <div style={{fontSize:11,color:"#94A3B8",marginBottom:8,fontWeight:600}}>Words from this lesson:</div>
           <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{(lesson.vocab||[]).slice(0,8).map(v=><span key={v} style={{fontSize:12,padding:"4px 10px",borderRadius:50,background:"#F1F5F9",color:"#0F172A",fontWeight:600,fontStyle:"italic"}}>{v.split("(")[0].trim()}</span>)}</div>
         </div>
+        {onPracticeWithSophie && <button onClick={()=>onPracticeWithSophie(lesson)} style={{width:"100%",padding:"13px",background:"#EFF6FF",color:"#1E40AF",border:"1.5px solid #BFDBFE",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:13,cursor:"pointer"}}>🎓 Practice this lesson 1-on-1 with Sophie</button>}
         <div style={{display:"flex",gap:10,width:"100%"}}>
           <button onClick={onComplete} style={{flex:1,padding:"14px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:800,fontSize:14,cursor:"pointer"}}>✓ Complete & Continue</button>
           <button onClick={()=>{setPhase("teach");setTeachSlide(0);setQIdx(0);setCorrect(0);setXp(0);setWrongQueue([]);resetQ();}} style={{padding:"14px 18px",background:"#F8FAFC",color:"#64748B",border:"1px solid #E2E8F0",borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:13,cursor:"pointer"}}>↺ Try again</button>
@@ -4427,7 +4481,9 @@ Rules:
 }
 
 // ─── PERSONAL AI TUTOR ────────────────────────────────────────────────────────
-function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
+// `lesson` prop: when set, Sophie enters structured teaching mode for that lesson
+// (uses the lesson arc from src/sophie.js). When null, Sophie runs free chat mode.
+function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesson}){
   const c = companion||COMPANIONS[0];
   const level = SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL = Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
@@ -4442,9 +4498,10 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
 
   // Build Sophie's system prompt using the new master pedagogy (see src/sophie.js
   // and syllabus/sophie-teacher-pedagogy.md). When a specific lesson is being
-  // taught, pass it as the `lesson` prop and Sophie switches into structured
-  // teaching mode. Otherwise she runs free-chat mode.
+  // taught (lesson prop set), Sophie switches into structured teaching mode.
+  // Otherwise she runs free-chat mode.
   const learnerName = (authCtx?.user?.displayName || "").split(" ")[0] || "the learner";
+  const clbGoal = parseInt(typeof window!=="undefined" ? localStorage.getItem("franco_clb_goal") : "") || 5;
   const learnerContext = buildSophieSystemPrompt({
     learner: {
       name: learnerName,
@@ -4453,9 +4510,9 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
       total: allL.length,
       recentLessons: done.slice(-3).map(l=>l.title),
       nextLessonTitle: notDone[0]?.title || "all done",
-      clbGoal: 5,
+      clbGoal,
     },
-    lesson: null, // free chat mode; lesson-specific teaching uses sophieOpener
+    lesson: lesson || null,
   });
 
   const sendMessage = async(text) => {
@@ -4486,12 +4543,27 @@ Tutor:`, 400);
   ];
 
   useEffect(()=>{
-    // Auto-greeting based on progress
+    // Auto-greeting based on context: lesson teaching mode OR free chat.
     const greet = async()=>{
       setLoading(true);
-      const prompt = done.length===0
-        ? `Greet this new learner warmly. They haven't started yet. Introduce yourself as their personal tutor and ask what brings them to learn French in Canada. Be warm and encouraging.`
-        : `Greet this returning learner. They've completed ${done.length} lessons. Reference their progress briefly, note their next lesson is "${notDone[0]?.title||"all done!"}", and ask how their French is going or what they want to work on today. Keep it short and personal.`;
+      let prompt;
+      if (lesson) {
+        // Teaching mode — Sophie opens with the lesson's Turn 1
+        prompt = sophieOpener({
+          learner: { name: learnerName, completed: done.length, nextLessonTitle: notDone[0]?.title },
+          lesson,
+        });
+      } else if (done.length === 0) {
+        prompt = sophieOpener({
+          learner: { name: learnerName, completed: 0, nextLessonTitle: notDone[0]?.title },
+          lesson: null,
+        });
+      } else {
+        prompt = sophieOpener({
+          learner: { name: learnerName, completed: done.length, nextLessonTitle: notDone[0]?.title },
+          lesson: null,
+        });
+      }
       const reply = await callClaude(learnerContext, prompt, 200);
       setMsgs([{role:"assistant",text:reply}]);
       setLoading(false);
@@ -4857,6 +4929,7 @@ function AppInner(){
   },[cloudProgress]);
   const[activeLesson,setActiveLesson]=useState(null);
   const[paywallLesson,setPaywallLesson]=useState(null);
+  const[tutorLesson,setTutorLesson]=useState(null); // when set, tutor enters lesson teaching mode
   const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
 
   // Check if returning from Stripe payment (web only)
@@ -4910,6 +4983,11 @@ function AppInner(){
     // Web → Stripe paywall. iOS → IAP paywall (handled in PaywallModal).
     if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
     setActiveLesson({lesson,level}); setScreen("lesson");
+  };
+  // Practice this lesson 1-on-1 with Sophie (teaching mode).
+  const handlePracticeWithSophie=(lesson)=>{
+    setTutorLesson(lesson);
+    setScreen("tutor");
   };
   const handleLessonComplete=(lessonId, score=4)=>{
     const newProgress={...progress,[lessonId]:true};
@@ -4968,9 +5046,9 @@ function AppInner(){
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
     {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")} onPracticeWithSophie={handlePracticeWithSophie}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
-    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={setScreen}/>}
+    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={(s)=>{if(s!=="tutor") setTutorLesson(null); setScreen(s);}} lesson={tutorLesson}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {/* PaywallModal handles BOTH platforms internally:
          - Web: shows Stripe upgrade button
