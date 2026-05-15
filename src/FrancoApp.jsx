@@ -10,6 +10,8 @@ const IS_IOS_APP = (() => {
   } catch { return false; }
 })();
 import { getFirestore, doc, setDoc, getDoc, onSnapshot, deleteDoc, collection, addDoc, getDocs, updateDoc, query, where } from "firebase/firestore";
+import { buildSophieSystemPrompt } from "./sophie";
+import { getLessonVideo, youTubeEmbedUrl } from "./lessonVideos";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3440,6 +3442,32 @@ function LessonScreen({lesson,level,companion,onComplete,onBack}){
                 <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{level?.cefrTag||"Pre-A1"} · {lesson.skill} · {lesson.mins} min</div>
                 <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.25}}>{lesson.title}</div>
               </div>
+              {(()=>{
+                // Video embed (when HeyGen lesson URL is set in lessonVideos.js)
+                const v = getLessonVideo(lesson.id);
+                const embed = youTubeEmbedUrl(v?.url);
+                if (embed) {
+                  return <div style={{position:"relative",width:"100%",paddingBottom:"56.25%",background:"#000"}}>
+                    <iframe
+                      src={embed}
+                      title={lesson.title}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:0}}
+                    />
+                  </div>;
+                }
+                if (v) {
+                  return <div style={{padding:"14px 18px",background:"#FEF3C7",borderTop:"1px solid #FDE68A",borderBottom:"1px solid #FDE68A",display:"flex",alignItems:"center",gap:10}}>
+                    <span style={{fontSize:20}}>🎬</span>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#92400E"}}>Video lesson coming soon</div>
+                      <div style={{fontSize:11,color:"#78350F"}}>Practice with Sophie + text below in the meantime.</div>
+                    </div>
+                  </div>;
+                }
+                return null;
+              })()}
               <div style={{padding:"16px 18px"}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>The story</div>
                 <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:14}}>{lesson.teach}</div>
@@ -4412,34 +4440,23 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate}){
   const bottomRef = useRef();
   const authCtx = useAuth();
 
-  // Build rich context about the learner
-  const learnerContext = `
-You are ${c.name}, a personal French tutor for Canadian immigrants learning French for CLB/TEF exams.
-
-LEARNER PROFILE:
-- Current level: ${level.label} (${level.cefrTag}, ${level.clbTag})
-- Lessons completed: ${done.length}/${allL.length}
-- Skills completed: Listening ${allL.filter(l=>l.skill==="listening"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="listening").length}, Speaking ${allL.filter(l=>l.skill==="speaking"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="speaking").length}, Writing ${allL.filter(l=>l.skill==="writing"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="writing").length}, Reading ${allL.filter(l=>l.skill==="reading"&&progress[l.id]).length}/${allL.filter(l=>l.skill==="reading").length}
-- Next lesson: ${notDone[0]?.title||"All complete!"}
-- Recent lessons: ${done.slice(-3).map(l=>l.title).join(", ")||"None yet"}
-
-YOUR ROLE:
-- Be their dedicated personal tutor, not just a chatbot
-- Give specific, actionable advice based on their actual progress
-- Correct French mistakes immediately and kindly
-- Reference their specific completed lessons when relevant
-- Help them prepare for CLB 5 specifically
-- Be warm, encouraging, and Canadian-context focused
-- Mix French practice INTO the conversation naturally
-- Remember: they are immigrants who NEED this for their life in Canada
-
-TUTORING MODES:
-- General chat: answer questions, practice conversation, explain grammar
-- Assessment: quiz them on weak areas based on their progress
-- Study plan: create a personalized daily study plan
-
-Always respond in a mix of English and French appropriate to their level.
-Keep responses focused and practical — max 4-5 sentences unless explaining something complex.`;
+  // Build Sophie's system prompt using the new master pedagogy (see src/sophie.js
+  // and syllabus/sophie-teacher-pedagogy.md). When a specific lesson is being
+  // taught, pass it as the `lesson` prop and Sophie switches into structured
+  // teaching mode. Otherwise she runs free-chat mode.
+  const learnerName = (authCtx?.user?.displayName || "").split(" ")[0] || "the learner";
+  const learnerContext = buildSophieSystemPrompt({
+    learner: {
+      name: learnerName,
+      level: `${level.label} (${level.cefrTag}, ${level.clbTag})`,
+      completed: done.length,
+      total: allL.length,
+      recentLessons: done.slice(-3).map(l=>l.title),
+      nextLessonTitle: notDone[0]?.title || "all done",
+      clbGoal: 5,
+    },
+    lesson: null, // free chat mode; lesson-specific teaching uses sophieOpener
+  });
 
   const sendMessage = async(text) => {
     if(!text.trim()||loading) return;
