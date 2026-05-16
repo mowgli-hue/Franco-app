@@ -3493,30 +3493,21 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
                 <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.25}}>{lesson.title}</div>
               </div>
               {(()=>{
-                // Video embed (when HeyGen lesson URL is set in lessonVideos.js)
+                // Video embed appears ONLY when a HeyGen URL is set in
+                // src/lessonVideos.js. If no URL, render nothing (no "coming
+                // soon" badge — the lesson is fully usable via text + Sophie).
                 const v = getLessonVideo(lesson.id);
                 const embed = youTubeEmbedUrl(v?.url);
-                if (embed) {
-                  return <div style={{position:"relative",width:"100%",paddingBottom:"56.25%",background:"#000"}}>
-                    <iframe
-                      src={embed}
-                      title={lesson.title}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:0}}
-                    />
-                  </div>;
-                }
-                if (v) {
-                  return <div style={{padding:"14px 18px",background:"#FEF3C7",borderTop:"1px solid #FDE68A",borderBottom:"1px solid #FDE68A",display:"flex",alignItems:"center",gap:10}}>
-                    <span style={{fontSize:20}}>🎬</span>
-                    <div>
-                      <div style={{fontSize:12,fontWeight:700,color:"#92400E"}}>Video lesson coming soon</div>
-                      <div style={{fontSize:11,color:"#78350F"}}>Practice with Sophie + text below in the meantime.</div>
-                    </div>
-                  </div>;
-                }
-                return null;
+                if (!embed) return null;
+                return <div style={{position:"relative",width:"100%",paddingBottom:"56.25%",background:"#000"}}>
+                  <iframe
+                    src={embed}
+                    title={lesson.title}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                    style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:0}}
+                  />
+                </div>;
               })()}
               <div style={{padding:"16px 18px"}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>The story</div>
