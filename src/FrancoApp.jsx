@@ -2736,12 +2736,14 @@ function PaywallModal({onClose, lessonTitle}){
         {lessonTitle && <div style={{color:"rgba(255,255,255,0.55)",fontSize:11,marginTop:10,fontStyle:"italic"}}>You tapped: "{lessonTitle}"</div>}
       </div>
 
-      {/* Price block */}
+      {/* Price block — leads with the 7-day free trial */}
       <div style={{padding:"22px 28px 4px",textAlign:"center",background:"linear-gradient(180deg,#FAFBFF 0%,#fff 100%)"}}>
-        <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:4}}>
-          <span style={{fontFamily:"Georgia,serif",fontSize:42,fontWeight:900,color:T.navy,lineHeight:1}}>{displayPrice}</span>
+        <div style={{display:"inline-flex",alignItems:"center",gap:6,background:"#DCFCE7",color:"#166534",padding:"5px 14px",borderRadius:50,fontSize:12,fontWeight:800,marginBottom:12}}>✨ 7 DAYS FREE · CANCEL ANYTIME</div>
+        <div style={{display:"flex",alignItems:"baseline",justifyContent:"center",gap:6}}>
+          <span style={{fontFamily:"Georgia,serif",fontSize:38,fontWeight:900,color:T.navy,lineHeight:1}}>Free</span>
+          <span style={{fontSize:14,color:T.textMid,fontWeight:600}}>for 7 days</span>
         </div>
-        <div style={{color:T.text,fontSize:13,marginTop:10,fontWeight:600,lineHeight:1.5}}>A private French tutor in Quebec costs <span style={{textDecoration:"line-through",color:T.textSoft}}>$50+/hour</span>.<br/>Franco gives you one — 24/7 — for less.</div>
+        <div style={{color:T.text,fontSize:12,marginTop:8,lineHeight:1.55}}>Then <b style={{color:T.navy}}>{displayPrice}</b> · A private French tutor in Quebec costs <span style={{textDecoration:"line-through",color:T.textSoft}}>$50+/hour</span></div>
         <div style={{color:T.textSoft,fontSize:11,marginTop:8}}>{billingNote}</div>
       </div>
 
@@ -2776,12 +2778,12 @@ function PaywallModal({onClose, lessonTitle}){
         <div style={{margin:"8px 28px 0",background:"#FEF2F2",border:"1px solid #FECACA",color:"#B91C1C",padding:"10px 12px",borderRadius:10,fontSize:13}}>{err}</div>
       )}
 
-      {/* CTA */}
+      {/* CTA — trial-first language */}
       <div style={{padding:"16px 28px 24px"}}>
         {IS_IOS_APP ? (
           <>
             <button onClick={handleIosPurchase} disabled={busy} style={{width:"100%",padding:"17px",background:busy?"#D1D5DB":`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:16,cursor:busy?"wait":"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
-              {busy ? "Processing…" : `🚀 Start Premium — ${displayPrice}`}
+              {busy ? "Processing…" : `🚀 Start 7-Day Free Trial`}
             </button>
             <button onClick={handleIosRestore} disabled={busy} style={{width:"100%",marginTop:10,padding:"12px",background:"transparent",border:`1.5px solid ${T.border}`,color:T.textMid,borderRadius:12,fontFamily:"system-ui",fontWeight:600,fontSize:14,cursor:busy?"wait":"pointer"}}>
               Restore Purchases
@@ -2789,11 +2791,11 @@ function PaywallModal({onClose, lessonTitle}){
           </>
         ) : (
           <button onClick={handleStripeUpgrade} style={{width:"100%",padding:"17px",background:`linear-gradient(135deg,${T.blue},${T.navy})`,color:"#fff",border:"none",borderRadius:14,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:16,cursor:"pointer",boxShadow:`0 4px 20px ${T.blue}50`}}>
-            🚀 Start Premium — {PRICE_DISPLAY}
+            🚀 Start 7-Day Free Trial
           </button>
         )}
         <div style={{textAlign:"center",marginTop:12}}>
-          <span style={{fontSize:11,color:T.textSoft,lineHeight:1.5}}>✓ Foundation 25 lessons stay free forever &nbsp; · &nbsp; ✓ Cancel anytime</span>
+          <span style={{fontSize:11,color:T.textSoft,lineHeight:1.5}}>✓ No charge for 7 days &nbsp;·&nbsp; ✓ Cancel anytime in Settings &nbsp;·&nbsp; ✓ Foundation 25 always free</span>
         </div>
         <button onClick={onClose} disabled={busy} style={{width:"100%",marginTop:8,padding:"10px",background:"transparent",border:"none",color:T.textSoft,fontSize:13,cursor:busy?"not-allowed":"pointer"}}>
           Continue with free lessons
