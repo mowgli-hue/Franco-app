@@ -2576,6 +2576,38 @@ function SpeechBubble({text,companion,typing}){
 const STRIPE_PUBLISHABLE_KEY = "pk_live_51TAGxlLohI268vGqWybDPJOq3kRWcjIQkvcqs7Xe1B0HBqSRCQZmzrsUsTQJXDQdqC0qv2e98NPWzCUeZKkRuBfT000nkN1Cmi";
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/7sY6oIaaYfe6c0K6Di2go00"; // ← your Stripe MONTHLY payment link
 const PRICE_DISPLAY = "$19.99/month";
+// Legal links shown on the paywall (Apple Guideline 3.1.2 requires functional
+// Privacy Policy + Terms of Use links wherever subscriptions are offered).
+const PRIVACY_URL = "https://www.franco.app/privacy";
+const TERMS_URL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"; // Apple standard EULA
+
+// Open an external URL reliably on web AND inside the iOS Capacitor WebView.
+// IMPORTANT: in the iOS WebView, window.open(url, "_blank") is a no-op — links
+// just silently do nothing. We route through @capacitor/browser (opens a real
+// in-app Safari view) on iOS, and fall back to window.open on the web. mailto:
+// and tel: are handed to the OS, which Capacitor opens in Mail/Phone.
+// We reference the plugin via the global window.Capacitor.Plugins (NOT a static
+// import) so the web build never tries to bundle the native module.
+async function openExternal(url){
+  if(!url) return;
+  try{
+    const onIOS = (typeof window!=="undefined") && window.Capacitor?.getPlatform?.() === "ios";
+    if(onIOS){
+      if(/^(mailto:|tel:)/i.test(url)){ window.location.href = url; return; }
+      const Browser = window.Capacitor?.Plugins?.Browser;
+      if(Browser?.open){ await Browser.open({ url }); return; }
+      // Fallback if the Browser plugin isn't present: a real anchor click goes
+      // through the WebView's navigation handler, which opens external links.
+      const a=document.createElement("a");
+      a.href=url; a.target="_blank"; a.rel="noopener noreferrer";
+      document.body.appendChild(a); a.click(); a.remove();
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }catch{
+    try{ window.open(url, "_blank"); }catch{ /* ignore */ }
+  }
+}
 const FREE_LESSON_IDS = new Set(["f-01","f-02","f-03","f1l1","f1l2","f2l1"]); // first 3 Foundation lessons free
 
 function isLessonFree(lessonId){
@@ -2797,6 +2829,21 @@ function PaywallModal({onClose, lessonTitle}){
         <div style={{textAlign:"center",marginTop:12}}>
           <span style={{fontSize:11,color:T.textSoft,lineHeight:1.5}}>✓ No charge for 7 days &nbsp;·&nbsp; ✓ Cancel anytime in Settings &nbsp;·&nbsp; ✓ Foundation 25 always free</span>
         </div>
+
+        {/* Subscription terms + legal links — required by Apple Guideline 3.1.2 */}
+        <div style={{textAlign:"center",marginTop:12,padding:"0 4px"}}>
+          <div style={{fontSize:10.5,color:T.textSoft,lineHeight:1.6}}>
+            Franco Premium is an auto-renewing subscription of {displayPrice} after a 7-day free trial.
+            Payment is charged to your Apple ID. It renews automatically unless cancelled at least 24 hours
+            before the end of the period. Manage or cancel in your App Store account settings.
+          </div>
+          <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"center",gap:6,flexWrap:"wrap"}}>
+            <span onClick={()=>openExternal(TERMS_URL)} style={{fontSize:12,color:T.blue,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>Terms of Use (EULA)</span>
+            <span style={{fontSize:11,color:T.textSoft}}>·</span>
+            <span onClick={()=>openExternal(PRIVACY_URL)} style={{fontSize:12,color:T.blue,fontWeight:600,cursor:"pointer",textDecoration:"underline"}}>Privacy Policy</span>
+          </div>
+        </div>
+
         <button onClick={onClose} disabled={busy} style={{width:"100%",marginTop:8,padding:"10px",background:"transparent",border:"none",color:T.textSoft,fontSize:13,cursor:busy?"not-allowed":"pointer"}}>
           Continue with free lessons
         </button>
@@ -4785,11 +4832,11 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
           {adminMsg&&<div style={{padding:"10px 12px",borderRadius:8,background:adminMsg.startsWith("Done")?"#ECFDF5":"#FEF2F2",fontSize:13,color:adminMsg.startsWith("Done")?"#059669":"#DC2626",fontWeight:600}}>{adminMsg}</div>}
         </div>
       </div>}
-      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>window.open("https://wa.me/16046355031","_blank")}/>
-      <Row emoji="📞" label="Contact Us" onClick={()=>window.open("mailto:admin@junglelabsworld.com","_blank")}/>
-      <Row emoji="📱" label="WhatsApp — +1 604 902 8699" onClick={()=>window.open("https://wa.me/16049028699","_blank")}/>
+      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>openExternal("https://wa.me/16046355031")}/>
+      <Row emoji="📞" label="Contact Us" onClick={()=>openExternal("mailto:admin@junglelabsworld.com")}/>
+      <Row emoji="📱" label="WhatsApp — +1 604 902 8699" onClick={()=>openExternal("https://wa.me/16049028699")}/>
       <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset your level selection?"))onReset();}}/>
-      <div onClick={()=>window.open("https://franco.app/privacy","_blank")} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
+      <div onClick={()=>openExternal(PRIVACY_URL)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
         onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
         onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
         <span style={{fontSize:18,width:24,textAlign:"center"}}>🔒</span>

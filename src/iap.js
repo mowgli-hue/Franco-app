@@ -33,6 +33,22 @@ const IS_IOS = (() => {
 let _purchases = null;
 let _initialized = false;
 
+// Wrap a promise so it can never hang forever. If `p` doesn't settle within
+// `ms`, reject with a clear, user-facing message. This is what prevents the
+// paywall button from spinning indefinitely when StoreKit returns nothing
+// (e.g. Paid Apps Agreement not active, or sandbox hiccup).
+function withTimeout(p, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      reject(new Error(label || "The App Store took too long to respond. Please try again."));
+    }, ms);
+    p.then(
+      (v) => { clearTimeout(t); resolve(v); },
+      (e) => { clearTimeout(t); reject(e); }
+    );
+  });
+}
+
 // Mirror RevenueCat's entitlement state into localStorage so the existing
 // isPremiumUnlocked() function (which reads localStorage) keeps working
 // without a refactor. The ground truth is RevenueCat — this is a UI cache.
@@ -115,7 +131,10 @@ export async function iapGetOfferings() {
   const Purchases = await loadPurchases();
   if (!Purchases) return null;
   try {
-    const result = await Purchases.getOfferings();
+    const result = await withTimeout(
+      Purchases.getOfferings(), 15000,
+      "Couldn't reach the App Store. Check your connection and try again."
+    );
     const offerings = result?.offerings || result;
     const current = offerings?.current;
     if (!current) {
@@ -139,7 +158,10 @@ export async function iapPurchase(pkg) {
   if (!Purchases) throw new Error("IAP plugin not available.");
   if (!pkg) throw new Error("No package to purchase.");
   try {
-    const result = await Purchases.purchasePackage({ aPackage: pkg });
+    const result = await withTimeout(
+      Purchases.purchasePackage({ aPackage: pkg }), 120000,
+      "The purchase is taking longer than expected. Please try again."
+    );
     const info = result?.customerInfo;
     const entitlement = info?.entitlements?.active?.[ENTITLEMENT_ID];
     if (entitlement) {
@@ -162,7 +184,10 @@ export async function iapRestore() {
   const Purchases = await loadPurchases();
   if (!Purchases) throw new Error("IAP plugin not available.");
   try {
-    const result = await Purchases.restorePurchases();
+    const result = await withTimeout(
+      Purchases.restorePurchases(), 60000,
+      "Restore is taking longer than expected. Please try again."
+    );
     const info = result?.customerInfo;
     const entitlement = info?.entitlements?.active?.[ENTITLEMENT_ID];
     if (entitlement) {
