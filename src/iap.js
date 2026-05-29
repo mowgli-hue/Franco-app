@@ -19,6 +19,12 @@
 //   3. Add the subscription product to RevenueCat → create entitlement "premium"
 //   4. Get RevenueCat API key (Public SDK key) → put in .env as VITE_REVENUECAT_KEY
 
+// Static import — load the RevenueCat SDK with this module instead of via a
+// lazy dynamic import(). Dynamic-import chunks fail to load in the iOS Capacitor
+// WebView (they hang forever), which prevented the SDK from ever initializing.
+// Bundling it statically with iap.js (which loads fine) fixes the hang.
+import { Purchases as RCPurchases } from "@revenuecat/purchases-capacitor";
+
 const REVENUECAT_KEY = import.meta.env.VITE_REVENUECAT_KEY || "";
 const ENTITLEMENT_ID = "premium"; // Must match what you create in RevenueCat
 const ENTITLEMENT_KEY = "franco_premium"; // localStorage key (compatible with existing isPremiumUnlocked)
@@ -63,17 +69,21 @@ function syncToLocalStorage(isActive, expiresAt) {
   } catch { /* ignore */ }
 }
 
-async function loadPurchases() {
+// IMPORTANT: this is a SYNCHRONOUS function (not async). The RevenueCat plugin
+// object is a Capacitor Proxy that returns a function for ANY property —
+// including `.then` — which makes it look like a "thenable" / promise. If an
+// async function RETURNS it (or anything `await`s it), JS calls its fake
+// `.then()` and hangs forever. THIS was the root cause of the purchase hang.
+// So we must never await the plugin object — only call its real methods.
+function loadPurchases() {
   if (_purchases) return _purchases;
-  try {
-    const mod = await import("@revenuecat/purchases-capacitor");
-    _purchases = mod.Purchases || mod.default;
-    return _purchases;
-  } catch (e) {
+  if (!RCPurchases) {
     // eslint-disable-next-line no-console
-    console.warn("[iap] @revenuecat/purchases-capacitor not installed:", e?.message);
+    console.warn("[iap] @revenuecat/purchases-capacitor not available");
     return null;
   }
+  _purchases = RCPurchases;
+  return _purchases;
 }
 
 // Initialize RevenueCat. Call once at app start (only on iOS — no-op on web).
@@ -85,7 +95,7 @@ export async function iapInit(userIdentifier = null) {
     console.warn("[iap] VITE_REVENUECAT_KEY missing — IAP disabled");
     return { ok: false, reason: "no-key" };
   }
-  const Purchases = await loadPurchases();
+  const Purchases = loadPurchases();
   if (!Purchases) return { ok: false, reason: "plugin-missing" };
   try {
     await Purchases.configure({
@@ -107,7 +117,7 @@ export async function iapInit(userIdentifier = null) {
 // after purchase, after restore, and periodically.
 export async function refreshEntitlementCache() {
   if (!IS_IOS) return false;
-  const Purchases = await loadPurchases();
+  const Purchases = loadPurchases();
   if (!Purchases) return false;
   try {
     const result = await Purchases.getCustomerInfo();
@@ -128,7 +138,7 @@ export async function refreshEntitlementCache() {
 // for the "current" offering, or null if RevenueCat isn't configured.
 export async function iapGetOfferings() {
   if (!IS_IOS) return null;
-  const Purchases = await loadPurchases();
+  const Purchases = loadPurchases();
   if (!Purchases) return null;
   try {
     const result = await withTimeout(
@@ -154,7 +164,7 @@ export async function iapGetOfferings() {
 // Returns { ok: true, purchased: true } if successful.
 export async function iapPurchase(pkg) {
   if (!IS_IOS) throw new Error("In-app purchase only available on iOS.");
-  const Purchases = await loadPurchases();
+  const Purchases = loadPurchases();
   if (!Purchases) throw new Error("IAP plugin not available.");
   if (!pkg) throw new Error("No package to purchase.");
   try {
@@ -181,7 +191,7 @@ export async function iapPurchase(pkg) {
 // Restore previous purchases (required by Apple — must be exposed in UI).
 export async function iapRestore() {
   if (!IS_IOS) throw new Error("Restore only available on iOS.");
-  const Purchases = await loadPurchases();
+  const Purchases = loadPurchases();
   if (!Purchases) throw new Error("IAP plugin not available.");
   try {
     const result = await withTimeout(
@@ -198,6 +208,65 @@ export async function iapRestore() {
   } catch (e) {
     throw e;
   }
+}
+
+// ─── Diagnostic ────────────────────────────────────────────────────────────
+// Runs init + getOfferings (WITHOUT purchasing) and returns a detailed report
+// of exactly what the SDK sees. The paywall surfaces this on-screen so a stuck
+// purchase reveals its real cause instead of hiding it in native logs.
+export async function iapDiagnose() {
+  const r = { diagBuild: "v5-thenable-fix", steps: {} };
+  // Run an async step with its own timeout so the diagnostic NEVER hangs and
+  // always tells us exactly which step is stuck.
+  const step = async (name, factory, ms) => {
+    try {
+      const v = await withTimeout(Promise.resolve().then(factory), ms, name + " TIMED OUT (" + (ms / 1000) + "s) — this step is hanging");
+      r.steps[name] = "ok";
+      return { ok: true, value: v };
+    } catch (e) {
+      r.steps[name] = "ERROR: " + String(e?.message || e);
+      return { ok: false, error: e };
+    }
+  };
+  try {
+    r.platform = (typeof window !== "undefined" && window.Capacitor?.getPlatform?.()) || "unknown";
+    r.keyPresent = !!REVENUECAT_KEY;
+    r.keyPreview = REVENUECAT_KEY ? REVENUECAT_KEY.slice(0, 12) + "…" : "(none)";
+    r.alreadyInitialized = _initialized;
+
+    // loadPlugin must be SYNCHRONOUS — the plugin proxy is thenable, so passing
+    // it through any promise (await / .then) hangs. This was the real bug.
+    const Purchases = loadPurchases();
+    r.steps.loadPlugin = Purchases ? "ok" : "ERROR: plugin not available";
+    if (!Purchases) return r;
+
+    if (!_initialized) {
+      const cfg = await step("configure", () => Purchases.configure({ apiKey: REVENUECAT_KEY }), 10000);
+      if (cfg.ok) _initialized = true;
+    } else {
+      r.steps.configure = "already configured at startup";
+    }
+
+    const ci = await step("getCustomerInfo", () => Purchases.getCustomerInfo(), 10000);
+    if (ci.ok) {
+      const info = ci.value?.customerInfo || ci.value;
+      r.appUserId = info?.originalAppUserId || null;
+    }
+
+    const off = await step("getOfferings", () => Purchases.getOfferings(), 15000);
+    if (off.ok) {
+      const offerings = off.value?.offerings || off.value;
+      const cur = offerings?.current;
+      r.hasCurrentOffering = !!cur;
+      r.currentOfferingId = cur?.identifier || null;
+      r.packageCount = cur?.availablePackages?.length || 0;
+      const pkg = cur?.availablePackages?.[0];
+      r.firstProductId = pkg?.product?.identifier || null;
+      r.firstPriceString = pkg?.product?.priceString || null;
+      r.allOfferingIds = Object.keys(offerings?.all || {});
+    }
+  } catch (e) { r.fatalError = String(e?.message || e); }
+  return r;
 }
 
 // Convenience check — does the user currently have premium?

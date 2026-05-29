@@ -4774,10 +4774,10 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
         <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Guest mode":user?.email||"—"}</div>
       </div>
 
-      <div style={{marginBottom:12}}>
+      {!guestMode && <div style={{marginBottom:12}}>
         <div style={{fontSize:12,color:T.textSoft,marginBottom:2}}>Email verification</div>
-        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{guestMode?"Not available":user?.emailVerified?"Verified ✓":"Pending"}</div>
-      </div>
+        <div style={{fontSize:14,fontWeight:600,color:T.navy}}>{user?.emailVerified?"Verified ✓":"Pending"}</div>
+      </div>}
 
       <div style={{marginBottom:4}}>
         <div style={{fontSize:12,color:T.textSoft,marginBottom:6}}>Subscription</div>
@@ -4832,9 +4832,11 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
           {adminMsg&&<div style={{padding:"10px 12px",borderRadius:8,background:adminMsg.startsWith("Done")?"#ECFDF5":"#FEF2F2",fontSize:13,color:adminMsg.startsWith("Done")?"#059669":"#DC2626",fontWeight:600}}>{adminMsg}</div>}
         </div>
       </div>}
-      <Row emoji="🍁" label="Immigration Services — Newton Immigration" onClick={()=>openExternal("https://wa.me/16046355031")}/>
-      <Row emoji="📞" label="Contact Us" onClick={()=>openExternal("mailto:admin@junglelabsworld.com")}/>
-      <Row emoji="📱" label="WhatsApp — +1 604 902 8699" onClick={()=>openExternal("https://wa.me/16049028699")}/>
+      <Row emoji="🍁" label="Immigration Services — Nimmi" onClick={()=>openExternal("https://www.nimmi.solutions")}/>
+      <Row emoji="📊" label="Calculate Your PR Score — Nimmi" onClick={()=>openExternal("https://www.nimmi.solutions")}/>
+      <Row emoji="✉️" label="Email — admin@junglelabsworld.com" onClick={()=>openExternal("mailto:admin@junglelabsworld.com")}/>
+      <Row emoji="📞" label="Call — +1 604 902 8699" onClick={()=>openExternal("tel:+16049028699")}/>
+      <Row emoji="💬" label="WhatsApp — +1 604 902 8699" onClick={()=>openExternal("https://wa.me/16049028699")}/>
       <Row emoji="🔄" label="Re-take Self Assessment" onClick={()=>{if(window.confirm("Reset your level selection?"))onReset();}}/>
       <div onClick={()=>openExternal(PRIVACY_URL)} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 0",cursor:"pointer"}}
         onMouseEnter={e=>e.currentTarget.style.opacity="0.7"}
