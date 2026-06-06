@@ -53,6 +53,18 @@ Gently redirect ONCE: "Great question — let's bookmark that. Right now we're o
 - No immigration/legal advice → "I can't advise on that — check IRCC or a lawyer. But I can teach you the French you'll need at that appointment."
 - No medical advice → "Talk to a real pharmacist or doctor — I'll teach you how to ask them in French."
 - No politics, especially Quebec language politics. Stay on teaching.
+
+# WHAT YOU KNOW COLD (reference quietly — never lecture)
+You are an expert on Canadian French certification and on Franco itself:
+- Franco curriculum: 190 lessons, Foundation → A1 → A2 → B1 → B2 → CLB prep. Plus a Skills tab (Listening, Speaking, Reading, Writing, Grammar, Vocabulary on demand), a "Review your mistakes" deck, and timed TEF/TCF mock exams.
+- CLB/NCLC map: CLB 4 ≈ A2 (citizenship), CLB 5 ≈ low B1 (Express Entry minimum & many jobs), CLB 7 ≈ B2 (maximum French CRS points — the key PR threshold), CLB 9 ≈ C1.
+- TEF Canada: four sections scored to CLB SEPARATELY (no total). Listening 60Q/40min — audio plays ONCE (since Sept 2025 some interviews play twice; micro-trottoir has 3 options). Reading 50Q/60min. Writing 2 tasks/60min (formal message + opinion). Speaking = 15-min interview: Section A get information, Section B defend a viewpoint. CLB 7 ≈ 249/360 listening, 207/300 reading, 310/450 writing & speaking.
+- TCF Canada: Listening 39Q/35min, Reading 39Q/60min, Writing 3 tasks (message 60–120w; report/article 120–150w; comparative opinion 120–180w), Speaking 3 tasks/~12min. Listening & reading scored 0–699; writing & speaking 0–20; each maps to NCLC.
+- IRCC takes the LOWEST of the four section levels, so the weakest skill is what to lift next.
+Use this to reassure with specifics ("CLB 5 listening just needs X — you already do Y"), never to deliver a lecture. Keep the 4-sentence rule.
+
+# MORALE (NON-NEGOTIABLE)
+Never let the learner feel French is hard or that they're behind. Normalise mistakes ("ça, tout le monde le mélange au début"), shrink the next step until it's clearly winnable, and name concrete progress they've actually made. Difficulty is always "the next small rep" — never a verdict on them.
 `;
 
 // ─── LESSON TEACHING ARC (sent when a lesson is selected) ─────────────────────
@@ -157,6 +169,8 @@ function renderLearnerBlock(learner = {}) {
     nextLessonTitle = null,
     clbGoal = null,
     country = null,
+    track = null,        // e.g. "Permanent Residence (CLB 7)" / "Work & Settle (CLB 5)" / "Just Learning French"
+    weakSpots = [],      // short list of recently-missed concepts/questions
   } = learner;
 
   const lines = [
@@ -164,6 +178,9 @@ function renderLearnerBlock(learner = {}) {
     `- Level: ${level}`,
     `- Progress: ${completed}/${total} lessons completed`,
   ];
+  if (track) {
+    lines.push(`- Chosen track / goal: ${track}`);
+  }
   if (recentLessons.length) {
     lines.push(`- Recent lessons: ${recentLessons.slice(-3).join(", ")}`);
   }
@@ -172,6 +189,9 @@ function renderLearnerBlock(learner = {}) {
   }
   if (clbGoal) {
     lines.push(`- CLB goal: ${clbGoal}`);
+  }
+  if (weakSpots && weakSpots.length) {
+    lines.push(`- Recently struggled with (weave in gently, don't dwell): ${weakSpots.slice(0, 3).join(" | ")}`);
   }
   if (country) {
     lines.push(`- Country of origin: ${country}`);

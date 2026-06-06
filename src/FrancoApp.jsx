@@ -514,6 +514,23 @@ const T = {
   gold:"#D97706",goldLight:"#FFFBEB",purple:"#7C3AED",purpleLight:"#F5F3FF",
   surface:"#F8FAFC",card:"#FFFFFF",text:"#0F172A",textMid:"#475569",textSoft:"#94A3B8",border:"#E2E8F0",
 };
+
+// ── LEARNER TRACKS (v1.5) — one curriculum, reordered / tailored to the goal ──
+// focus[] = the skills surfaced first. clb = target benchmark. exam = mock format.
+const TRACKS = [
+  {id:"clb7", label:"Permanent Residence", sub:"Target CLB 7 · Express Entry", emoji:"🚀", clb:7, exam:"TEF",
+   focus:["listening","speaking","reading","writing"],
+   blurb:"The full path to CLB 7 across all four skills, with TEF Canada–style practice — the French benchmark for Express Entry PR points."},
+  {id:"clb5", label:"Work & Settle", sub:"Target CLB 5 · understand & speak fast", emoji:"🎯", clb:5, exam:"TEF",
+   focus:["listening","speaking"],
+   blurb:"Functional French, fast. Listening and speaking come first so you can work, shop and handle daily life in Quebec."},
+  {id:"casual", label:"Just Learning French", sub:"At your own pace · no exam", emoji:"❤️", clb:0, exam:null,
+   focus:["listening","speaking","reading","writing"],
+   blurb:"Learn for family, travel or yourself — the whole curriculum, zero exam pressure."},
+];
+const getTrack = () => { try{ return TRACKS.find(t=>t.id===localStorage.getItem("franco_track")) || TRACKS[0]; }catch{ return TRACKS[0]; } };
+// Read the chosen companion (mascot) so any screen can show them cheering the learner on.
+const getCompanion = () => { try{ return JSON.parse(localStorage.getItem("franco_companion")) || COMPANIONS[0]; }catch{ return COMPANIONS[0]; } };
 // ─────────────────────────────────────────────────────────────────────────────
 // FRANCO — FULL CURRICULUM: 190 LESSONS, BEGINNER → CLB 5 / B1
 // Each lesson: teach text + vocabulary + 3-4 questions (MCQ & write)
@@ -527,6 +544,22 @@ const mcq = (prompt, options, correct, explain) =>
 
 const wr = (prompt, accepted, explain) =>
   ({type:"write", prompt, accepted, explain});
+
+// ── Skill-practice authoring helpers (added v1.5) ──
+// li = LISTEN: plays `audio` (French) via on-device TTS, then a comprehension MCQ.
+//      extra can carry {once:true} (TEF-style single play), {transcriptEn:"..."}, {diff}.
+const li = (audio, prompt, options, correct, explain, extra={}) =>
+  ({type:"listen", audio, prompt, options, correct, explain, ...extra});
+
+// rd = READ: shows a real French `passage`, then a comprehension MCQ.
+//      extra can carry {title, glossary:[["mot","meaning"]], diff}.
+const rd = (passage, prompt, options, correct, explain, extra={}) =>
+  ({type:"read", passage, prompt, options, correct, explain, ...extra});
+
+// sp = SPEAK: live mic + speech-recognition scoring via AISpeakingCoach.
+//      `accepted` = key words/phrases the spoken answer should contain.
+const sp = (prompt, sampleAnswer, accepted, explain) =>
+  ({type:"speak", prompt, sampleAnswer, accepted, explain});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FOUNDATION — 20 lessons
@@ -554,13 +587,13 @@ const FOUNDATION_LESSONS = [
     teach:"Your taxi driver from the airport is chatting away and you can't understand a word. Why? French sounds completely different from how it looks! But here's the secret: just 3 rules unlock everything. Rule 1: E says 'uh' not 'ee'. Rule 2: R comes from your throat like a soft gargle. Rule 3: H is always totally silent. Master these 3 today and you'll understand 30% more French immediately.",
     vocab:["E = 'uh' sound (le, me, te, de)","É = 'ay' sound (café, étudiant, médecin)","R = guttural throat sound (rouge, merci, bonjour)","H = ALWAYS silent (hôpital, homme, heure)","OU = 'oo' sound (bonjour, vous, pour)","U = round lips + say 'ee' (tu, rue, lune)","ON = nasal buzz (bon, mon, son, bonjour)","AN = nasal (dans, grand, France, enfant)"],
     questions:[
-      {type:"tap",fr:"café",opts:["kaf-AY","KAF-ee","KAY-fay","kaf-EE"],correct:0,explain:"Café = kaf-AY! The accent on é always makes the 'ay' sound. You'll see cafés everywhere in Quebec — now you know how to say it like a local!",diff:1},
-      {type:"tap",fr:"hôpital",opts:["HOH-pee-tal","oh-pee-TAL","hoh-PEE-tal","hoh-spee-tal"],correct:1,explain:"oh-pee-TAL! H is silent — we start with 'oh'. The accent on ô makes a longer O. In Quebec you'll need this word. Knowing it correctly helps in emergencies!",diff:1},
+      {type:"tap",fr:"café",opts:["kaf-AY","KAH-fay","KAY-fay","kaf-EE"],correct:0,explain:"Café = kaf-AY! The accent on é always makes the 'ay' sound. You'll see cafés everywhere in Quebec — now you know how to say it like a local!",diff:1},
+      {type:"tap",fr:"hôpital",opts:["HOH-pee-tal","oh-pee-TAL","HOH-pih-tal","hoh-spee-tal"],correct:1,explain:"oh-pee-TAL! H is silent — we start with 'oh'. The accent on ô makes a longer O. In Quebec you'll need this word. Knowing it correctly helps in emergencies!",diff:1},
       {type:"match",prompt:"Match each letter to how it sounds in French",pairs:[["E","uh (like the)"],["É","ay (like say)"],["R","guttural throat"],["H","always silent"],["OU","oo (like moon)"]],explain:"These 5 sound rules unlock French pronunciation completely. Once you know them you can read ANY French word out loud!",diff:2},
       {type:"fill",before:"The French letter H is always",blank:"___",after:"— you never say it out loud.",options:["silent","loud","guttural","nasal"],correct:0,explain:"H is ALWAYS silent in French — no exceptions! hôpital = oh-pee-tal, homme = omm, heure = ur. This is one of the most common mistakes English speakers make. Now you know!",diff:1},
       {type:"mcq",prompt:"How do you say 'bonjour' correctly?",options:["BON-joor","bon-ZHOOR","BON-jour","bohn-JUR"],correct:1,explain:"bon-ZHOOR! The J makes a 'zh' sound (like the s in measure). The R is guttural — from the back of your throat. The most important word in French — say it right!",diff:2},
       {type:"mcq",prompt:"The French U sound (like in 'tu' = you) is made by:",options:["Saying oo normally","Rounding lips for oo then saying ee","Saying you fast","Opening mouth wide"],correct:1,explain:"French U is unique — it doesn't exist in English! Round your lips tight for oo then try to say ee. The tension between them IS the French U. Tu, rue, lune. Practice this and you'll impress every Quebecker!",diff:3},
-      {type:"scene",story:"Priya calls the hospital (hôpital) in Montreal. The receptionist answers in French. Priya needs to say she has an appointment (rendez-vous).",prompt:"How does Priya pronounce 'hôpital'?",options:["HOH-pee-tal","oh-pee-TAL","hoh-SPEE-tal","hoh-pee-TAL"],correct:1,explain:"oh-pee-TAL — H is silent, ô makes a long O. In emergencies, pronouncing it correctly helps the person understand you immediately. This lesson could literally save your life!",diff:2},
+      {type:"scene",story:"Priya calls the hospital (hôpital) in Montreal. The receptionist answers in French. Priya needs to say she has an appointment (rendez-vous).",prompt:"How does Priya pronounce 'hôpital'?",options:["HOH-pee-tal","oh-pee-TAL","hoh-SPEE-tal","HOH-pih-tal"],correct:1,explain:"oh-pee-TAL — H is silent, ô makes a long O. In emergencies, pronouncing it correctly helps the person understand you immediately. This lesson could literally save your life!",diff:2},
       {type:"speak",prompt:"Say these 3 words out loud focusing on the French sounds: bonjour, merci, café",sampleAnswer:"bonjour merci cafe",accepted:["bonjour","merci","café","cafe"],explain:"Bon-ZHOOR, mare-SEE, kaf-AY! Say them every morning this week and they become automatic. Your French accent is forming right now!",diff:3}
     ]
   },
@@ -592,7 +625,7 @@ const FOUNDATION_LESSONS = [
       {type:"mcq",prompt:"The cashier says 'Vingt-trois dollars s'il vous plaît'. How much is it?",options:["$13","$20","$23","$32"],correct:2,explain:"Vingt (20) + trois (3) = vingt-trois = 23! In Quebec, prices are said this way. Knowing your numbers means you'll never be overcharged or confused at checkout.",diff:2},
       {type:"fill",before:"Mon numéro de téléphone est cinq, un, quatre,",blank:"___",after:", sept, huit, neuf, zéro.",options:["deux","trois","cinq","six"],correct:1,explain:"Trois = 3! Phone numbers in Quebec are said digit by digit. Practice saying your own phone number in French — it comes up at every appointment and registration.",diff:2},
       {type:"scene",story:"Sara is at the government office. The agent says 'Quel est votre code postal? (What's your postal code?)' Sara's postal code is H3A 2T6.",prompt:"How does Sara say the numbers 3 and 2 in French?",options:["trois et deux","three and two","trente et vingt","trois, deux"],correct:3,explain:"Trois, deux — postal codes and phone numbers are said digit by digit, not as full numbers. H trois A deux T six. Now practice your own postal code!",diff:2},
-      {type:"order",prompt:"Say the price: twenty-five dollars",words:["vingt","et","cinq","dollars"],answer:["vingt","cinq","dollars"],explain:"Vingt-cinq dollars! Note: 21, 31, 41... use 'et un' (vingt et un). But 22-29 just hyphenate: vingt-deux, vingt-cinq. No 'et' for 22-29!",diff:3},
+      {type:"order",prompt:"Say the price: twenty-five dollars",words:["vingt","cinq","dollars"],answer:["vingt","cinq","dollars"],explain:"Vingt-cinq dollars! Note: 21, 31, 41... use 'et un' (vingt et un). But 22-29 just hyphenate: vingt-deux, vingt-cinq. No 'et' for 22-29!",diff:3},
       {type:"write",prompt:"Write the number 23 in French words",accepted:["vingt-trois","vingt trois"],explain:"Vingt-trois! The hyphen is important in writing. Vingt (20) + trois (3). Numbers 17-19 use dix-sept, dix-huit, dix-neuf — literally ten-seven, ten-eight, ten-nine. French numbers are very logical once you see the pattern!",diff:2}
     ]
   },
@@ -1015,7 +1048,7 @@ const A1_LESSONS = [
   mkL("a1-15","Possessive Adjectives — My, Your, His, Her",20,"speaking",
     "How do you say 'my brother', 'your house', 'his car'? French has 3 forms for each possessive — based on the noun's gender and number. Mon, ma, mes (my). Ton, ta, tes (your). Son, sa, ses (his/her). Today you learn the system that lets you talk about anyone's anything in French.",
     ["mon (masc), ma (fem), mes (plural) = my","ton (masc), ta (fem), tes (plural) = your (informal)","son (masc), sa (fem), ses (plural) = his/her","notre (sing), nos (plural) = our","votre (sing), vos (plural) = your (formal/plural)","leur (sing), leurs (plural) = their","Before vowel: ma→mon (mon amie!)","Possessive matches the THING, not the owner"],
-    [mcq("'__ frère habite à Toronto.' (My brother lives in Toronto)",["Mon","Ma","Mes","Mes"],0,"Mon frère! Frère is masculine, so 'mon' = my. Pattern: mon (masc), ma (fem), mes (plural). Memorize trios as a set.",1),
+    [mcq("'__ frère habite à Toronto.' (My brother lives in Toronto)",["Mon","Ma","Mes","Ton"],0,"Mon frère! Frère is masculine, so 'mon' = my. Pattern: mon (masc), ma (fem), mes (plural). Memorize trios as a set.",1),
      mcq("'C'est __ voiture, n'est-ce pas?' (It's your car, right? — voiture is feminine)",["ton","ta","tes","te"],1,"Ta voiture! Voiture is feminine, so 'ta' = your. Ta is the feminine equivalent of ton. With informal you (tu). Formal/plural would be 'votre voiture'.",1),
      {type:"match",prompt:"Match the possessive to its meaning",pairs:[["mon","my (masc)"],["ma","my (fem)"],["mes","my (plural)"],["votre","your (formal)"],["leurs","their (plural)"]],explain:"Five key possessives. Notice: 'votre' singular form, 'vos' plural. 'Leur' singular, 'leurs' plural. Always match the THING owned, not the owner.",diff:2},
      {type:"fill",before:"Sara aime",blank:"___",after:"travail. (Sara loves her job — travail is masculine)",options:["son","sa","ses","ta"],correct:0,explain:"Son travail! Even though Sara is female, 'travail' is masculine, so we use 'son' (masc form). Possessive matches the THING (travail), not the owner (Sara). Trip-up for English speakers!",diff:3},
@@ -1110,7 +1143,7 @@ const A1_LESSONS = [
     "Signing a lease (un bail) is one of your biggest commitments in Quebec. The Tribunal administratif du logement (TAL) sets standard lease forms in French. You MUST understand what you're signing. Today you learn the key vocabulary in any Quebec lease — protecting yourself from problems later.",
     ["un bail = a lease","le locataire = tenant","le propriétaire = landlord","le loyer mensuel = monthly rent","les charges incluses = utilities included","la durée = duration/term","la date d'entrée = move-in date","une caution = security deposit","les réparations = repairs","résilier = to cancel/terminate"],
     [mcq("Lease in Quebec =",["un contrat","un bail","une location","un loyer"],1,"Un bail! Specifically a residential lease. The standard Quebec lease (bail TAL) is in French and English. ALWAYS read it carefully before signing.",1),
-     mcq("Tenant =",["propriétaire","locataire","ami","propriétaire"],1,"Le locataire = tenant. Easy memory: 'location' (rental) → locataire (renter). Propriétaire = owner/landlord. Don't confuse them!",2),
+     mcq("Tenant =",["propriétaire","locataire","ami","voisin"],1,"Le locataire = tenant. Easy memory: 'location' (rental) → locataire (renter). Propriétaire = owner/landlord. Don't confuse them!",2),
      {type:"match",prompt:"Lease vocabulary",pairs:[["un bail","a lease"],["le locataire","tenant"],["le propriétaire","landlord"],["le loyer","rent"],["la caution","security deposit"]],explain:"5 lease essentials. Important: Quebec law forbids security deposits! If a landlord asks for one, that's illegal. Know your rights!",diff:3},
      {type:"fill",before:"Le bail est d'une",blank:"___",after:"de 12 mois. (duration)",options:["caution","durée","loyer","résiliation"],correct:1,explain:"Une durée = duration/term. Quebec leases default to 12 months. After that, they auto-renew. To not renew, you must give written notice 3-6 months ahead!",diff:3},
      wr("Write 'I am the tenant'",["je suis le locataire","je suis la locataire","locataire"],"Je suis le/la locataire! Use 'le' if you're male, 'la' if female. Important to identify yourself correctly when calling about your apartment.",2)]),
@@ -1136,7 +1169,7 @@ const A1_LESSONS = [
     [mcq("Yesterday in French =",["aujourd'hui","hier","demain","avant"],1,"Hier! Pronounced 'YEHR' (silent H). 'Hier soir' = last night. 'Hier matin' = yesterday morning. Combine with time of day for precision!",1),
      mcq("'La semaine prochaine' means:",["last week","this week","next week","weekend"],2,"Next week! Prochain/prochaine = next. La semaine prochaine, le mois prochain, l'année prochaine. Memorize the pattern!",1),
      {type:"match",prompt:"Time expressions",pairs:[["aujourd'hui","today"],["hier","yesterday"],["demain","tomorrow"],["la semaine dernière","last week"],["ce matin","this morning"]],explain:"5 essentials for daily speech. Note: 'le matin' = the morning (general), 'ce matin' = this morning (specific).",diff:2},
-     {type:"fill",before:"On va se voir",blank:"___",after:"prochain. (next month)",options:["la","ce","le mois","le mois"],correct:2,explain:"Le mois prochain! Le mois (the month, masculine) + prochain (next). Pattern: le + time + prochain (next) or dernier (last).",diff:2},
+     {type:"fill",before:"On va se voir",blank:"___",after:"prochain. (next month)",options:["la","ce","le mois","la semaine"],correct:2,explain:"Le mois prochain! Le mois (the month, masculine) + prochain (next). Pattern: le + time + prochain (next) or dernier (last).",diff:2},
      wr("Write 'I worked yesterday' (using passé composé)",["j'ai travaillé hier","hier j'ai travaillé","j'ai travaillé"],"J'ai travaillé hier! Or 'Hier, j'ai travaillé.' Time expression goes at start or end. Past tense (j'ai travaillé) + time word (hier) — perfect combination!",3)]),
   mkL("a1-30","Frequency Words — Always, Often, Never",16,"speaking",
     "How often do you do something? French has specific words for frequency: toujours (always), souvent (often), parfois (sometimes), jamais (never). They go in specific positions in sentences. Today you learn how to express frequency naturally.",
@@ -1668,7 +1701,7 @@ const B1_LESSONS = [
   mkL("b1-03","Subjunctive: Introduction",35,"writing",
     "The subjunctive mood expresses doubt, wish, emotion, or necessity. Most common triggers: il faut que (necessary), je veux que (I want), il est important que, bien que (although), pour que (so that), à moins que (unless), avant que (before). Formation: ils-form present → drop -ent → add: -e, -es, -e, -ions, -iez, -ent. Irregular: être→soit, avoir→ait, aller→aille, faire→fasse, pouvoir→puisse.",
     ["trigger + que + subjonctif","il faut que tu parles","je veux qu'il vienne","bien qu'elle soit fatiguée","pour que nous comprenions","avant qu'il parte","être → que je sois, que tu sois...","avoir → que j'aie, que tu aies..."],
-    [mcq("'Il faut que vous ___ ce formulaire.' (remplir — to fill out)",["remplissez","remplissiez","remplissez","remplirez"],1,"Remplissiez = subjonctif of remplir for vous. Formation: ils remplissent → rempliss → vous remplissiez. 'Il faut que' ALWAYS triggers subjunctive! 'Il faut que vous remplissiez ce formulaire' = You must fill out this form."),
+    [mcq("'Il faut que vous ___ ce formulaire.' (remplir — to fill out)",["remplissez","remplissiez","remplir","remplirez"],1,"Remplissiez = subjonctif of remplir for vous. Formation: ils remplissent → rempliss → vous remplissiez. 'Il faut que' ALWAYS triggers subjunctive! 'Il faut que vous remplissiez ce formulaire' = You must fill out this form."),
      mcq("'Bien qu'il ___ fatigué, il travaille.' (être)",["est","était","soit","sera"],2,"Soit = subjonctif of être. 'Bien que' ALWAYS triggers subjunctive! 'Bien qu'il soit fatigué' = although he is tired. Memorize: être→soit, avoir→ait — these are the two most common irregular subjunctives!"),
      wr("Complete: 'Je veux que tu ___ (venir) à la réunion.'",["viennes"],"Viennes = subjonctif of venir. 'Je veux que tu viennes' = I want you to come. Venir in subjunctive: que je vienne, que tu viennes, qu'il vienne, que nous venions, que vous veniez, qu'ils viennent. Irregular — must memorize!")]),
 
@@ -1782,50 +1815,57 @@ const B1_LESSONS = [
   mkL("b1-19","Speaking: 2-Minute Opinion Monologue",30,"speaking",
     "Deliver a structured 2-minute opinion monologue — THE key CLB 5-6 speaking task! Structure: 1) Introduction (state topic + position — 15 sec). 2) Argument 1 + example (30 sec). 3) Argument 2 + example (30 sec). 4) Concession (acknowledge other side — 20 sec). 5) Conclusion (restate + broader point — 25 sec). Practice topics: bilingualism in Canada, immigration policy, remote work, healthcare access, environmental policy. Use sophisticated connectors throughout.",
     ["Introduction: Le sujet d'aujourd'hui est... À mon avis...","Tout d'abord, je pense que... En effet,...","De plus, il est indéniable que... Par exemple,...","Certes, certains affirment que... Néanmoins,...","En conclusion, il est clair que... C'est pourquoi...","Remplir 2 minutes sans pauses longues","Varier les connecteurs (ne pas répéter 'parce que')","Exemples concrets du contexte canadien","Voix assurée, rythme modéré, articulation"],
-    [mcq("The concession in a speaking monologue shows:",["you've run out of arguments","you lack confidence in your position","critical thinking and awareness of other perspectives","you agree with the opposing view"],2,"Concession = intellectual maturity. 'Certes, il est vrai que certains estiment que X. Cependant, à mon avis...' Acknowledging the other side then returning to your position = sophisticated argumentation. CLB 6 assessors look for this!"),
-     mcq("For a 2-minute monologue, each section should be approximately:",["all 2 minutes on one point","15-30 seconds each for 5-6 sections","1 minute introduction only","2 minutes on conclusion only"],1,"5-6 sections of 15-30 seconds each = 2 minutes. Time yourself! Practice with a timer. If you run short, expand your examples. If you run long, tighten your transitions. Rhythm and timing are part of CLB 6 speaking assessment!"),
+    [mcq("In a 2-minute monologue, the concession (e.g. 'Certes... néanmoins...') shows:",["you've run out of arguments","you lack confidence in your position","critical thinking and awareness of other perspectives","you agree with the opposing view"],2,"Concession = intellectual maturity. 'Certes, il est vrai que certains estiment que X. Cependant, à mon avis...' Acknowledging the other side then returning to your position = sophisticated argumentation. CLB 6 assessors look for this!"),
+     sp("Speak ~30 seconds: introduce the topic and state your position on « Le bilinguisme est-il un atout pour le Canada? ». Use an opener (À mon avis / Selon moi) + your position + a one-line preview of your arguments.","À mon avis, le bilinguisme est un véritable atout pour le Canada. Non seulement il renforce l'unité nationale, mais il ouvre aussi des portes économiques. Dans les prochaines minutes, j'expliquerai pourquoi.",["à mon avis","bilinguisme","atout","canada","selon moi"],"A strong intro = opener + clear position + preview. Keep a confident, steady pace and don't rush."),
+     sp("Now deliver a full mini-monologue (~60 sec) on « Le télétravail : avantages et limites ». Structure: position → argument + exemple → concession (Certes… cependant…) → conclusion.","À mon avis, le télétravail présente plus d'avantages que d'inconvénients. Tout d'abord, il offre une grande flexibilité : par exemple, on évite de longs trajets. Certes, il peut isoler les employés ; cependant, des outils comme la visioconférence atténuent ce problème. En conclusion, le télétravail, bien encadré, est bénéfique.",["télétravail","tout d'abord","par exemple","certes","cependant","en conclusion"],"A complete CLB 6 monologue: position, argument + example, concession + rebuttal, conclusion. Vary your connectors — don't repeat 'parce que'."),
      wr("Write a 3-sentence introduction for: 'Faut-il rendre le français obligatoire au travail au Québec?'",["à mon avis","selon moi","l'utilisation du français","je pense que","cette question","le français au travail"],"La question de l'obligation du français au travail au Québec est au cœur des débats sur l'identité culturelle et l'intégration économique. À mon avis, renforcer l'usage du français dans les milieux professionnels est non seulement justifié, mais nécessaire pour préserver la vitalité de la langue française. Dans les deux prochaines minutes, j'exposerai les raisons de cette conviction. — Perfect CLB 6 introduction!")]),
 
   mkL("b1-20","Speaking: Debate & Discussion",25,"speaking",
     "Participate in French debates and discussions — CLB 6 interactive speaking! Agreeing: Je suis d'accord avec vous parce que..., Tout à fait!, Vous avez raison, c'est vrai que... Disagreeing politely: Je ne partage pas tout à fait votre avis..., Je comprends votre point de vue, mais..., Permettez-moi de nuancer... Taking the floor: Si je peux me permettre..., J'aimerais ajouter que..., Pour rebondir sur ce que vous avez dit... Asking for clarification: Pourriez-vous préciser ce que vous entendez par...?",
     ["Je suis (tout à fait) d'accord (I fully agree)","Je ne partage pas votre avis (I don't share your view)","Je comprends votre point de vue, mais... (I understand but...)","Permettez-moi de nuancer (allow me to nuance)","Si je peux me permettre... (if I may...)","J'aimerais rebondir sur ce point (I'd like to build on this)","Pourriez-vous préciser? (Could you clarify?)","En d'autres termes,... (in other words)"],
     [mcq("'Je ne partage pas tout à fait votre avis' is:",["a polite way to strongly disagree","an agreement","a request for clarification","a conclusion"],0,"'Je ne partage pas tout à fait votre avis' = I don't quite share your view. 'Tout à fait' (completely/quite) actually softens it — it's not a TOTAL disagreement. Very polite way to disagree in French. Always follow with 'parce que...' or 'car je pense que...'"),
-     mcq("'Pour rebondir sur ce que vous avez dit...' means:",["To return to what was said before","To build on / respond to what you said","To disagree completely with what you said","To repeat what you said"],1,"Rebondir sur = to bounce off / to build on. 'Pour rebondir sur ce point' = to pick up on that point. Used to connect your contribution to the previous speaker — shows active listening and debate skills. Very CLB 6!"),
+     sp("Your debate partner says: « Les nouveaux arrivants devraient apprendre l'anglais avant le français. » Disagree politely out loud: acknowledge their view, then nuance it with a reason.","Je comprends votre point de vue, mais permettez-moi de nuancer. Au Québec, le français est la langue officielle et la clé de l'intégration professionnelle. Apprendre le français d'abord ouvre donc plus de portes.",["je comprends votre point de vue","permettez-moi de nuancer","mais","au québec","le français"],"Polite disagreement = acknowledge + 'mais/cependant' + reason. This 'oui, mais' move is the core of CLB 6 interactive speaking."),
+     sp("Take the floor and build on a point: respond to « Le coût de la vie augmente trop vite » by adding a related idea, starting with 'Pour rebondir sur ce point...'","Pour rebondir sur ce point, j'ajouterais que la hausse du logement touche surtout les jeunes familles. C'est pourquoi des mesures ciblées me semblent nécessaires.",["pour rebondir sur ce point","j'ajouterais","c'est pourquoi"],"'Pour rebondir sur ce point' shows active listening and lets you contribute smoothly — a hallmark of natural debate."),
      wr("Politely disagree with: 'Le français n'est pas important pour trouver du travail au Canada.'",["je ne partage pas votre avis","je comprends votre point de vue, mais","permettez-moi de nuancer","je suis en désaccord, car"],"Je comprends votre point de vue, mais je ne partage pas tout à fait cet avis. En effet, dans de nombreux secteurs au Canada, notamment au Québec, la maîtrise du français est un critère de sélection déterminant. — Polite, structured disagreement with evidence. CLB 6 debate skill!")]),
 
   mkL("b1-21","Speaking: Job Interview in French",30,"speaking",
     "Ace a French job interview! Preparation: research the company (rechercher l'entreprise), prepare for common questions. Common questions: Parlez-moi de vous (Tell me about yourself — 90 sec!), Quelles sont vos forces/faiblesses? (strengths/weaknesses?), Pourquoi voulez-vous travailler chez nous? (Why this company?), Où vous voyez-vous dans 5 ans? (Where do you see yourself in 5 years?), Avez-vous des questions? (Do you have questions?). Always: formal, confident, specific examples using STAR method.",
     ["Parlez-moi de vous (Tell me about yourself)","Mes points forts sont... (my strengths are)","Un axe d'amélioration pour moi est... (area for improvement)","Pourquoi ce poste? (Why this position?)","J'ai de l'expérience dans... (I have experience in)","La méthode STAR: Situation, Tâche, Action, Résultat","Avez-vous des questions pour nous? (Do you have questions?)","Merci pour cette opportunité (Thank you for this opportunity)"],
     [mcq("'Parlez-moi de vous' should be answered in approximately:",["30 seconds","1-2 minutes (structured: background, experience, goals)","5 minutes","10 minutes"],1,"1-2 minutes = ideal. Structure: 1) Brief background (30 sec), 2) Relevant experience (45 sec), 3) Why this role (30 sec). NOT your life story — focused on professional relevance. Practice until smooth and natural!"),
-     mcq("When asked about a weakness, the best approach is:",["Say you have no weaknesses","Invent a fake strength disguised as weakness","Mention a real weakness + what you're doing to improve it","Refuse to answer"],2,"Real weakness + active improvement = authentic and impressive. 'Un axe d'amélioration pour moi est la gestion du temps. J'ai commencé à utiliser des outils de planification et cela s'améliore progressivement.' Shows self-awareness AND initiative!"),
+     sp("The interviewer asks: « Parlez-moi de vous. » Answer out loud (~60–90 sec): background → relevant experience → why this role. Keep it professional.","Je m'appelle [votre nom] et je suis arrivé(e) au Canada il y a deux ans. J'ai plus de cinq ans d'expérience dans le service à la clientèle. Depuis mon arrivée, j'ai perfectionné mon français tout en travaillant. Je postule pour ce poste car il correspond à mes compétences et à mon désir de m'investir à long terme.",["je m'appelle","expérience","j'ai travaillé","je postule","ce poste"],"A focused 'tell me about yourself': who you are, relevant experience, and why this role — not your whole life story."),
+     sp("Now answer: « Quel est votre principal axe d'amélioration? » (your main area for improvement). Name a real one + what you're doing about it.","Un axe d'amélioration pour moi est la gestion du temps lorsque j'ai plusieurs projets. Pour y remédier, j'utilise maintenant des outils de planification, et mon organisation s'est nettement améliorée.",["un axe d'amélioration","gestion du temps","pour y remédier","s'est amélioré"],"Real weakness + concrete improvement = authentic and impressive. Avoid the fake 'I work too hard' answer."),
      wr("Describe your strongest professional quality in French",["mon point fort est","ma principale qualité est","je suis particulièrement","j'excelle dans"],"Mon point fort est ma capacité à m'adapter rapidement à de nouveaux environnements. Par exemple, lors de mon arrivée au Canada, j'ai appris le français tout en occupant un emploi à temps partiel. — Strength + concrete example from your Canadian experience = excellent interview answer!")]),
 
   mkL("b1-22","Listening: Extended Conversation",25,"listening",
     "Understand extended conversations at B1/CLB 5 level! Strategies: 1) Listen for topic changes (alors, maintenant, d'ailleurs, à propos de). 2) Identify speaker positions (agreement/disagreement markers). 3) Note opinions vs facts (je pense que = opinion, des études montrent que = fact). 4) Listen for examples (par exemple, c'est le cas de, notamment). Common conversation types: service calls, workplace discussions, family decisions, news interviews, community meetings.",
     ["Repérer les changements de sujet (topic shifts)","Distinguer opinion vs fait (je pense vs des études montrent)","Connecteurs de discussion: d'ailleurs, à propos, en plus","Accord/désaccord: exactement, c'est vrai, mais/cependant","Exemples: par exemple, notamment, c'est le cas de","Résumer ce qu'on a compris (summarize)","Poser des questions de clarification","CLB 5 listening: 3-5 min dialogue"],
     [mcq("In a discussion, 'D'ailleurs' signals:",["a strong disagreement","a contradiction","an additional related point (besides/moreover)","a question"],2,"D'ailleurs = besides/moreover/incidentally. It introduces an additional related point. 'Le français est important. D'ailleurs, au Québec, c'est la seule langue officielle.' Common in natural French conversation — signals fluency when you use it!"),
-     mcq("'Des études montrent que...' introduces:",["an opinion","a fact or research finding","a personal example","a question"],1,"Des études montrent que = studies show that = fact/research finding. Distinguishing facts from opinions is a key CLB 5 listening skill. Compare: 'Je pense que...' (opinion) vs 'Selon une étude de...' (fact). Always note which is which when listening!"),
+     li("Alors, pour ton déménagement, je te conseille de réserver le camion au moins deux semaines à l'avance. D'ailleurs, le premier juillet, presque tout le monde déménage au Québec, donc les camions partent très vite.","Qu'est-ce que la personne conseille de faire?",["Réserver le camion au moins deux semaines à l'avance","Déménager le premier juillet","Acheter son propre camion","Déménager tout seul"],0,"« Je te conseille de réserver le camion au moins deux semaines à l'avance. » The reason given: July 1 is moving day across Quebec, so trucks book up fast.",{diff:3,transcriptEn:"For your move, I'd advise booking the truck at least two weeks ahead. Besides, on July 1 almost everyone in Quebec moves, so trucks go fast."}),
+     li("Honnêtement, je trouve que la réunion a été utile. Mais selon les chiffres présentés, les ventes ont baissé de huit pour cent ce trimestre. Le directeur a donc proposé une nouvelle stratégie pour le mois prochain.","D'après l'enregistrement, qu'est-ce qui est un FAIT (et non une opinion)?",["La réunion a été utile","Les ventes ont baissé de 8 % ce trimestre","La nouvelle stratégie va réussir","La réunion était trop longue"],1,"'Je trouve que la réunion a été utile' = opinion. 'Selon les chiffres, les ventes ont baissé de 8 %' = fact, backed by data. Separating fact from opinion is a core CLB 5 listening skill.",{diff:3}),
      wr("Write 3 signal phrases that introduce a new topic in conversation",["à propos de","en ce qui concerne","d'ailleurs","parlant de","pour ce qui est de","maintenant, parlons de"],"À propos de... / En ce qui concerne... / D'ailleurs,... — Three topic-shift signals used in natural French conversation. Using these appropriately in your own speech signals B1+ competency and makes conversations flow naturally!")]),
 
   mkL("b1-23","Listening: Radio & News Segment",25,"listening",
     "Understand French radio and news at CLB 5-6 level! Radio-Canada, ICI Radio-Canada Première, RDI, TVA Nouvelles — all essential sources. Strategies for news: 1) First sentences contain the ESSENTIAL information (who, what, when, where). 2) Numbers and proper nouns = priority listening. 3) Quotes from sources (selon le ministre, d'après les experts). 4) Story structure: fact → context → reaction → outlook. Quebec-specific: Journal de Montréal, Le Devoir, La Presse.",
     ["Radio-Canada / ICI Radio-Canada (public broadcaster)","RDI (Radio-Canada info channel)","Les nouvelles du jour (today's news)","Selon le/la ministre... (according to the minister)","D'après les experts (according to experts)","On apprend que... (we learn that)","Il ressort que... (it emerges that)","Le [date], [who] a [what] à [where]","Suite à (following/as a result of)"],
     [mcq("In a news segment, the most important information is usually:",["the last sentence","the reporter's opinion","in the first 1-2 sentences (headline facts)","in the middle of the report"],2,"Lead first! News writing puts the essential W5 (who, what, when, where, why) in the opening sentences. Strategies: listen intensely to the first 20 seconds, then use context for the rest. Even if you miss words, the opening gives you the main story!"),
-     mcq("'Selon les autorités sanitaires' means:",["according to the health authorities","against the health authorities","despite the health authorities","for the health authorities"],0,"Selon = according to. 'Selon les autorités sanitaires' = according to health authorities. News frequently cites sources: selon le gouvernement, d'après les experts, selon une étude, d'après le rapport. Identifying sources = CLB 5 listening skill!"),
+     li("Il est huit heures, voici les nouvelles. Le gouvernement du Québec a annoncé ce matin un investissement de deux cents millions de dollars dans le transport en commun. Selon la ministre des Transports, les travaux commenceront au printemps prochain.","Combien le gouvernement investit-il, et dans quel domaine?",["200 millions de dollars dans le transport en commun","2 millions dans la santé","200 millions dans les écoles","20 millions dans le logement"],0,"News leads with the essentials. Key facts: « un investissement de deux cents millions de dollars dans le transport en commun ». Numbers and proper nouns are priority listening — catch them in the first sentences.",{once:true,diff:3,transcriptEn:"It's 8 o'clock, here is the news. The Quebec government announced this morning a $200 million investment in public transit. According to the Transport Minister, work will begin next spring."}),
+     li("D'après les autorités sanitaires, le nombre de cas de grippe a augmenté de quinze pour cent cette semaine. Les experts recommandent donc la vaccination, surtout pour les personnes âgées de plus de soixante-cinq ans.","Que recommandent les experts?",["La vaccination, surtout pour les personnes âgées","De rester à la maison","De fermer les écoles","Rien de particulier"],0,"« Les experts recommandent la vaccination, surtout pour les personnes âgées. » Notice the source markers — 'd'après les autorités sanitaires', 'les experts recommandent' — they flag where the facts come from.",{once:true,diff:3}),
      wr("Write a 1-sentence news headline about a fictional health initiative",["le gouvernement annonce","une nouvelle mesure","selon le ministre","les autorités de santé","la province de québec"],"Le gouvernement québécois annonce un nouveau programme de vaccination contre la grippe pour les personnes de plus de 65 ans, selon le ministère de la Santé. — Perfect news headline structure: who (government) + what (program) + for whom + source!")]),
 
   mkL("b1-24","Reading: News Article",25,"reading",
     "Read French newspaper articles at CLB 5-6 level! Quebec newspapers: La Presse, Le Devoir, Journal de Montréal (tabloid), Le Soleil (Quebec City). Structure of news articles: titre (headline), chapeau/sous-titre (lead paragraph — most important), corps (body — supporting details, context, quotes), conclusion. Reading strategies: read title + first paragraph = understand 70% of article. Scan for: numbers, dates, names, and opinion vs fact markers.",
     ["Le titre (headline)","Le chapeau/sous-titre (lead — most important!)","Le corps de l'article (body)","Selon [source] vs 'Il est établi que' (opinion vs fact)","Repérer les chiffres et les noms propres","Inférence contextuelle (guessing from context)","Expressions journalistiques: on apprend que, il ressort, suite à","Citation directe: 'Nous devons agir,' a déclaré..."],
     [mcq("'Le chapeau' of a newspaper article contains:",["the journalist's opinion","the most important facts (W5: who, what, when, where, why)","background and history","expert quotes only"],1,"Le chapeau (lead/intro paragraph) = the most critical part! It answers: qui, quoi, quand, où, pourquoi. If you only read the title + chapeau, you understand the essential news. This is key for CLB 5 reading efficiency!"),
-     mcq("'A déclaré le premier ministre' in an article means:",["according to the prime minister","the prime minister declared (direct quote)","it is said by the prime minister","the prime minister was declared"],1,"A déclaré = declared/stated (past, direct quote attribution). 'Nous devons agir immédiatement,' a déclaré le premier ministre. This structure introduces direct quotes in French journalism. Also: a affirmé, a ajouté, a précisé, a souligné."),
+     rd("MONTRÉAL — Le gouvernement du Québec a dévoilé hier un plan de 1,8 milliard de dollars pour construire 8 000 logements abordables d'ici 2027. Selon la ministre de l'Habitation, cette mesure vise à répondre à la crise du logement, qui touche particulièrement les jeunes familles et les nouveaux arrivants. « Nous devons agir rapidement », a déclaré la ministre. Les premières unités devraient être disponibles dès l'automne prochain.","Quel est le but principal de ce plan?",["Construire des logements abordables face à la crise du logement","Augmenter les impôts des familles","Réduire le nombre de nouveaux arrivants","Financer la construction d'écoles"],0,"Read the title + lead (chapeau): the plan funds 8 000 logements abordables to address la crise du logement. Catch the number (1,8 milliard), the timeline (d'ici 2027) and who is affected.",{title:"La Presse — Logement",glossary:[["abordable","affordable"],["l'habitation","housing"],["dès","as early as"]],diff:3}),
+     rd("Il serait naïf de croire que la maîtrise du français suffit à elle seule à garantir l'intégration des nouveaux arrivants. Certes, la langue ouvre des portes. Mais sans reconnaissance des diplômes étrangers, de nombreux immigrants qualifiés se retrouvent contraints d'accepter des emplois bien en deçà de leurs compétences. Le véritable enjeu n'est donc pas seulement linguistique : il est aussi économique et institutionnel.","Quelle est la position de l'auteur?",["Le français aide, mais ne suffit pas seul à l'intégration","Le français est inutile pour les immigrants","Les diplômes étrangers sont toujours reconnus au Québec","L'immigration devrait être réduite"],0,"This is inference, not just facts. The author concedes language helps ('Certes, la langue ouvre des portes') but argues the real issue ('le véritable enjeu') is also economic and institutional — credential recognition. Spotting the 'Certes… Mais…' move is key CLB 6 critical reading.",{title:"Le Devoir — Éditorial",glossary:[["en deçà de","below"],["l'enjeu","the issue/stake"],["contraint","forced"]],diff:4}),
      wr("Summarize a 3-sentence article about Quebec French language laws",["la loi","le français","les entreprises doivent","selon le gouvernement","la charte de la langue française"],"Selon un récent article, le gouvernement québécois a renforcé la Charte de la langue française (Loi 101) pour exiger que les entreprises de plus de 25 employés fonctionnent en français. Cette mesure vise à protéger et promouvoir le statut du français au Québec. — Article summary in CLB 5 French!")]),
 
   mkL("b1-25","Reading: Official Canadian Document",25,"reading",
     "Read official Canadian documents — immigration letters, tax notices, employment contracts, government forms! Key vocabulary: attendu que (whereas), conformément à (in accordance with), en vertu de (by virtue of/under), sous réserve de (subject to), à titre de (as/in the capacity of), ci-dessus/ci-dessous (above/below mentioned), susmentionné (aforementioned), ledit/ladite (the said), le cas échéant (if applicable), s'il y a lieu (where applicable).",
     ["conformément à (in accordance with)","en vertu de (by virtue of/under)","sous réserve de (subject to)","attendu que (whereas — preamble language)","ci-dessus/ci-dessous (above/below mentioned)","le présent document (this document)","à compter du [date] (effective/starting [date])","le cas échéant (if applicable)","veuillez noter que (please note that)","toute fausse déclaration (any false declaration)"],
     [mcq("'Conformément à l'article 15 de la loi' means:",["contrary to article 15","approximately per article 15","in accordance with article 15 of the law","before article 15 of the law"],2,"Conformément à = in accordance with. Very common in legal and official documents. 'Conformément à la loi sur la protection des renseignements personnels, vos données sont protégées.' You'll see this on every Canadian privacy notice!"),
-     mcq("'Sous réserve de l'approbation finale' means:",["after final approval","subject to final approval","without final approval","despite final approval"],1,"Sous réserve de = subject to / conditional upon. 'Sous réserve de l'approbation finale du comité, votre demande sera acceptée' = Subject to final committee approval, your request will be accepted. Common in contracts, job offers, and government decisions!"),
+     rd("Objet : Décision relative à votre demande de résidence permanente\n\nMadame, Monsieur,\n\nNous accusons réception de votre demande. Conformément à l'article 12 du Règlement, votre dossier a été examiné. Sous réserve de la vérification de vos antécédents, votre demande est acceptée. Vous devez vous présenter à nos bureaux, muni d'une pièce d'identité, à compter du 1er mars. Veuillez noter que toute fausse déclaration entraînera le rejet de votre demande.","D'après la lettre, à quelle condition la demande est-elle acceptée?",["Sous réserve de la vérification des antécédents","Sans aucune condition","Après le paiement d'une amende","Uniquement si la personne parle français"],0,"« Sous réserve de la vérification de vos antécédents » = subject to a background check. 'Sous réserve de' signals a condition. Also note 'à compter du 1er mars' (effective March 1) and the warning about 'toute fausse déclaration'.",{title:"Lettre officielle — IRCC",glossary:[["conformément à","in accordance with"],["sous réserve de","subject to"],["muni de","carrying / equipped with"],["à compter du","effective from"]],diff:4}),
+     rd("AVIS D'AUGMENTATION DE LOYER\n\nConformément à la loi, nous vous informons que, à compter du 1er juillet, votre loyer mensuel passera de 1 150 $ à 1 196 $, soit une augmentation de 4 %. Le cas échéant, vous disposez d'un délai d'un mois pour refuser cette augmentation par écrit. Sans réponse de votre part, l'augmentation sera réputée acceptée.","Que se passe-t-il si le locataire ne répond pas?",["L'augmentation est considérée comme acceptée","Le bail est annulé","Le loyer reste à 1 150 $","Le locataire doit déménager"],0,"« Sans réponse de votre part, l'augmentation sera réputée acceptée » = if you don't reply, the increase is deemed accepted. 'Le cas échéant' (if applicable) flags the option to refuse in writing within one month.",{title:"Avis de loyer — Régie du logement",glossary:[["le cas échéant","if applicable"],["un délai","a time limit"],["réputé","deemed"]],diff:4}),
      wr("Explain what 'à compter du 1er mars, les tarifs seront modifiés' means",["à partir du 1er mars","les tarifs vont changer","les prix changent le 1er mars","à compter du signifie"],"À compter du 1er mars = starting/effective March 1st. The rates will be changed/modified. 'À compter de' is official document language for 'starting from this date.' You'll see it on utility bills, government notices, and rent increase letters!")]),
 
   mkL("b1-26","B1 Grammar Review: All Tenses",30,"integrated",
@@ -1860,14 +1900,14 @@ const B1_LESSONS = [
     "CLB 5 listening includes: voicemail messages (extract key info), announcements (understand instructions), conversations (identify speaker positions), short lectures/explanations (follow main points). Strategies: 1) Read questions BEFORE listening. 2) Focus on keywords, numbers, names. 3) Don't panic at unknown words — use context. 4) Write notes during listening. 5) Check notes immediately after. Quebec accent tip: 'tu' sounds like 'tsu', 'di'→'dzi', short vowels. Practice with Radio-Canada!",
     ["Écouter Radio-Canada pour s'habituer à l'accent québécois","'Tu' → 'tsu', 'di' → 'dzi' (accent québécois)","Lire les questions AVANT d'écouter","Focus: noms, chiffres, dates = priorité","Prendre des notes pendant l'écoute","Utiliser le contexte pour les mots inconnus","CLB 5: extraire info spécifique d'un dialogue 3-5 min","Repérer les opinions vs faits"],
     [mcq("The Quebec French pronunciation of 'tu es' sounds like:",["too ay","tsu ay","tu es","tyu ez"],1,"'Tu' in Quebec French = 'tsu' (affrication of T before U). 'Tu es' = 'tsu-ay'. Similarly: 'ti' = 'tsi', 'di' = 'dzi'. This is a distinctive Quebec feature — not an error! Understanding it helps you follow natural Quebec conversations and Radio-Canada!"),
-     mcq("The best strategy for CLB listening is to:",["translate every word into your language","listen only once and try to remember everything","read questions first, take notes during, check immediately after","only focus on words you know"],2,"Read questions FIRST → know what you're listening for. Take notes during → capture key info. Review immediately → fill in gaps with context. This active listening strategy works for CLB 4, 5, 6, and 7 tests!"),
+     li("Bonjour, vous êtes bien sur la boîte vocale de la clinique Saint-Laurent. Votre rendez-vous avec le docteur Tremblay est confirmé pour mardi le 14 à quatorze heures trente. Veuillez arriver quinze minutes à l'avance avec votre carte d'assurance maladie. Pour annuler, composez le 514 555 0182.","Quand est le rendez-vous, et que faut-il apporter?",["Mardi 14 à 14 h 30, avec la carte d'assurance maladie","Lundi 14 à 4 h, avec une pièce d'identité","Mardi 4 à 14 h, sans rien apporter","Mercredi 14 à 14 h 30, avec de l'argent"],0,"Voicemail = extract key info. Date/time: « mardi le 14 à quatorze heures trente » (14:30). Bring: « votre carte d'assurance maladie », and arrive 15 minutes early. Listen hard for numbers — they're the priority.",{diff:3,transcriptEn:"Hello, you've reached the voicemail of the Saint-Laurent clinic. Your appointment with Dr. Tremblay is confirmed for Tuesday the 14th at 2:30 p.m. Please arrive 15 minutes early with your health insurance card. To cancel, dial 514 555 0182."}),
      wr("Write 3 things you'll listen for in a CLB listening passage about an apartment",["le loyer","le nombre de chambres","la localisation","les charges","la disponibilité","les conditions"],"Les 3 éléments clés: 1) Le loyer mensuel (rent amount), 2) Les caractéristiques (nombre de chambres, inclus ou non), 3) La disponibilité et les conditions (when available, requirements). Reading the question about apartments first tells you to listen for these specific details!")]),
 
   mkL("b1-31","CLB 5 Reading Practice",25,"reading",
     "CLB 5 reading includes: reading for specific information (scanning), reading for general understanding (skimming), reading to infer (reading between the lines). Text types: notices, short articles, emails, advertisements, schedules. Strategies: 1) Skim the whole text first (30 sec). 2) Read questions. 3) Return to text for specific answers. 4) For inference questions: use context + logic, not stated directly. Key CLB 5 vocabulary in texts: municipal notices, workplace emails, school communications, health instructions.",
     ["Survol (skimming) = vue générale rapide","Lecture sélective (scanning) = trouver info spécifique","Inférence = lire entre les lignes","Vocabulaire: avis, règlement, politique, conformément","Type de texte détermine la stratégie","Questions d'inférence: 'on peut en déduire que'","Questions factuelles: retourner au texte précisément","Temps de lecture: gérer efficacement"],
     [mcq("'On peut en déduire que...' in a CLB reading question means:",["find the exact quote from the text","infer from the text (not directly stated)","calculate a number from the text","find the opinion of the author"],1,"'On peut en déduire que' = inference question! The answer is NOT directly stated — you must use logic and context. 'The text doesn't say this directly, but based on the information given, we can logically conclude that...' These are the hardest CLB reading questions!"),
-     mcq("For a scanning task, the most efficient approach is:",["read every word carefully from start to finish","skim the whole text first, then find the specific information","only read the first paragraph","read the last paragraph first"],1,"Skim first (understand topic + structure), then scan for the specific word/number/name you need. Don't read everything carefully — that wastes time in timed CLB reading tests!"),
+     rd("AVIS AUX RÉSIDENTS\n\nLa Ville de Montréal informe les résidents que la collecte des ordures ménagères sera déplacée du lundi au mercredi pendant la semaine du 8 juillet, en raison du congé férié. Le bac de recyclage doit être déposé en bordure de rue avant 7 h. Les bacs laissés sur le trottoir après la collecte feront l'objet d'un avertissement.","D'après l'avis, que doivent faire les résidents la semaine du 8 juillet?",["Sortir les bacs le mercredi avant 7 h","Sortir les ordures le lundi comme d'habitude","Apporter les ordures à la déchetterie","Payer des frais supplémentaires"],0,"Scan for the change: collection moves « du lundi au mercredi » that week because of the holiday, and bins must be out « avant 7 h ». Skim first, then find the specific detail the question asks for.",{title:"Avis municipal — Ville de Montréal",glossary:[["les ordures ménagères","household waste"],["en bordure de rue","at the curb"],["un congé férié","a public holiday"]],diff:3}),
      wr("What does 'Les frais de dossier sont non remboursables' mean in a form?",["the file fees are refundable","the file fees are not refundable","there are no file fees","you must pay refundable fees"],"Les frais de dossier sont non remboursables = the file/processing fees are non-refundable. 'Non remboursables' = not refundable. Critical information! Don't submit an incomplete application if you might want your money back. This phrase appears on immigration, professional licensing, and school application fees!")]),
 
   mkL("b1-32","B1 Integrated Practice 1",30,"integrated",
@@ -2049,48 +2089,48 @@ const B2_LESSONS = [
     "The 5-minute sustained monologue — the B2/TEF Canada speaking benchmark! At this level your monologue must: begin with a clear contextualization (not just 'I think'), develop 3 distinct points (not just 2), include a genuine concession with rebuttal, use sophisticated connectors throughout, maintain formal register for the full 5 minutes, and conclude with an ouverture (broader perspective). Practice timing: use your phone. A 5-minute monologue = approximately 600-700 words spoken at natural pace.",
     ["5 minutes = ~600-700 mots au rythme naturel","Contextualisation (ne pas commencer par 'je pense')","3 points distincts (pas juste 2)","Concession forte avec contre-argument","Connecteurs sophistiqués tout au long","Registre formel maintenu","Conclusion + ouverture (perspective plus large)","Pratiquer avec chronomètre!"],
     [mcq("A 5-minute B2 monologue should open with:",["'Je pense que...' directly","contextualization of the topic before stating your position","a question to the audience","listing all your arguments immediately"],1,"Contextualization first! Don't jump straight to your opinion. 'La question de X s'inscrit dans un contexte de... Face à ces enjeux, il convient de s'interroger sur... À mon sens,...' — this 20-30 second contextualisation shows you can situate a topic before arguing about it. B2+ sophistication!"),
-     mcq("If you lose your train of thought at 3 minutes into a 5-minute monologue, you should:",["stop completely and apologize","switch to your native language","use a filler phrase to reconnect: 'C'est dans cette optique que...' / 'Comme je le mentionnais...'","start over from the beginning"],2,"Recovery phrases! 'C'est dans cette optique que...' / 'Il convient à présent d'examiner...' / 'J'en reviens ainsi à ma thèse centrale...' — these reconnect your argument after a moment of loss. Assessors don't penalize brief hesitation; they notice HOW you recover. Recovery = sign of advanced competence!"),
+     sp("Deliver a sustained B2 monologue (aim for 3–5 min) on « L'intelligence artificielle va-t-elle remplacer les travailleurs? ». Begin with contextualisation (not 'je pense'), develop three distinct points, include a concession with rebuttal, and end with an ouverture.","Dans un contexte de transformation technologique accélérée, la question de l'impact de l'intelligence artificielle sur l'emploi s'impose comme un enjeu majeur. Premièrement, l'IA automatise certaines tâches répétitives, ce qui supprime des postes. Deuxièmement, elle crée toutefois de nouveaux métiers liés à sa conception et à sa supervision. Troisièmement, elle transforme les emplois existants plutôt que de les éliminer entièrement. Certes, les transitions seront douloureuses pour certains secteurs ; cependant, l'histoire montre que chaque révolution technologique a fini par créer plus d'emplois qu'elle n'en a détruits. Cela soulève la question de la formation continue, véritable clé de l'avenir du travail.",["dans un contexte de","premièrement","deuxièmement","troisièmement","certes","cependant","cela soulève la question"],"A 5-minute B2 monologue: contextualize the topic, develop three distinct points, concede with a rebuttal, and close with an ouverture. Hold the formal register the whole way through."),
      wr("Write a 30-second contextualization for: 'L'IA va-t-elle remplacer les travailleurs?'",["la question de l'intelligence artificielle","dans un contexte de","face aux avancées technologiques","cette problématique","il convient de s'interroger"],"Dans un contexte de transformation technologique accélérée, la question de l'impact de l'intelligence artificielle sur le marché du travail s'impose comme l'un des grands enjeux économiques et sociaux de notre époque. Face aux avancées spectaculaires de l'IA générative, il convient de s'interroger sur les véritables implications pour l'emploi humain. — ~45 words, perfect B2 contextualization!")]),
 
   mkL("b2-17","Speaking: Debate & Argumentation",25,"speaking",
     "Advanced debate skills at B2 level — for TEF speaking and professional contexts! Beyond CLB 6 (justify your position), B2 debate: anticipate objections proactively, use rhetorical questions effectively, cite data/studies, appeal to shared Canadian values, and 'reframe' the debate when needed. Reframing: 'La vraie question n'est pas X, mais Y.' Building on opponent: 'Vous avez raison sur X, cependant...' Conceding a point strategically: 'Je vous accorde ce point, toutefois...'",
     ["Anticiper: 'On pourrait objecter que... mais...'","Reframer: 'La vraie question est...'","Citation de données: 'Selon une étude de...'","Valeurs canadiennes: multiculturalisme, inclusion","Je vous accorde ce point, toutefois... (I grant you that, however)","Vous avez raison sur X, mais il n'en demeure pas moins que...","Question rhétorique: 'N'est-il pas évident que...?'","Conclure avec un appel à l'action ou valeur partagée"],
     [mcq("'La vraie question n'est pas X, mais Y' is a technique called:",["concession","reframing the debate","giving up your argument","asking a rhetorical question"],1,"Reframing = shifting the terms of the debate to more favorable ground. 'La vraie question n'est pas de savoir si l'immigration coûte cher, mais de mesurer ses contributions nettes à long terme.' This changes what's being debated — a sophisticated debate move!"),
-     mcq("Citing 'Selon une étude de l'Université de Montréal' in a debate:",["is irrelevant to spoken debate","weakens your argument","adds credibility through external authority (logos + éthos)","is only for written essays"],2,"Citing studies/data = logos + éthos (logic + credibility through authority). In spoken French debates, citing sources strengthens your argument significantly. 'Des recherches récentes démontrent que...' / 'Selon les données de Statistiques Canada...' — even if you can't cite exactly, showing awareness of evidence is B2+!"),
+     sp("Reframe and rebut out loud: your opponent argues « L'immigration coûte trop cher à l'État. » Reframe the real question, concede strategically, then pivot with (approximate) data and a rhetorical question.","La vraie question n'est pas de savoir si l'immigration coûte cher à court terme, mais de mesurer ses contributions nettes à long terme. Je vous accorde que l'accueil exige des investissements initiaux. Il n'en demeure pas moins que, selon plusieurs études économiques, les immigrants génèrent, sur dix à vingt ans, des bénéfices fiscaux supérieurs aux coûts. N'est-il pas plus juste, dès lors, de parler d'investissement plutôt que de dépense?",["la vraie question n'est pas","je vous accorde","il n'en demeure pas moins","selon","n'est-il pas"],"B2 debate: reframe ('la vraie question est…'), concede strategically ('je vous accorde…'), pivot with evidence, and finish with a rhetorical question."),
      wr("Strategically concede a point then pivot to your main argument",["je vous accorde","certes, vous avez raison sur","c'est un point valide, cependant","je comprends cet argument, toutefois","il est vrai que... néanmoins"],"Je vous accorde que l'intégration des immigrants représente un défi réel pour les services publics à court terme. Il n'en demeure pas moins que, sur une période de 10 à 20 ans, les données économiques démontrent systématiquement que l'immigration génère des bénéfices nets considérables pour le Canada. — Strategic concede + data-backed pivot!")]),
 
   mkL("b2-18","Speaking: Register Control Practice",25,"speaking",
     "Demonstrate full register control in speaking — from formal to informal and back! B2 competency: you can consciously choose your register and shift it appropriately. Practice: same content, 3 registers. Formal (interview): 'Je me spécialise dans le domaine de la santé publique.' Standard (colleague): 'Je travaille dans la santé publique.' Informal (friend): 'Ouais, je travaille dans la santé, genre les politiques de santé.' The test: can you code-switch naturally and purposefully?",
     ["Registre formel: lexique soutenu, syntaxe élaborée","Registre courant: standard, quotidien professionnel","Registre familier: contractions, argot léger","Code-switching = adapter selon l'interlocuteur","Marqueurs formels: je ne saurais, il convient, nonobstant","Marqueurs informels: ouais, ben, pis, ça fait que","L'accent québécois n'est PAS un registre familier!","Test: même idée, 3 registres différents"],
     [mcq("Code-switching in language means:",["making errors in two languages","consciously adapting your register to the context and audience","switching entirely to another language","speaking incorrectly"],1,"Code-switching = consciously adapting your language register (not necessarily your language!) to the context. Using formal French in a job interview and informal French with friends is code-switching. It's a sign of linguistic sophistication — not confusion!"),
-     mcq("In a professional Quebec workplace, the appropriate register is:",["très familier — Quebec argot only","très soutenu — like a formal essay","courant/standard — professional but not overly formal","literary French — like 19th century novels"],1,"Standard/professional register for Quebec workplaces. Not overly formal (stiff), not informal (inappropriate). 'Pourriez-vous m'envoyer ce document?' not 'File me ton doc.' Not 'Je vous serais infiniment reconnaissant de bien vouloir me faire parvenir ledit document' either — too formal for daily emails!"),
+     sp("Register control — say the SAME idea out loud in two registers. Formal (to a director): then informal (to a friend): « Je travaille dans les politiques de santé publique. »","Registre formel : Je me spécialise dans le domaine des politiques de santé publique. Registre familier : Ouais, moi je travaille dans la santé, genre dans les politiques de santé.",["je me spécialise","politiques de santé","je travaille dans la santé","genre"],"B2 = producing the same content in different registers on demand. Notice what shifts: vocabulary ('je me spécialise' vs 'je travaille'), and fillers ('genre', 'ouais') appear only in the informal version."),
      wr("Say 'I'm exhausted after this long meeting' in 3 different registers",["je suis épuisé après cette longue réunion (courant)","cette réunion m'a complètement éreinté (soutenu)","je suis vraiment crevé après cette réunion (familier)"],"Formel: Cette réunion prolongée m'a particulièrement épuisé. Courant: Je suis vraiment fatigué après cette longue réunion. Familier: Ah là là, je suis complètement crevé après cette réunion-là! — Three registers, same idea. B2 = you can produce all three on demand!")]),
 
   mkL("b2-19","Listening: Authentic Radio/Podcast French",30,"listening",
     "Understand authentic French media at B2/CLB 7 level! Key resources: Radio-Canada (Ici Radio-Canada Première), Espaces.ca, RFI Savoirs, Plus on est de fous plus on lit (CBC Radio). Challenges: fast speech, overlap, Quebec accent, cultural references, idioms. Strategy: 1) Listen 2-3 times minimum. 2) First listen: topic and general structure. 3) Second listen: main points. 4) Third listen: details and evidence. 4) Note idioms and new vocabulary.",
     ["Ressources: Radio-Canada, RFI, ICI Première","Stratégie d'écoute multi-passages","Première écoute: thème général","Deuxième écoute: points principaux","Troisième écoute: détails et nuances","Accent québécois: 'pis' = et puis, 'ben' = bien","Expressions idiomatiques québécoises","Repérer les invités, leurs opinions, leurs arguments"],
     [mcq("In Quebec French radio, 'pis' is a contraction of:",["puis seulement","et puis/puis (and then)","oui pis non","pas"],1,"Pis = et puis / puis (informal: and then / also). Very common in spoken Quebec French: 'J'suis allé au dépanneur, pis après j'suis revenu.' You'll hear this constantly on Radio-Canada informal segments. Understanding 'pis' is essential for following natural Quebec speech!"),
-     mcq("Listening to a radio debate, you should first identify:",["every single word spoken","the speakers' identities and their positions on the topic","only the host's questions","only the statistics mentioned"],1,"First: identify the speakers and their positions. Then: their arguments and evidence. A 5-minute radio debate has too much content to capture everything — prioritize: WHO believes WHAT and WHY. Then fill in supporting details on subsequent listens."),
+     li("Ah pis là, l'invité, y nous explique que le télétravail, c'est ben beau, mais qu'à long terme, ça pourrait nuire à l'esprit d'équipe. Selon lui, faudrait trouver un équilibre, genre deux ou trois jours au bureau pis le reste à la maison.","Quelle est l'opinion de l'invité sur le télétravail?",["Il faudrait un équilibre : quelques jours au bureau","Le télétravail devrait être obligatoire pour tous","Le télétravail n'a aucun inconvénient","Il faut interdire complètement le télétravail"],0,"Authentic Quebec radio register: 'pis' (et puis), 'ben beau' (all well and good), 'genre', 'faudrait'. The guest argues for balance — « faudrait trouver un équilibre, genre deux ou trois jours au bureau ». Decoding informal Quebec speech is the B2/CLB 7 challenge.",{diff:4,transcriptEn:"So the guest is explaining that remote work is all well and good, but that in the long run it could hurt team spirit. According to him, we'd need to find a balance, like two or three days at the office and the rest at home."}),
      wr("Name 2 French-language media resources in Canada you'll use for practice",["radio-canada","ici radio-canada première","le devoir","la presse","journal de montréal","le soleil","tv5","rdi"],"Radio-Canada / Ici Radio-Canada Première + Le Devoir or La Presse. Radio-Canada is the public broadcaster — excellent quality, clear pronunciation, diverse topics. Le Devoir is serious journalism. Journal de Montréal is more popular/accessible. Use all levels of media!")]),
 
   mkL("b2-20","Listening: Conference & Lecture French",25,"listening",
     "Understand conference presentations and academic lectures at B2 level! Structure of academic French presentations: annonce du plan (outline), développement par points (main points), transitions (passons maintenant à, j'aborde à présent), récapitulatif (summary), conclusion et ouverture (conclusion and opening to questions). Key vocabulary: la problématique (issue/research question), le cadre théorique (theoretical framework), les données empiriques (empirical data), les résultats (results/findings).",
     ["Annonce du plan: 'Je vais aborder trois points...'","Transition: 'Passons maintenant à...'","Récapitulatif: 'En résumé, nous avons vu que...'","Ouverture: 'Cela soulève la question de...'","la problématique (research question/issue)","les données (data)","les résultats / les conclusions (results/conclusions)","selon les recherches de... (according to research by...)","il convient de nuancer (one should nuance this)"],
     [mcq("'Je vais vous présenter trois points principaux.' In a lecture, this signals:",["the conclusion","the introduction/plan announcement","a transition","a question from the audience"],1,"Plan announcement = the speaker tells you the structure in advance. Listen carefully and use it as a roadmap! 'Trois points' = you'll take 3 sets of notes. Academic speakers in French always announce their structure — use it to organize your comprehension!"),
-     mcq("'Cela soulève la question de...' in a lecture means:",["this answers the question of...","this raises/opens up the question of...","this resolves the question of...","this ignores the question of..."],1,"Soulever une question = to raise a question (not answer it — to open it up for consideration). Often used in conclusions to invite reflection: 'Nos résultats soulèvent la question de l'efficacité à long terme de ces politiques.' Shows intellectual openness at B2+!"),
+     li("Bonjour à tous. Je vais aborder aujourd'hui trois points. Premièrement, le cadre théorique de notre étude. Deuxièmement, les données empiriques recueillies auprès de mille participants. Et troisièmement, les résultats, qui révèlent une corrélation inattendue entre l'apprentissage des langues et la mémoire à long terme.","Combien de points l'oratrice va-t-elle aborder, et quel est le troisième?",["Trois points ; le troisième porte sur les résultats","Deux points ; le dernier sur la théorie","Trois points ; le troisième sur les participants","Un seul point, sur la mémoire"],0,"Academic speakers announce their plan — use it as a roadmap for your notes. « trois points… troisièmement, les résultats, qui révèlent une corrélation… ». Catch the structure first, details second.",{diff:4,transcriptEn:"Hello everyone. Today I'll address three points. First, the theoretical framework of our study. Second, the empirical data collected from a thousand participants. And third, the results, which reveal an unexpected correlation between language learning and long-term memory."}),
      wr("Write a transition sentence moving from point 1 to point 2 in a presentation",["passons maintenant à","j'aborde à présent","après avoir examiné","nous avons vu que","je me penche à présent sur"],"Après avoir examiné les défis linguistiques des immigrants au Canada, j'aborde à présent les solutions proposées par les experts et les politiques gouvernementales en place. — Perfect academic transition: summarizes point 1 briefly, introduces point 2, connects them logically. CLB 7 presentation language!")]),
 
   mkL("b2-21","Reading: Complex Literary/Academic Text",25,"reading",
     "Read complex texts at B2/CLB 7 level! Types: scholarly articles (articles scientifiques), opinion pieces (chroniques, éditoriaux), literary excerpts (extraits littéraires), policy documents. Strategies: 1) Identify text type and purpose. 2) Note structure (introduction-development-conclusion). 3) Distinguish facts, opinions, and inferences. 4) Infer meaning of unknown words from context. 5) Identify the author's stance (nuanced? partisan? objective?). Key skill: reading critically, not just for information.",
     ["Type de texte: identifier d'abord","But de l'auteur: informer, persuader, analyser?","Fait vs opinion vs inférence","Point de vue de l'auteur: neutre, partial, engagé?","Vocabulaire par contexte (déduction)","Structure: thèse, antithèse, synthèse","Registre: soutenu, académique, journalistique","Question critique: 'À qui s'adresse ce texte?'"],
-    [mcq("When you encounter an unknown academic word, your first strategy should be:",["stop reading","look it up immediately","use context (surrounding words) to infer the meaning","skip it entirely"],2,"Context first! Academic texts are full of specialized vocabulary. Use: the sentence structure, surrounding words, text topic, cognates (similar words in another language you know). Only look up a word if it's essential to understanding the main argument. This saves time in timed tests!"),
+    [rd("Si l'apprentissage d'une langue seconde à l'âge adulte demeure pleinement possible, il serait illusoire de prétendre qu'il s'effectue selon les mêmes mécanismes que chez l'enfant. Les recherches en neurolinguistique suggèrent en effet que la plasticité cérébrale décline avec l'âge. Néanmoins, cette contrainte est largement compensée, chez l'adulte, par des stratégies métacognitives et une motivation souvent plus soutenue.","Quelle est la thèse nuancée de l'auteur?",["L'adulte apprend différemment, mais peut compenser par la motivation et la métacognition","Les adultes sont incapables d'apprendre une langue seconde","Les enfants et les adultes apprennent de façon strictement identique","La plasticité cérébrale augmente avec l'âge"],0,"The thesis is balanced: 'pleinement possible… mais pas les mêmes mécanismes… Néanmoins… compensée'. The 'Néanmoins' pivot carries the author's nuanced position — adults learn differently but can compensate. Tracking that pivot is core B2/CLB 7 reading.",{title:"Article — neurolinguistique",glossary:[["illusoire","illusory"],["néanmoins","nevertheless"],["soutenu","sustained"]],diff:4}),
      mcq("A text is 'partial' (partial) when:",["it covers only half the topic","it's incomplete","the author presents a biased viewpoint (taking sides)","it's written in parts"],2,"Partial (un texte partial) = biased, taking one side. 'Partiel' = incomplete (only covers part). False cognate alert! 'Cet article est partial — l'auteur ne présente que les arguments en faveur de sa thèse.' vs 'Cette analyse est partielle — elle n'examine qu'un aspect du problème.'"),
      wr("Write a critical observation about a text you recently read",["l'auteur soutient que","ce texte défend la thèse","il convient de noter que","bien que l'argument soit","force est de constater"],"Bien que l'auteur soutienne une thèse convaincante sur l'importance du bilinguisme au Canada, force est de constater que son analyse demeure partielle, car elle néglige les réalités des communautés francophones hors Québec. — Critical reading response at CLB 7+ level!")]),
 
   mkL("b2-22","Reading: News Analysis",25,"reading",
     "Critically analyze French-language news at B2 level! Beyond comprehension: identify framing (cadrage), implicit assumptions (présupposés), emotional language (langue émotionnelle), political bias (biais politique), omissions (ce qui n'est pas dit — what's NOT said). Quebec media landscape: La Presse (centrist/online), Le Devoir (intellectual), Journal de Montréal (populaire/conservative), Radio-Canada (public). Critical reading = essential for informed citizenship in Canada!",
     ["Le cadrage (framing) d'un article","Les présupposés implicites (implicit assumptions)","Langue émotionnelle vs neutre","Identifier les sources citées et leur fiabilité","Ce qui n'est PAS dit (omissions)","La Presse vs Le Devoir vs Journal de Montréal","Biais: lexique choisi révèle la position","Question: à qui profite cet article?"],
-    [mcq("'Les immigrants envahissent le marché du travail' vs 'Les immigrants contribuent au marché du travail.' The difference is:",["only vocabulary","only punctuation","framing and emotional language (même sujet, perspective opposée)","length only"],2,"Same topic (immigrants in the labor market) but completely opposite framing through word choice. 'Envahissent' = invade (negative, threatening), 'contribuent' = contribute (positive, constructive). Word choice reveals ideology — critical reading means noticing this!"),
+    [rd("Encore une fois, le gouvernement a échoué à contenir la flambée des prix. Pendant que les familles peinent à joindre les deux bouts, les grandes entreprises engrangent des profits record. Faut-il vraiment s'étonner, dès lors, que la colère gronde dans la population?","Quel procédé l'auteur utilise-t-il principalement?",["Une langue émotionnelle et un cadrage accusateur","Une présentation neutre, fondée sur des chiffres","Un ton humoristique et léger","Une analyse purement statistique"],0,"This is framing analysis. Charged language ('a échoué', 'peinent à joindre les deux bouts', 'engrangent des profits record') plus a closing rhetorical question build an accusatory frame — the opposite of neutral reporting. Naming the device is B2 news analysis.",{title:"Chronique d'opinion",glossary:[["la flambée","the surge"],["engranger","to rake in"],["gronder","to rumble / grow"]],diff:4}),
      mcq("'It goes without saying that' in a text often signals:",["a neutral observation","a hidden assumption presented as obvious","a fact with evidence","a question"],1,"Presenting something as obvious ('il va sans dire que', 'évidemment', 'bien entendu') is a rhetorical technique that embeds assumptions without defending them. Critical readers notice these 'it goes without saying' claims and ask: does it really? For whom? Why?"),
      wr("Identify one implicit assumption in this headline: 'Les immigrants coûtent cher à l'État'",["cette affirmation","la phrase suppose que","le titre implique que","le présupposé est que","cette affirmation ignore"],"Ce titre implique que les immigrants reçoivent plus de l'État qu'ils n'y contribuent, ce qui est un présupposé discutable. Des études montrent en réalité que l'immigration génère des bénéfices économiques nets à long terme. — Critical reading + counter-evidence = CLB 7-8 analytical skill!")]),
 
@@ -2098,14 +2138,14 @@ const B2_LESSONS = [
     "TEF Canada listening section: 3 parts, increasing difficulty. Part 1: 5 short recordings (everyday messages, ~1 min each). Part 2: 4 longer recordings (interviews, news — ~2-3 min each). Part 3: 2 long recordings (conference, debate — ~4-5 min each). 40 questions total, 40 minutes. Strategy: read questions BEFORE each audio, take notes (provided paper), answer immediately — you hear each recording ONCE (no replay in TEF!). Quebec accent throughout!",
     ["TEF: 3 parties (difficultés croissantes)","Partie 1: courts messages (everyday)","Partie 2: enregistrements moyens (interviews, nouvelles)","Partie 3: longs enregistrements (conférence, débat)","40 questions en 40 minutes","Écoute UNIQUE — pas de réécoute!","Lire les questions AVANT l'audio","Prise de notes sur papier fourni","Accent québécois tout au long"],
     [mcq("In the TEF Canada listening section, each recording is heard:",["once only","twice","three times","you can replay as needed"],0,"Once only — no replay in TEF! This is the biggest difference from practice exercises. You must: 1) Read questions BEFORE listening, 2) Take notes DURING (keywords, numbers, names), 3) Answer IMMEDIATELY after. Practice with Radio-Canada without replay to simulate test conditions!"),
-     mcq("The best note-taking strategy during TEF listening:",["write every word you hear","write only question numbers","write keywords, numbers, names, and key phrases — not full sentences","do not take notes to stay focused"],2,"Keywords + numbers + names + key phrases = efficient notes. Full sentences = impossible at normal speech speed. 'Médecin, 15 mars, 10h30, annuler, rappeler 514-xxx' is more useful than 'The doctor called to say the appointment on March 15 at 10:30 is cancelled please call back.' Speed and accuracy over completeness!"),
+     li("Bonjour, c'est Madame Lévesque de la garderie Les Petits Soleils. Je vous appelle pour vous rappeler que la garderie sera fermée le vendredi 3 mai en raison d'une journée pédagogique. Pensez à prendre vos dispositions. Merci et bonne journée!","Pourquoi la garderie sera-t-elle fermée, et quand?",["Le vendredi 3 mai, pour une journée pédagogique","Le lundi 3 mai, pour des rénovations","Le vendredi 13 mai, pour un congé férié","Toute la semaine, pour cause de maladie"],0,"TEF rule: you hear it ONCE. Catch the essentials fast — « vendredi 3 mai… journée pédagogique ». Read the question first, note the date + reason, answer immediately.",{once:true,diff:3,transcriptEn:"Hello, this is Mrs. Lévesque from Les Petits Soleils daycare. I'm calling to remind you that the daycare will be closed on Friday May 3 due to a professional development day. Please make arrangements. Thank you and have a good day!"}),
      wr("List 3 things you'll do before each TEF listening audio plays",["lire les questions","identifier les mots-clés","préparer mon papier de notes","rester concentré","noter les options de réponse"],"1) Je lis toutes les questions de cette section. 2) J'identifie les mots-clés dans chaque question (date? lieu? opinion?). 3) Je prépare ma feuille de notes et me concentre. — 3-step pre-listening routine. Do this every time in practice to make it automatic for test day!")]),
 
   mkL("b2-24","TEF Canada: Speaking Tasks",30,"speaking",
     "TEF Canada expression orale: 2 tasks recorded at a test centre. Task 1: describe/explain (15 min preparation, 8-10 min recording). Task 2: give opinion/debate (15 min preparation, 8-10 min recording). Assessment: range and accuracy of expression, vocabulary, coherence/organization, fluency, pronunciation. Preparation strategy: notes are allowed during prep time. Structure your response FIRST on paper, then record. Quebec accent is perfectly acceptable!",
     ["TEF: 2 tâches d'expression orale","Tâche 1: décrire/expliquer (narratif)","Tâche 2: donner son opinion/débattre","15 minutes de préparation par tâche","8-10 minutes d'enregistrement","Plan sur papier pendant la préparation","Critères: gamme, précision, cohérence, aisance, prononciation","L'accent québécois est parfaitement acceptable!","Commencer fort, conclure fort"],
     [mcq("During TEF speaking preparation time, you should:",["memorize a prepared speech on the topic","read a script word for word","structure your response with bullet points and key vocabulary","sit quietly without taking notes"],2,"Use every second of prep time! Write: thesis (position), 3-4 main points, key vocabulary, examples, transition words, conclusion. Then record using your notes. You can glance at notes during recording — it's allowed! Structured = higher score."),
-     mcq("TEF speaking is assessed on pronunciation:",["must be native-like","Quebec accent is not accepted","Quebec or standard French accent are both acceptable","only European French accent"],2,"Quebec accent = perfectly acceptable! TEF Canada is Canadian — Quebec French is the norm here. What matters: clarity, being understood, not the specific accent. 'Pis', 'tsé', 'ouais' in very informal register might be penalized, but a natural Quebec French accent is not!"),
+     sp("TEF Task 2 simulation — speak ~2 min giving and defending an opinion on « Les villes devraient-elles limiter les voitures au centre-ville? ». Structure: position → two arguments → concession → conclusion.","À mon avis, les villes devraient effectivement limiter la circulation automobile au centre-ville. D'une part, cela réduirait la pollution et améliorerait la qualité de l'air. D'autre part, cela encouragerait le transport en commun et les déplacements actifs. Certes, certains commerçants craignent une baisse de clientèle ; cependant, les expériences européennes montrent souvent l'effet inverse. En conclusion, une limitation bien planifiée bénéficie à la fois à l'environnement et à la vitalité urbaine.",["à mon avis","d'une part","d'autre part","certes","cependant","en conclusion"],"TEF speaking task 2: a clear position, two structured arguments, a concession with rebuttal, and a conclusion — delivered in a confident, organized flow. Quebec accent is perfectly acceptable."),
      wr("Write your 5-point plan for a TEF opinion task on immigration",["introduction: position","argument 1:","argument 2:","concession:","conclusion:"],"1) Introduction: À mon avis, l'immigration enrichit le Canada économiquement et culturellement. 2) Arg 1: Contribution économique — combler les pénuries de main-d'œuvre. 3) Arg 2: Diversité culturelle — innovation et créativité. 4) Concession: Certes, défis d'intégration. 5) Conclusion: Avec des politiques d'intégration adéquates, les bénéfices dépassent les défis. — Perfect TEF plan!")]),
 
   mkL("b2-25","TEF Canada: Writing Simulation",35,"writing",
@@ -2119,7 +2159,7 @@ const B2_LESSONS = [
     "TEF Canada compréhension écrite: 3 parts, 60 minutes, 50 questions. Part 1: 15 questions on short texts (notices, ads, emails). Part 2: 20 questions on medium texts (articles — scan for info). Part 3: 15 questions on long complex texts (inference, analysis). Strategy: allocate time! 12 min Part 1, 25 min Part 2, 20 min Part 3, 3 min review. Don't spend too long on one question — mark, move on, return. All questions carry equal weight.",
     ["TEF lecture: 3 parties, 60 min, 50 questions","Partie 1: textes courts (annonces, courriels) — 12 min","Partie 2: textes moyens (articles) — 25 min","Partie 3: textes longs (inférence) — 20 min","Gestion du temps: ne pas s'attarder!","Questions d'inférence = lire entre les lignes","Questions littérales = retourner au texte précis","Toutes les questions valent le même poids","Si incertain: eliminer, choisir, continuer"],
     [mcq("For TEF Part 3 (long complex texts), the best strategy is:",["read every word slowly and carefully","only read questions","skim text first, then read questions, then find answers","skip to the end"],2,"Skim + question + targeted re-read. For 15 complex questions on a long text: 1) Skim whole text (2 min) to understand structure and topic. 2) Read each question. 3) Find the relevant section and re-read carefully for THAT answer. This is faster than reading everything carefully first!"),
-     mcq("If you're uncertain about a TEF question, you should:",["leave it blank","spend as much time as needed","eliminate obviously wrong answers, make your best guess, move on","go back to the beginning"],2,"Never leave blank! Wrong answer = 0 points. Blank = 0 points. Best guess after elimination = chance at 1 point. Eliminate clearly wrong options, choose from what remains, mark the question, and MOVE ON. Return at the end if you have time."),
+     rd("Communiqué — La Ville de Québec lance, dès le 1er septembre, un programme de subventions destiné aux propriétaires qui rénovent leur logement pour le rendre plus écoénergétique. Les subventions, pouvant atteindre 5 000 $, couvrent l'isolation, le remplacement des fenêtres et l'installation de thermopompes. Les demandes doivent être déposées en ligne avant le 30 novembre. Seuls les bâtiments construits avant l'an 2000 sont admissibles.","Quels bâtiments sont admissibles à la subvention?",["Ceux construits avant l'an 2000","Tous les bâtiments, sans exception","Seulement les bâtiments neufs","Seulement les immeubles commerciaux"],0,"TEF reading = locate the precise condition. The eligibility clause is the last sentence: « Seuls les bâtiments construits avant l'an 2000 sont admissibles. » Watch for restrictive words like 'seuls' — they decide the answer.",{title:"Communiqué municipal",glossary:[["écoénergétique","energy-efficient"],["une thermopompe","a heat pump"],["admissible","eligible"]],diff:3}),
      wr("Write your TEF reading time allocation for 60 minutes and 3 parts",["partie 1: 12 min","partie 2: 25 min","partie 3: 20 min","révision: 3 min","total: 60 min"],"Partie 1 (textes courts): 12 minutes / Partie 2 (articles): 25 minutes / Partie 3 (textes longs): 20 minutes / Révision: 3 minutes = 60 minutes total. STICK TO THIS! Set mental checkpoints: at 12 min, move to Part 2; at 37 min, move to Part 3. Don't let one section consume all your time!")]),
 
   mkL("b2-27","TEF Mock Exam Practice 1",35,"integrated",
@@ -2169,21 +2209,21 @@ const CLB_LESSONS = [
     "CLB 4 listening tasks: extract specific information from short, clear recordings. Recordings at CLB 4: voicemail messages, short announcements, simple instructions, store hours/prices, weather forecasts. The speaker speaks clearly and at moderate pace. Focus on: numbers (prices, dates, times, quantities), names (people, places, organizations), and action words (call, bring, arrive, complete). Always read the question first, then listen specifically for the answer!",
     ["Écoute CLB 4: enregistrements courts et clairs","Focus: chiffres, dates, heures, noms","Types: messages téléphoniques, annonces, horaires","Stratégie: lire la question → écouter → noter","Vocabulaire courant et familier","Vitesse modérée (pas de radio rapide)","Repérer l'information spécifique demandée","CLB 4 ≈ A2 / début B1"],
     [mcq("At CLB 4, the listening recordings are characterized by:",["complex academic lectures","clear speech at moderate pace on familiar topics","rapid radio segments with background noise","technical professional discussions"],1,"CLB 4 = clear, moderate pace, familiar topics. The speaker speaks clearly (not mumbling, not too fast), on topics you encounter in everyday Canadian life (store, doctor, bank, schedule). Good news: if you've completed A2 Franco lessons, you're CLB 4 ready!"),
-     mcq("Listening to a store announcement: 'Notre magasin est ouvert du lundi au samedi, de 9h à 20h, et le dimanche de 11h à 17h.' Sunday hours are:",["9h-20h","11h-17h","9h-17h","fermé le dimanche"],1,"Sunday (dimanche): 11h-17h. Extract the specific piece of information requested. Tip: when hearing hours, write them immediately: lun-sam: 9-20h, dim: 11-17h. Numbers disappear from memory fast — write as you hear!"),
+     li("Bonjour et bienvenue chez Marché Provigo. Notre magasin est ouvert du lundi au samedi, de neuf heures à vingt heures, et le dimanche de onze heures à dix-sept heures. Merci de votre visite et bonne journée!","Quelles sont les heures d'ouverture le dimanche?",["De 11 h à 17 h","De 9 h à 20 h","De 9 h à 17 h","Fermé le dimanche"],0,"Listen for the specific detail asked: « le dimanche de onze heures à dix-sept heures » = 11 h–17 h. Jot times down as you hear them — numbers fade from memory fast.",{diff:2,transcriptEn:"Hello and welcome to Marché Provigo. Our store is open Monday to Saturday, 9 a.m. to 8 p.m., and Sunday 11 a.m. to 5 p.m. Thank you for visiting and have a good day!"}),
      wr("Write the 3 key things to note when listening to a voicemail",["le nom de l'appelant","l'objet de l'appel","le numéro de rappel","la date et l'heure","l'urgence du message"],"1) Nom et organisation de l'appelant, 2) Raison de l'appel / message principal, 3) Numéro de rappel et délai. These 3 pieces of information let you respond appropriately to any voicemail. Write them down immediately before they fade from memory!")]),
 
   mkL("clb-03","CLB 4 Speaking: Describe Your Routine",20,"speaking",
     "CLB 4 speaking: describe your daily life clearly and coherently. You should be able to speak for 1-1.5 minutes on your daily routine without major hesitations. Use: present tense for habits, time markers (d'abord, puis, ensuite, le matin/soir), specific details (times, places, activities). CLB 4 allows: occasional errors that don't impede communication, simple vocabulary, short sentences. What matters: being understood, staying on topic, completing the task!",
     ["Parler 1-1.5 min sans pauses longues","Vocabulaire: routines quotidiennes","Marqueurs de temps: d'abord, puis, le matin...","CLB 4: quelques erreurs permises si compréhensible","Rester sur le sujet","Donner des détails précis (heures, lieux)","Éviter les longs silences (utiliser 'euh, donc...')","Auto-correction brève si erreur"],
     [mcq("At CLB 4 speaking, you are assessed primarily on:",["perfect grammar with zero errors","being understood and completing the communication task","using very advanced vocabulary","speaking with no accent"],1,"CLB 4 = communication first! Assessors ask: Can I understand this person? Did they complete the task? Occasional errors, simple vocabulary, and an accent are ALL acceptable at CLB 4. Focus on: clear message, staying on topic, appropriate length (1-1.5 min)!"),
-     mcq("To fill a pause while thinking in French, you can say:",["nothing — silence is best","um um um... (English fillers)","euh... / donc... / c'est-à-dire... / voyons...","Excuse me please"],2,"Euh... (hesitation), Donc... (so...), C'est-à-dire... (that is to say...), Voyons... (let's see...). French fillers! Every fluent French speaker uses them. They show you're thinking in French, not just pausing. Much better than silence or English fillers in a CLB assessment!"),
+     sp("Speak for about a minute: describe your typical day (« une journée typique »). Use time markers — le matin, d'abord, ensuite, puis, le soir — and give specific times and places.","Le matin, je me lève à six heures et demie et je prends un café. Ensuite, je prépare les enfants pour l'école. Puis, je prends l'autobus pour aller au travail, ce qui prend environ trente minutes. Le soir, je cuisine le souper et je regarde les nouvelles avant de me coucher.",["le matin","d'abord","ensuite","puis","le soir","je me lève"],"CLB 4 speaking: be understood, stay on topic, and link your ideas with time markers. Small errors are fine — clarity and completing the task matter most."),
      wr("Describe your typical morning in 3 sentences",["je me lève","le matin","d'abord","je prends","puis je","je pars"],"Le matin, je me lève à 6h30 et je prends une douche rapide. Ensuite, je mange mes céréales en écoutant les nouvelles. Puis, je prends le bus pour aller au travail — ça prend environ 25 minutes. — 3 sentences: clear routine, time markers, specific details = CLB 4 speaking success!")]),
 
   mkL("clb-04","CLB 4 Reading: Understand a Notice",20,"reading",
     "CLB 4 reading: understand short informational texts. Types: building notices, workplace announcements, school flyers, store signs, transit announcements. You need to: identify the main purpose, extract specific information (dates, times, locations, requirements), understand what action is needed. Strategy: read the title first (tells you the topic), then scan for key information asked in the question. Most CLB 4 reading texts are 100-200 words.",
     ["Textes CLB 4: 100-200 mots","Avis, annonces, flyers, panneaux","Identifier: le but (but = purpose) du texte","Extraire: dates, heures, lieux, exigences","Action requise: que doit-on faire?","Stratégie: titre → survol → réponse","Vocabulaire: avis, à compter du, prière de, veuillez","Longueur modérée, registre standard"],
     [mcq("Reading a building notice: 'Interruption d'eau chaude le jeudi 20 mars de 8h à 16h pour entretien.' What should residents expect?",["No water at all on March 20","No hot water from 8am to 4pm on Thursday March 20","No hot water for 20 days","The building will be closed"],1,"No hot water (pas d'eau chaude) from 8h to 16h (8am-4pm) on Thursday March 20. 'Entretien' = maintenance (reason given). Cold water is still available — only hot water is interrupted. Reading notices carefully = extract the SPECIFIC information (hot vs cold, hours, date)!"),
-     mcq("'Prière de ne pas utiliser les ascenseurs ce jour-là.' This means:",["Please use the elevators that day","Please do not use the elevators that day","The elevators are broken permanently","Only residents can use the elevators"],1,"Prière de = please (formal notice language). 'Ne pas utiliser les ascenseurs' = do not use the elevators. 'Ce jour-là' = that day (not always/permanently). 'Prière de...' is a polite imperative found in formal notices — equivalent to 'Veuillez ne pas...'"),
+     rd("AVIS AUX RÉSIDENTS\n\nEn raison de travaux d'entretien, l'eau chaude sera interrompue le jeudi 20 mars, de 8 h à 16 h. L'eau froide demeurera disponible durant toute la journée. Prière de ne pas utiliser la machine à laver pendant cette période. Nous vous remercions de votre compréhension.","D'après l'avis, qu'est-ce qui sera interrompu, et quand?",["L'eau chaude, le jeudi 20 mars de 8 h à 16 h","Toute l'eau, pendant 20 jours","L'électricité, le 20 mars","L'eau froide, le jeudi soir"],0,"Read for the specific detail: only l'eau chaude is cut, jeudi 20 mars, 8 h–16 h, for « travaux d'entretien ». L'eau froide stays available. 'Prière de' = please (do). Catch what + when + the requested action.",{title:"Avis aux résidents",glossary:[["l'entretien","maintenance"],["demeurer","to remain"],["prière de","please (do)"]],diff:2}),
      wr("Write the key information from this notice: 'La bibliothèque sera fermée le 1er mai pour la Fête du Travail.'",["la bibliothèque ferme","le 1er mai","fête du travail","fermée","fermeture exceptionnelle"],"La bibliothèque sera fermée le 1er mai en raison de la Fête du Travail (jour férié). — Key info: what (bibliothèque), when (1er mai), why (fête du travail = public holiday). Simple CLB 4 notice reading!")]),
 
   mkL("clb-05","CLB 4 Writing: Form & Short Note",20,"writing",
@@ -2197,21 +2237,21 @@ const CLB_LESSONS = [
     "CLB 5 listening: understand service interactions (bank, CLSC, government office, employer) of 3-5 minutes. The speakers speak at natural speed with occasional interruptions. You need to: understand the purpose, extract specific details (procedures, deadlines, amounts, requirements), identify the speakers' roles, and understand what action is required. New at CLB 5: multiple speakers, some background noise, occasional Quebec expressions.",
     ["Interaction de service: 3-5 minutes","Vitesse naturelle, quelques interruptions","Identifier les interlocuteurs et leurs rôles","Comprendre la procédure expliquée","Repérer: délais, montants, exigences, actions requises","CLB 5: plusieurs locuteurs possibles","Accent québécois standard","Nouvelle difficulté: inférer ce qui est implicite"],
     [mcq("In a CLB 5 service interaction, you might need to infer:",["every single word","what the caller needs to do next, even if not directly stated","only the names of speakers","only the topic"],0,"At CLB 5, you must sometimes INFER the next step from context. If a bank employee says 'Votre demande de carte a été approuvée — vous la recevrez dans 7 à 10 jours ouvrables', you can infer: no action needed, just wait. This inference skill is what separates CLB 4 from CLB 5!"),
-     mcq("Hearing 'Vous devrez nous rappeler avec votre numéro de dossier', the key information is:",["the office phone number","you must call back with your file number","you should visit in person","the matter is resolved"],1,"Call back WITH your file number. 'Rappeler' = call back. 'Numéro de dossier' = file/case number. This is an action required. Two pieces of info: 1) action (call back), 2) what to have ready (file number). Always note both for CLB 5 listening!"),
+     li("Bonjour, je vous appelle de Service Canada au sujet de votre demande d'assurance-emploi. Votre dossier est presque complet, mais il nous manque une preuve de résidence. Vous devrez donc nous rappeler avec votre numéro de dossier afin de finaliser le tout.","Que doit faire la personne, et avec quoi?",["Rappeler avec son numéro de dossier pour fournir une preuve de résidence","Se présenter en personne avec son passeport","Payer des frais en ligne immédiatement","Attendre une lettre, sans rien faire"],0,"Catch both the action and what to have ready: « rappeler avec votre numéro de dossier » + what's missing (« une preuve de résidence »). At CLB 5 you must extract the required action, not just the topic.",{diff:3}),
      wr("What 3 questions should you ask after a service interaction to check comprehension?",["qu'est-ce que je dois faire?","quand est-ce que je dois le faire?","qu'est-ce que je dois apporter?","quel est le délai?","quel est le numéro de référence?"],"1) Qu'est-ce que je dois faire exactement? (What exactly do I need to do?) 2) Dans quel délai? (By when?) 3) Quels documents/informations dois-je avoir? (What do I need to have?) These 3 questions ensure you understood the action required — essential for CLB 5 service interactions!")]),
 
   mkL("clb-07","CLB 5 Speaking: Give an Opinion",25,"speaking",
     "CLB 5 speaking: express and justify your opinion on a familiar topic for 1.5-2 minutes. Structure: state your opinion → give reason 1 + example → give reason 2 + example → conclude. New at CLB 5: you should maintain your position if asked, use some complex sentences, and employ a range of connectors beyond 'parce que'. Topics: work, school, neighbourhood, environment, Canadian life, immigration experiences.",
     ["1.5-2 minutes d'opinion structurée","Énoncer la position clairement","Raison 1 + exemple concret","Raison 2 + exemple concret","Conclusion: donc, c'est pourquoi","Maintenir la position si challengé","Connecteurs: parce que, car, de plus, cependant","Quelques structures complexes","Vocabulaire varié (pas les mêmes mots répétés)"],
     [mcq("At CLB 5 speaking, which is most important?",["using only complex grammar","giving a perfect structure with sophisticated vocabulary","communicating your opinion clearly with justification","speaking for exactly 2 minutes"],2,"Communicating clearly WITH justification = CLB 5 core. Structure + reasoning = CLB 5 speaking. Perfect grammar? Not required. Exact timing? Close is fine. Clear, justified opinion? Essential! 'I think X because Y and Z' consistently delivered = CLB 5."),
-     mcq("When an assessor challenges your opinion at CLB 5, you should:",["agree immediately with them","be unable to respond","defend your position politely with more evidence","change the topic"],2,"Defend politely! 'Je comprends votre point de vue, mais je maintiens que... En effet, [new evidence or example].' At CLB 5, you can defend your position. At CLB 6+, you're expected to nuance and engage in real back-and-forth. Giving up = CLB 3-4 behavior!"),
+     sp("Speak ~1.5–2 minutes: give and justify your opinion on « Devrait-on encourager le télétravail? ». State your position, give two reasons with examples, then conclude.","À mon avis, on devrait encourager le télétravail. Premièrement, il réduit le temps de transport : par exemple, j'économise une heure chaque jour. Deuxièmement, il permet un meilleur équilibre entre la vie professionnelle et la vie familiale. Cependant, il faut maintenir un contact régulier avec l'équipe. En conclusion, le télétravail, bien organisé, est bénéfique.",["à mon avis","premièrement","par exemple","deuxièmement","cependant","en conclusion"],"CLB 5: clear position + two justified reasons with examples + a nuance + conclusion. Push your connectors beyond 'parce que'."),
      wr("State your opinion on working from home in 2 sentences",["à mon avis, le télétravail","selon moi","je pense que travailler de la maison","le travail à distance"],"À mon avis, le télétravail offre une meilleure qualité de vie grâce à la flexibilité des horaires et à l'élimination des temps de transport. Cependant, il peut nuire aux relations avec les collègues et à la collaboration d'équipe. — 2 sentences: opinion + justification + nuance = CLB 5 speaking!")]),
 
   mkL("clb-08","CLB 5 Reading: Scan for Information",20,"reading",
     "CLB 5 reading: efficiently scan medium-length texts (200-400 words) to find specific information. Text types at CLB 5: job postings, news articles, service descriptions, schedules, informational brochures. New challenge: the texts are longer and contain more information — you must distinguish essential from non-essential. Strategy: question first → identify keyword → scan for keyword → read that section closely → answer.",
     ["Textes CLB 5: 200-400 mots","Types: offres d'emploi, articles, brochures, horaires","Distinguer l'essentiel du non-essentiel","Stratégie: question → mot-clé → scan → lire section → réponse","CLB 5: quelques questions d'inférence","Vocabulaire: professionnel, gouvernemental","Identifier le ton et le but du texte","Lire les titres et sous-titres en premier"],
     [mcq("In a job posting, to find the required education level, you scan for:",["the company name","the job title","words like 'formation', 'diplôme', 'études requises', 'DEC', 'BAC'","the application deadline"],2,"Scan for vocabulary clusters: 'Formation requise / Scolarité / Diplôme exigé / DEC en... / BAC en...' These signal the education section. Different companies format this differently — scanning for the vocabulary cluster is faster than reading everything!"),
-     mcq("Reading a brochure: 'Ce service est offert gratuitement aux résidents de la région métropolitaine de Montréal.' Who qualifies?",["All Canadians","Only people born in Montreal","Residents of the Montreal metropolitan area","Visitors to Montreal"],2,"Résidents de la région métropolitaine de Montréal = residents of the greater Montreal area (not just the island). 'Gratuitement' = free of charge. CLB 5 reading = finding the specific qualifying condition (who, where, when it applies)!"),
+     rd("OFFRE D'EMPLOI — Préposé(e) au service à la clientèle\n\nEntreprise : Boutique Nordik (Laval)\nTâches : accueillir les clients, traiter les commandes, gérer les retours.\nExigences : DEP ou DEC, bilinguisme (français-anglais), six mois d'expérience.\nConditions : 35 h/semaine, 22 $/h, assurances collectives après 3 mois.\nPour postuler : envoyez votre CV à emplois@nordik.ca avant le 30 juin.","Quelles sont les exigences de formation et de langue?",["DEP ou DEC et le bilinguisme français-anglais","Un baccalauréat universitaire seulement","Aucune exigence particulière","Le français uniquement, sans diplôme"],0,"Scan the « Exigences » section rather than reading every line: « DEP ou DEC, bilinguisme (français-anglais), six mois d'expérience. » Finding the right vocabulary cluster fast is the CLB 5 scanning skill.",{title:"Offre d'emploi",glossary:[["les exigences","requirements"],["DEP / DEC","Quebec vocational / college diplomas"],["postuler","to apply"]],diff:3}),
      wr("List 3 sections you'd find in a typical Quebec job posting",["exigences / qualifications requises","responsabilités / tâches","conditions de travail / avantages","salaire / rémunération","lieu de travail","comment postuler"],"1) Exigences/qualifications requises (education, experience, skills), 2) Responsabilités principales (main duties), 3) Conditions et avantages (salary, hours, benefits). These 3 sections help you decide quickly if a job is worth applying for!")]),
 
   mkL("clb-09","CLB 5 Writing: Formal Email (80 words)",25,"writing",
@@ -2225,21 +2265,21 @@ const CLB_LESSONS = [
     "CLB 6 listening: understand extended dialogues (5-8 minutes) between 2-3 speakers on a substantive topic. New challenges: speakers may interrupt each other, use informal language, express opinions (not just facts), and disagree. You must track: who says what, who agrees/disagrees, the progression of the discussion, and the conclusion reached (or not). Radio-Canada debates and Panel discussions are excellent practice for CLB 6!",
     ["CLB 6: dialogues étendus 5-8 minutes","2-3 locuteurs, parfois en désaccord","Suivre: qui dit quoi, qui s'oppose à qui","Progression de la discussion","Conclusion atteinte ou non?","Radio-Canada: Les grandes gueules, Tout le monde en parle","Comprendre langage informel en contexte","Inférer les attitudes (enthousiaste? sceptique? neutre?)"],
     [mcq("In a CLB 6 listening task with multiple speakers, your priority is:",["understand every word of every speaker","track who holds which position and how the discussion evolves","only focus on the final conclusion","only listen to the host/moderator"],1,"Track positions + evolution. Who: A disagrees with B on X, C agrees with A about Y. How it evolves: initially opposed, then... What conclusion (if any). This map of positions and evolution = CLB 6 extended dialogue comprehension!"),
-     mcq("'Il tempère l'enthousiasme de son collègue' in a discussion means:",["He increases his colleague's enthusiasm","He moderates/dampens his colleague's enthusiasm","He agrees completely with his colleague","He ignores his colleague"],1,"Tempérer = to temper/moderate. He's pulling back his colleague's enthusiasm — a cautious or skeptical voice in the discussion. Inferring speakers' ATTITUDES (enthusiastic, skeptical, neutral, opposed) is a CLB 6 listening skill. Don't just hear the words — understand the stance!"),
+     li("Premier interlocuteur : Moi, je trouve que le nouveau projet est emballant, on devrait foncer tout de suite! Deuxième interlocuteur : Je comprends ton enthousiasme, mais soyons prudents. Nous n'avons pas encore évalué les coûts ni les risques. Précipiter les choses pourrait nous coûter cher.","Quelle est l'attitude du deuxième interlocuteur?",["Prudent : il tempère l'enthousiasme du premier","Tout aussi enthousiaste que le premier","Totalement opposé au projet","Indifférent à la discussion"],0,"The second speaker isn't against the project — he's cautious. « Je comprends ton enthousiasme, mais soyons prudents… » signals tempering, not rejection. Inferring attitudes (enthusiastic vs cautious vs opposed) is CLB 6 listening.",{diff:3}),
      wr("After listening to a debate, write a 2-sentence summary of positions",["le premier interlocuteur pense","le deuxième estime","l'un affirme que","l'autre soutient que","ils sont en désaccord sur"],"Le premier interlocuteur affirme que l'immigration est bénéfique pour l'économie canadienne, en citant notamment les secteurs en pénurie de main-d'œuvre. Le second estime que l'intégration linguistique doit être prioritaire et que les ressources actuelles sont insuffisantes. — Positions clearly distinguished = CLB 6 listening comprehension!")]),
 
   mkL("clb-11","CLB 6 Speaking: Justify & Persuade",25,"speaking",
     "CLB 6 speaking: persuade and justify — go beyond opinion to actively convince! The difference from CLB 5: at CLB 5 you express and justify your opinion. At CLB 6, you anticipate objections, address counter-arguments, use rhetorical strategies (rhetorical questions, vivid examples, appeal to shared values). Language: 'Il est indéniable que...', 'N'est-il pas vrai que...?', 'Comme nous le savons tous...', 'Force est de reconnaître que...'",
     ["CLB 6 = persuader activement","Anticiper les objections","Réfuter les contre-arguments","Questions rhétoriques: 'N'est-il pas évident que...?'","Appel aux valeurs communes","Exemples concrets et frappants","'Il est indéniable que...'","'Comme en témoignent les faits...'","Conclure par un appel à l'action"],
     [mcq("A rhetorical question in persuasive speaking:",["requires an answer from the audience","is used to make a statement feel like an obvious conclusion","is a genuine request for information","signals the end of the argument"],1,"A rhetorical question doesn't require an answer — it's stated as if the answer is obvious, drawing the listener to agree. 'N'est-il pas évident que l'apprentissage du français enrichit votre vie au Canada?' implies: of course it does! Powerful persuasive device in French discourse."),
-     mcq("'Il est indéniable que les immigrants contribuent à l'économie canadienne.' This phrase:",["expresses doubt","presents the claim as an undeniable fact","asks a question","refutes an argument"],1,"Il est indéniable que = it is undeniable that. Presents the following claim as if it's an established, uncontestable truth — a persuasive strategy. Use it for strong, well-supported points. Don't overuse it (you can't call everything 'undeniable'!)"),
+     sp("Persuade your listener (~2 min) that « apprendre le français est un atout, même en dehors du Québec ». Anticipate an objection, refute it, use a rhetorical question, and appeal to shared Canadian values.","Il est indéniable que le français est un atout, même en dehors du Québec. Certes, on pourrait objecter que l'anglais suffit dans la plupart des provinces. Cependant, n'est-il pas évident que maîtriser les deux langues officielles du Canada multiplie les possibilités d'emploi, notamment dans la fonction publique fédérale? Comme nous le savons tous, le bilinguisme est au cœur de l'identité canadienne. C'est pourquoi j'invite chacun à persévérer dans son apprentissage.",["il est indéniable que","certes","n'est-il pas","cependant","c'est pourquoi"],"CLB 6 persuasion: anticipate the objection ('on pourrait objecter'), refute it, deploy a rhetorical question, and appeal to shared values. You're actively convincing, not just stating an opinion."),
      wr("Write a persuasive sentence addressing someone who thinks French is too hard to learn",["certes, le français peut paraître","cependant, des milliers d'immigrants","la preuve en est que","n'est-il pas vrai que","il est indéniable que"],"Certes, le français peut paraître complexe au premier abord. Cependant, des milliers d'immigrants réussissent à le maîtriser chaque année — la preuve en est que vous lisez ces mots en français en ce moment même! N'est-il pas encourageant de constater que vous progressez déjà? — Concession + evidence + rhetorical question = CLB 6 persuasion!")]),
 
   mkL("clb-12","CLB 6 Reading: Analyse a Text",25,"reading",
     "CLB 6 reading: go beyond comprehension to ANALYSIS. You must: identify the author's purpose (informer, persuader, critiquer, comparer), recognize stylistic choices (tone, examples, structure), evaluate the quality of arguments (well-supported? one-sided?), and detect implicit messages or assumptions. Text types: editorial, analytical essay, formal report, policy analysis. This is the level of reading required for professional and academic success in French Canada.",
     ["CLB 6 lecture = analyse, pas seulement compréhension","But de l'auteur: informer, persuader, critiquer","Ton: neutre, engagé, ironique, alarmiste","Qualité des arguments: bien étayés? partiaux?","Messages implicites et présupposés","Registre et vocabulaire révèlent le positionnement","Structure: thèse, développement, conclusion","À qui ce texte est-il destiné?"],
     [mcq("An analytical reading question 'What is the author's implicit assumption?' asks you to:",["find a direct quote from the text","identify something the author assumes without stating it","summarize the main point","count the paragraphs"],1,"Implicit assumption = something the author takes for granted without stating it. 'L'apprentissage du français est indispensable pour les immigrants' assumes that integration is a priority value. A critical reader asks: why assume this? For whom? This is CLB 6+ critical reading!"),
-     mcq("An editorial (éditorial) is written to:",["only report facts objectively","provide information without opinion","present and defend the author's or publication's opinion on a topic","advertise products or services"],2,"Éditorial = opinion piece defending the publication's position. Different from a 'chronique' (regular opinion column) or 'article' (news reporting). In CLB 6 reading, identifying the text type helps you calibrate your critical approach: editorial? Expect bias. News report? Expect (some) objectivity."),
+     rd("Face à l'inaction du gouvernement en matière de logement, il devient urgent d'agir. Chaque mois, des centaines de familles québécoises se retrouvent sans toit, tandis que les loyers atteignent des sommets jamais vus. Les belles promesses ne suffisent plus : ce sont des mesures concrètes et immédiates que réclament les citoyens. Combien de temps encore faudra-t-il attendre?","Quel est le ton de ce texte, et son but?",["Engagé et alarmiste : il vise à pousser à l'action","Neutre et objectif : il informe seulement","Ironique : il se moque du sujet","Humoristique : il cherche surtout à divertir"],0,"Analyse, not just comprehension. Charged words ('inaction', 'sans toit', 'sommets jamais vus') plus the closing rhetorical question and the call for 'mesures concrètes et immédiates' mark an engaged, alarmist editorial meant to mobilize — not neutral reporting.",{title:"Éditorial — La Presse",glossary:[["l'inaction","inaction"],["sans toit","homeless"],["réclamer","to demand"]],diff:4}),
      wr("Identify the tone of this sentence: 'Face à l'inaction scandaleuse du gouvernement, les citoyens n'ont d'autre choix que de se mobiliser.'",["neutre et objectif","alarmiste et engagé (calls for action, emotional vocabulary)","ironique","informatif seulement"],"Alarmiste et engagé! 'Inaction scandaleuse' (outrageous inaction — emotional), 'n'ont d'autre choix' (have no choice — urgency). The author is clearly taking sides and trying to mobilize readers. This is NOT neutral reporting — it's an engaged editorial voice. CLB 6 critical reading!")]),
 
   mkL("clb-13","CLB 6 Writing: Opinion Paragraph (120 words)",30,"writing",
@@ -2253,21 +2293,21 @@ const CLB_LESSONS = [
     "CLB 7 listening: handle complex audio with academic or professional content. Types: panel discussions, interviews with experts, conference recordings, news analyses. Characteristics: fast natural speech, multiple complex ideas, implicit references, domain-specific vocabulary. You must follow the full logic of complex arguments, track the development of ideas across 5-10 minutes, and understand both explicit content AND implied meaning. Daily practice with Radio-Canada (Ici Radio-Canada, ICI TOU.TV) = essential!",
     ["CLB 7: audio complexe, 5-10 minutes","Discours rapide, naturel, avec chevauchements","Contenu académique ou professionnel","Vocabulaire spécialisé en contexte","Suivre la logique d'un argument complexe","Comprendre l'implicite et les allusions","Pratique: Ici Radio-Canada, RDI, balados","CLB 7 ≈ compréhension de 85-90% en contexte naturel"],
     [mcq("At CLB 7, your listening comprehension of authentic French content should be:",["50% — just catch main ideas","70% — some parts unclear","85-90% — can follow complex discussions with occasional unclear parts","100% — every word understood"],2,"85-90% = CLB 7 listening. You can follow complex discussions, understand 85-90% of content, and reconstruct meaning from context for the 10-15% you miss. Perfect 100% comprehension is not the target — native speakers don't achieve 100% in all contexts either!"),
-     mcq("'L'implicite' in listening refers to:",["words not spoken clearly","the tone of voice only","meaning that's conveyed without being directly stated","the ending of a conversation"],1,"L'implicite = implied meaning — what is understood without being stated. If a speaker says 'Malgré tous les efforts du gouvernement...' before describing failure, the implication is that the efforts were insufficient. CLB 7 = understanding these implied critiques, sarcasm, irony, and nuance!"),
+     li("Malgré les investissements considérables annoncés par le gouvernement l'an dernier, force est de constater que les délais d'attente dans le réseau de la santé n'ont guère diminué. Certains experts y voient désormais un problème structurel, plutôt qu'un simple manque de financement.","Que sous-entend le passage au sujet des investissements?",["Ils n'ont pas vraiment réglé le problème des délais d'attente","Ils ont complètement éliminé les délais d'attente","Le gouvernement n'a rien investi du tout","Les experts approuvent pleinement la stratégie actuelle"],0,"This tests l'implicite. « Malgré les investissements… force est de constater que les délais n'ont guère diminué » implies the money didn't fix the problem — without saying so directly. 'Guère' = hardly. Catching this implied critique is exactly CLB 7 listening.",{once:true,diff:4,transcriptEn:"Despite the considerable investments announced by the government last year, it must be acknowledged that wait times in the health network have hardly decreased. Some experts now see this as a structural problem rather than a simple lack of funding."}),
      wr("Name 2 Radio-Canada programs you'll use for CLB 7 listening practice",["le téléjournal","les coulisses du pouvoir","tout le monde en parle","c'est encore mieux l'après-midi","les années lumière","ici première","rdi"],"Le Téléjournal (evening news — clear French, current affairs) + Tout le monde en parle (Sunday talk show — fast, informal, multiple speakers = challenging CLB 7 practice!). Les Coulisses du pouvoir (political analysis) is also excellent for academic/political vocabulary!")]),
 
   mkL("clb-15","CLB 7 Speaking: 3-Minute Monologue",30,"speaking",
     "CLB 7 speaking: a 3-minute sustained, organized monologue on a complex topic! At CLB 7, you are expected to: speak fluently without long pauses, use a range of complex structures (subjunctive, conditional perfect, nominalization), vary your vocabulary throughout (no repetition), demonstrate awareness of both sides of an issue, and draw a nuanced conclusion. This is professional-level French communication — the standard required for many Canadian workplaces and government positions.",
     ["3 minutes soutenues sans longues pauses","Structures complexes: subjonctif, cond. passé, nomi.","Vocabulaire varié tout au long (pas de répétition)","Conscience des deux côtés: concession forte","Conclusion nuancée (pas simpliste)","Rythme: modéré, articulé, assuré","Niveau professionnel et académique","CLB 7 = employabilité dans la plupart des secteurs"],
     [mcq("At CLB 7, the 3-minute monologue is distinguished by:",["the length alone","fluency, complexity, vocabulary range, and nuanced argumentation working together","using only simple sentences","having no errors at all"],1,"All elements working together = CLB 7. Fluency (no long pauses) + complexity (varied structures) + vocabulary range + nuance (sees both sides) + organized argument. It's not about perfection — it's about consistent B2-level production across 3 minutes!"),
-     mcq("A 'nuanced conclusion' at CLB 7 means:",["saying 'in conclusion, I agree with myself'","acknowledging complexity and avoiding oversimplification while maintaining a clear position","having no conclusion","switching your position at the end"],1,"Nuanced = acknowledges complexity without abandoning your position. 'En conclusion, si l'immigration représente indéniablement des défis d'intégration, il demeure que ses bénéfices économiques et culturels l'emportent largement, à condition de mettre en place des politiques d'intégration adéquates.' = Nuanced, not simplistic!"),
+     sp("Deliver a sustained monologue (aim for 2–3 minutes) on « L'immigration est-elle bénéfique pour le Canada? ». Structure: contextualize → argument 1 + données → argument 2 + exemple → concession forte → conclusion nuancée. Vary your connectors and vocabulary.","Le Canada est, depuis sa fondation, une terre d'immigration. À mon sens, l'immigration demeure bénéfique pour le pays. D'abord, sur le plan économique, elle comble des pénuries de main-d'œuvre dans des secteurs essentiels comme la santé. De surcroît, elle enrichit la diversité culturelle qui fait la réputation du Canada. Certes, une intégration mal encadrée peut engendrer des tensions ; cependant, des politiques d'accueil adéquates atténuent ces difficultés. En conclusion, bien que des défis subsistent, force est de constater que les bénéfices l'emportent largement.",["immigration","sur le plan économique","de surcroît","certes","cependant","en conclusion","force est de constater"],"A CLB 7 monologue weaves fluency, complex structures, varied vocabulary, a real concession, and a nuanced conclusion together over 2–3 minutes. The model is your target — make it your own."),
      wr("Write the conclusion sentence of a CLB 7 monologue on Canadian identity",["en conclusion","il demeure que","bien que","malgré les défis","au final","force est de constater","la richesse de"],"En conclusion, bien que la définition de l'identité canadienne soit un sujet complexe et en constante évolution, force est de constater que sa richesse réside précisément dans cette diversité linguistique, culturelle et régionale qui la constitue. — Complex, nuanced, maintains a position without oversimplifying. CLB 7 conclusion!")]),
 
   mkL("clb-16","CLB 7 Reading: Critical Reading",25,"reading",
     "CLB 7 reading: analyze complex texts from multiple perspectives, evaluate the quality of evidence, identify rhetorical strategies, and form your own critical response. At this level you read: policy documents, academic articles, complex journalism, literature (in context). You can: distinguish between different types of evidence (anecdote vs data vs expert opinion), evaluate credibility, identify logical fallacies (generalization, false dichotomy), and appreciate stylistic choices.",
     ["CLB 7: analyse critique multi-perspectives","Types de preuves: anecdote, données, opinion experte","Évaluer la crédibilité des sources","Identifier les sophismes: généralisation, faux dilemme","Stratégies rhétoriques: pathos, logos, éthos","Style littéraire: ironie, hyperbole, euphémisme","Former sa propre réponse critique","CLB 7 lecture = niveau professionnel et académique"],
     [mcq("'Tous les immigrants veulent s'isoler de la société d'accueil' is an example of:",["a valid generalization","an anecdote","a logical fallacy (overgeneralization)","an expert opinion"],2,"Overgeneralization = logical fallacy. 'Tous les immigrants' with a single sweeping negative claim ignores enormous diversity of individual experiences and research. Critical readers at CLB 7 identify these fallacies and ask: 'How do you know? For all? Always? Is this supported by evidence?'"),
-     mcq("An author who uses emotional stories to support their argument is using:",["logos (logic and reason)","éthos (credibility)","pathos (emotional appeal)","data and statistics"],2,"Pathos = emotional appeal. Stories about individual suffering or success make arguments more relatable and emotionally resonant. Not invalid — but should be distinguished from logos (logical arguments/data) and éthos (authority/credibility). CLB 7 readers can name which strategy is being used!"),
+     rd("Il est de bon ton, dans certains milieux, d'affirmer que l'immigration menace la cohésion sociale. Or, les données disponibles racontent une tout autre histoire : les régions qui accueillent le plus de nouveaux arrivants affichent souvent une croissance économique supérieure à la moyenne. Faut-il pour autant nier les défis d'intégration? Certainement pas. Mais réduire un phénomène aussi complexe à une simple menace relève davantage de la rhétorique de la peur que de l'analyse rigoureuse.","Quelle est l'attitude de l'auteur envers l'idée que « l'immigration menace la cohésion sociale »?",["Il la conteste en s'appuyant sur des données, tout en reconnaissant les défis","Il l'approuve entièrement","Il l'ignore et change de sujet","Il affirme qu'il n'y a aucun défi d'intégration"],0,"Critical reading: the author rejects the claim ('Or, les données… racontent une tout autre histoire') using data (logos), concedes the challenges ('Faut-il nier les défis? Certainement pas'), and labels the opposing view 'la rhétorique de la peur'. Spotting that balance — rebuttal + concession + critique of the opponent's method — is CLB 7.",{title:"Chronique — Le Devoir",glossary:[["il est de bon ton","it's fashionable"],["or","yet / now (contrast)"],["relever de","to be a matter of"]],diff:4}),
      wr("Identify one rhetorical strategy in this text: 'Des milliers d'immigrants, laissés à eux-mêmes, souffrent en silence dans nos villes.'",["pathos — image émotionnelle","vocabulaire émotionnel","appel aux émotions","la souffrance est un appel émotionnel"],"Pathos — 'souffrent en silence' is emotionally charged language designed to create empathy and urgency. The image of thousands suffering silently in 'our cities' (creating shared responsibility) is an emotional appeal meant to move the reader to action, not a logical argument based on data. CLB 7 rhetorical awareness!")]),
 
   mkL("clb-17","CLB 7 Writing: Essay (200 words)",35,"writing",
@@ -2938,24 +2978,25 @@ function OnboardingScreen({onComplete}){
     <Btn onClick={()=>setPhase("clb")} disabled={!level} style={{padding:"15px 40px",fontSize:16}}>Next →</Btn>
   </div>;
 
-  // Step 3 — CLB goal. Saved to localStorage; Sophie references it in every chat.
+  // Step 3 — pick a TRACK. Sets franco_track (path) + franco_clb_goal (Sophie reads it).
   return <div style={{minHeight:"100vh",background:T.surface,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:32,gap:24}}>
     <div style={{textAlign:"center"}}>
       <div style={{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:T.textSoft,marginBottom:10}}>Step 3 of 3</div>
       <div style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:T.navy,marginBottom:8}}>What's Your Goal?</div>
-      <div style={{fontSize:15,color:T.textMid,maxWidth:480,lineHeight:1.55}}>Choose your target — Sophie will tailor every lesson to it.</div>
+      <div style={{fontSize:15,color:T.textMid,maxWidth:480,lineHeight:1.55}}>Pick a path — Franco reorders your lessons and Sophie tailors every session to it. You can change this later.</div>
     </div>
-    <div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:520,width:"100%"}}>
-      {clbGoals.map(g=><Card key={g.id} onClick={()=>setClbGoal(g.id)} style={{display:"flex",alignItems:"center",gap:14,border:`2px solid ${clbGoal===g.id?T.blue:T.border}`,background:clbGoal===g.id?T.blueLight:T.card,padding:"14px 18px"}}>
-        <div style={{fontSize:24}}>{g.emoji}</div>
+    <div style={{display:"flex",flexDirection:"column",gap:10,maxWidth:540,width:"100%"}}>
+      {TRACKS.map(t=><Card key={t.id} onClick={()=>setClbGoal(t.id)} style={{display:"flex",alignItems:"flex-start",gap:14,border:`2px solid ${clbGoal===t.id?T.blue:T.border}`,background:clbGoal===t.id?T.blueLight:T.card,padding:"16px 18px"}}>
+        <div style={{fontSize:26}}>{t.emoji}</div>
         <div style={{flex:1}}>
-          <div style={{fontSize:14,fontWeight:700,color:T.navy}}>{g.label}</div>
-          <div style={{fontSize:12,color:T.textSoft,marginTop:2}}>{g.hint}</div>
+          <div style={{fontSize:15,fontWeight:700,color:T.navy}}>{t.label} <span style={{fontSize:12,fontWeight:600,color:T.textSoft}}>· {t.sub}</span></div>
+          <div style={{fontSize:12.5,color:T.textMid,marginTop:4,lineHeight:1.5}}>{t.blurb}</div>
+          {t.focus.length<4&&<div style={{fontSize:11,fontWeight:700,color:T.blue,marginTop:6}}>Focus: {t.focus.map(f=>({listening:"🎧 Listening",speaking:"🗣️ Speaking",reading:"📖 Reading",writing:"✍️ Writing"}[f])).join(" · ")}</div>}
         </div>
-        {clbGoal===g.id&&<div style={{color:T.blue,fontSize:18}}>✓</div>}
+        {clbGoal===t.id&&<div style={{color:T.blue,fontSize:18}}>✓</div>}
       </Card>)}
     </div>
-    <Btn onClick={()=>{ try{ localStorage.setItem("franco_clb_goal", String(clbGoal||5)); }catch{}; onComplete(companion,level); }} disabled={clbGoal===null} style={{padding:"15px 40px",fontSize:16}}>Start Learning 🚀</Btn>
+    <Btn onClick={()=>{ const tr=TRACKS.find(x=>x.id===clbGoal)||TRACKS[0]; try{ localStorage.setItem("franco_track",tr.id); localStorage.setItem("franco_clb_goal",String(tr.clb||5)); }catch{}; onComplete(companion,level); }} disabled={clbGoal===null} style={{padding:"15px 40px",fontSize:16}}>Start Learning 🚀</Btn>
   </div>;
 }
 
@@ -3026,6 +3067,383 @@ function FocusSessionWidget({onNavigate}){
 }
 
 
+// ── MOCK EXAMS (v1.5) — dedicated, exam-only question banks (NOT reused from lessons) ──
+// Format facts: TEF Canada — CO 60Q (audio once), CE 50Q, EE 2 tasks, EO interview A+B.
+//               TCF Canada — CO 39Q, CE 39Q, EE 3 tasks, EO 3 tasks.
+// These are representative timed mini-mocks (a handful of items per section) that you can expand.
+const MOCKS = {
+  TEF: {
+    id:"TEF", name:"TEF Canada", flag:"🇨🇦",
+    blurb:"Most common for Express Entry. Listening plays once. Four sections, scored to CLB.",
+    sections:[
+      {id:"co", label:"Compréhension orale", icon:"🎧", skill:"listening", mins:8, note:"Each recording plays ONCE — just like the real TEF.", questions:[
+        li("Bonjour, vous êtes bien au cabinet du docteur Nguyen. Le cabinet est fermé jusqu'au 8 janvier. En cas d'urgence, composez le 8-1-1.","Que faire en cas d'urgence?",["Composer le 811","Rappeler le 8 janvier","Se rendre au cabinet","Envoyer un courriel"],0,"« En cas d'urgence, composez le 811. »",{once:true,diff:2}),
+        li("Mesdames et messieurs, en raison de travaux, la station Berri-UQAM sera fermée tout le week-end. Veuillez emprunter la ligne orange jusqu'à la station Sherbrooke.","Pourquoi la station est-elle fermée?",["À cause de travaux","À cause d'un accident","Pour un événement spécial","À cause de la neige"],0,"« En raison de travaux… »",{once:true,diff:2}),
+        li("— Tu viens souper samedi? — J'aimerais bien, mais je travaille jusqu'à dix-neuf heures. — Pas de souci, on mange à vingt heures. — Parfait, j'apporte le dessert!","Qu'est-ce que la personne va apporter?",["Le dessert","Le vin","Une salade","Rien du tout"],0,"« J'apporte le dessert! »",{once:true,diff:3}),
+        li("Selon Environnement Canada, une tempête de neige touchera le sud du Québec demain. On attend jusqu'à trente centimètres et plusieurs écoles pourraient fermer.","Quelle est la prévision pour demain?",["Une tempête de neige, jusqu'à 30 cm","De la pluie verglaçante","Du grand soleil","Une vague de chaleur"],0,"« une tempête de neige… jusqu'à trente centimètres »",{once:true,diff:3}),
+        li("Dans l'actualité : le taux de chômage a reculé à quatre virgule huit pour cent le mois dernier, son plus bas niveau en deux ans, selon Statistique Canada.","Quelle information donne le reportage?",["Le chômage a baissé à 4,8 %","Le chômage a augmenté","Les salaires ont chuté","L'inflation a doublé"],0,"« le taux de chômage a reculé à 4,8 % »",{once:true,diff:4}),
+        li("L'invité soutient que le télétravail améliore la productivité, mais il nuance aussitôt : sans contacts réguliers, la cohésion d'équipe en souffre. Il prône donc un modèle hybride.","Quelle est la position de l'invité?",["Il recommande un modèle hybride","Il rejette totalement le télétravail","Il veut le télétravail à temps plein","Il n'exprime aucune opinion"],0,"Il nuance : ni tout l'un ni tout l'autre — « un modèle hybride ».",{once:true,diff:4}),
+      ]},
+      {id:"ce", label:"Compréhension écrite", icon:"📖", skill:"reading", mins:10, note:"Read each text, then choose the best answer.", questions:[
+        rd("BIBLIOTHÈQUE DE QUARTIER\nHoraire d'été (juillet–août)\nLundi au jeudi : 10 h – 20 h\nVendredi : 10 h – 17 h\nSamedi : 10 h – 16 h\nDimanche : fermé","Quand la bibliothèque ferme-t-elle le plus tôt (jours d'ouverture)?",["Le samedi, à 16 h","Le lundi, à 20 h","Le vendredi, à 17 h","Le dimanche"],0,"Among open days, Saturday closes earliest (16 h). Sunday is closed, not 'earliest closing'.",{title:"Avis — horaire",diff:2}),
+        rd("Objet : Confirmation de rendez-vous\n\nBonjour, nous confirmons votre rendez-vous à la clinique le mardi 12 mars à 9 h 15. Merci d'apporter votre carte d'assurance maladie et d'arriver 10 minutes à l'avance. Pour annuler, répondez à ce courriel au moins 24 h avant.","Que faut-il apporter au rendez-vous?",["Sa carte d'assurance maladie","Son passeport","De l'argent comptant","Une lettre du médecin"],0,"« Merci d'apporter votre carte d'assurance maladie ».",{title:"Courriel — clinique",diff:2}),
+        rd("MONTRÉAL — La Ville a annoncé l'ajout de 50 kilomètres de pistes cyclables d'ici 2027. Selon la mairesse, l'objectif est de réduire la circulation automobile et d'améliorer la qualité de l'air. Les premiers tronçons ouvriront dès le printemps prochain.","Quel est l'objectif principal du projet?",["Réduire la circulation et améliorer l'air","Augmenter le stationnement","Construire des routes","Financer le métro"],0,"« réduire la circulation automobile et d'améliorer la qualité de l'air ».",{title:"Article — La Presse",glossary:[["une piste cyclable","bike lane"],["un tronçon","a section"]],diff:3}),
+        rd("Il serait simpliste de réduire la pénurie de logements à une question d'offre et de demande. Certes, construire davantage aiderait. Mais sans encadrement des loyers ni protection des locataires, l'offre supplémentaire profitera surtout aux investisseurs, et non aux familles qui peinent à se loger.","Quelle est la position de l'auteur?",["Construire ne suffit pas sans protéger les locataires","Il faut seulement construire plus","La pénurie n'existe pas","Les investisseurs doivent décider"],0,"Inference: 'Certes… Mais…' — building helps but isn't enough without tenant protection.",{title:"Éditorial — Le Devoir",glossary:[["la pénurie","shortage"],["un locataire","tenant"]],diff:4}),
+        rd("OFFRE D'EMPLOI — Adjoint(e) administratif(ve)\nExigences : DEC, bilinguisme (français-anglais), 2 ans d'expérience.\nConditions : 35 h/sem., 24 $/h, télétravail hybride.\nPostulez avant le 15 mai à rh@exemple.ca.","Quelle est une exigence du poste?",["Le bilinguisme français-anglais","Un baccalauréat obligatoire","Cinq ans d'expérience","Aucune expérience"],0,"« bilinguisme (français-anglais) » is listed under Exigences.",{title:"Offre d'emploi",diff:3}),
+        rd("Conformément à la Loi, à compter du 1er juin, tout locataire souhaitant contester une hausse de loyer dispose d'un mois pour le faire par écrit. Passé ce délai, et sans réponse, la hausse est réputée acceptée.","Que se passe-t-il si le locataire ne répond pas dans le délai?",["La hausse est réputée acceptée","Le bail est annulé","Le loyer est gelé","Le locataire est expulsé"],0,"« sans réponse, la hausse est réputée acceptée ».",{title:"Avis officiel",glossary:[["réputé","deemed"],["un délai","a deadline"]],diff:4}),
+      ]},
+      {id:"ee", label:"Expression écrite", icon:"✍️", skill:"writing", mins:25, note:"Two tasks — Sophie grades them at the end.", questions:[
+        wr("Tâche A (≈120 mots) — Écrivez un courriel formel à votre propriétaire : votre chauffage ne fonctionne plus depuis deux jours, demandez une réparation rapide et proposez vos disponibilités.",["bonjour","je vous écris","le chauffage","je vous demande","cordialement"],"A strong TEF Task A: clear object, the problem, a precise request, your availability, and a formal close."),
+        wr("Tâche B (≈200 mots) — « Faut-il limiter la circulation automobile au centre-ville? » Donnez votre opinion, justifiez-la avec deux arguments et un exemple, et concluez.",["à mon avis","d'une part","d'autre part","cependant","en conclusion"],"A strong TEF Task B: position, two justified arguments with an example, a concession, and a conclusion — formal register throughout."),
+      ]},
+      {id:"eo", label:"Expression orale", icon:"🗣️", skill:"speaking", mins:8, note:"Speak aloud — your microphone is used; Sophie scores you.", questions:[
+        sp("Section A — Obtenir de l'information : vous voyez l'annonce « Cours de français le soir — inscriptions ouvertes ». Posez à voix haute 4 ou 5 questions à l'annonceur pour tout savoir (horaire, prix, lieu, niveau).","Bonjour, je vous appelle au sujet de votre annonce. Quels jours ont lieu les cours? À quelle heure commencent-ils? Combien coûte l'inscription? Où se trouvent les cours? Y a-t-il un niveau requis pour s'inscrire?",["quels jours","à quelle heure","combien","où","niveau"],"TEF Section A is about asking clear, varied questions to get information. Aim for 4–5 well-formed questions."),
+        sp("Section B — Défendre un point de vue : convainquez un ami de s'inscrire à un cours de français. Donnez au moins trois arguments et répondez à une objection (« je n'ai pas le temps »).","Tu devrais vraiment t'inscrire à un cours de français. D'abord, ça t'ouvrira des portes au travail. Ensuite, tu te sentiras plus à l'aise au quotidien, à l'épicerie ou chez le médecin. Enfin, c'est une belle façon de rencontrer des gens. Je sais que tu manques de temps, mais même une heure par semaine fait une grande différence — n'est-ce pas un bon investissement?",["d'abord","ensuite","enfin","je sais que","mais"],"TEF Section B is about persuading and defending: structured arguments + handling an objection + a rhetorical close."),
+      ]},
+    ],
+  },
+  TCF: {
+    id:"TCF", name:"TCF Canada", flag:"🍁",
+    blurb:"Computer-based. Listening 39Q, Reading 39Q, 3 writing tasks, 3 speaking tasks.",
+    sections:[
+      {id:"co", label:"Compréhension orale", icon:"🎧", skill:"listening", mins:7, note:"Listen and choose the best answer.", questions:[
+        li("Le train à destination de Québec partira du quai numéro trois dans dix minutes. Les passagers sont priés de se présenter à l'embarquement.","De quel quai le train part-il?",["Du quai numéro 3","Du quai numéro 13","Du quai numéro 2","Du quai numéro 10"],0,"« du quai numéro trois ».",{once:true,diff:2}),
+        li("Désolée, le plat du jour n'est plus disponible. Mais je peux vous proposer le saumon ou le poulet, tous deux servis avec des légumes.","Que propose la serveuse?",["Le saumon ou le poulet","Le plat du jour","Une soupe","Un dessert"],0,"« le saumon ou le poulet ».",{once:true,diff:2}),
+        li("Si tu veux mon avis, le nouveau musée vaut vraiment le détour. L'exposition sur l'histoire de Montréal est fascinante, et l'entrée est gratuite le premier dimanche du mois.","Quand l'entrée est-elle gratuite?",["Le premier dimanche du mois","Tous les jours","Le samedi","Jamais"],0,"« gratuite le premier dimanche du mois ».",{once:true,diff:3}),
+        li("L'étude révèle que les jeunes adultes lisent moins de livres papier qu'il y a dix ans, mais qu'ils consomment davantage de contenus audio, comme les balados.","Que révèle l'étude?",["Ils lisent moins de livres papier, mais écoutent plus d'audio","Ils lisent davantage de livres","Ils n'écoutent plus rien","Ils regardent surtout la télé"],0,"« lisent moins de livres papier… davantage de contenus audio ».",{once:true,diff:3}),
+        li("La conférencière insiste : la transition écologique ne réussira pas sans l'adhésion des citoyens. Les politiques publiques, dit-elle, ne suffisent pas si les habitudes quotidiennes ne changent pas.","Quel est le message de la conférencière?",["Le changement des habitudes citoyennes est essentiel","Seules les lois comptent","La transition est impossible","Les citoyens n'ont aucun rôle"],0,"« ne réussira pas sans l'adhésion des citoyens ».",{once:true,diff:4}),
+        li("Force est de constater que, malgré les promesses répétées, les délais d'attente n'ont guère diminué. Certains y voient un problème de financement; d'autres, une mauvaise organisation.","Que sous-entend le passage?",["Les promesses n'ont pas réglé le problème des délais","Les délais ont disparu","Tout le monde est d'accord sur la cause","Le financement est suffisant"],0,"'malgré les promesses… n'ont guère diminué' = implied: promises didn't fix it.",{once:true,diff:4}),
+      ]},
+      {id:"ce", label:"Compréhension écrite", icon:"📖", skill:"reading", mins:10, note:"Read each text, then choose the best answer.", questions:[
+        rd("PROMOTION — Épicerie Bonjour\nCette semaine seulement : 2 pour 1 sur tous les fruits.\nValide du 3 au 9 avril. Carte de membre requise.","Quelle est la condition pour profiter de la promotion?",["Avoir une carte de membre","Acheter pour 50 $","Venir le dimanche","Payer comptant"],0,"« Carte de membre requise. »",{title:"Publicité",diff:2}),
+        rd("Salut Marie! Je ne pourrai pas venir à la réunion de jeudi, j'ai un empêchement. Peux-tu prendre des notes et me les envoyer? Je te revaudrai ça. Merci, Léo.","Que demande Léo à Marie?",["De prendre des notes et de les lui envoyer","D'annuler la réunion","De l'appeler jeudi","De venir chez lui"],0,"« Peux-tu prendre des notes et me les envoyer? »",{title:"Message",diff:2}),
+        rd("Le covoiturage gagne en popularité au Québec. En partageant une voiture, les usagers réduisent leurs frais de transport et leur empreinte carbone. Plusieurs applications facilitent désormais la mise en relation des conducteurs et des passagers.","Quel est un avantage du covoiturage mentionné?",["La réduction des frais et de l'empreinte carbone","Des voitures plus rapides","Moins de circulation garantie","Des trajets gratuits"],0,"« réduisent leurs frais… et leur empreinte carbone ».",{title:"Article",glossary:[["le covoiturage","carpooling"],["l'empreinte carbone","carbon footprint"]],diff:3}),
+        rd("On entend souvent que la technologie isole les individus. Pourtant, pour bien des personnes âgées, les appels vidéo représentent un lien précieux avec leurs proches éloignés. La technologie n'est ni bonne ni mauvaise en soi : tout dépend de l'usage qu'on en fait.","Quelle est l'idée principale de l'auteur?",["L'effet de la technologie dépend de son usage","La technologie isole toujours","Les personnes âgées détestent la technologie","Les appels vidéo sont inutiles"],0,"« ni bonne ni mauvaise en soi : tout dépend de l'usage ».",{title:"Chronique",diff:4}),
+        rd("Avis aux employés : à compter du 1er septembre, le stationnement du personnel sera payant (40 $/mois). Les abonnements se feront en ligne. Les places resteront attribuées selon l'ordre d'inscription.","Comment les places de stationnement seront-elles attribuées?",["Selon l'ordre d'inscription","Par tirage au sort","Par ancienneté","Au hasard chaque jour"],0,"« attribuées selon l'ordre d'inscription ».",{title:"Note interne",diff:3}),
+        rd("La nouvelle réglementation, bien qu'animée de bonnes intentions, risque de pénaliser les petits commerçants, déjà fragilisés. Avant de l'appliquer, il conviendrait d'en mesurer les effets réels sur le terrain.","Quel est le point de vue de l'auteur sur la réglementation?",["Il est prudent : il veut en mesurer les effets d'abord","Il l'approuve sans réserve","Il la juge parfaite","Il veut l'appliquer immédiatement"],0,"'bien qu'animée de bonnes intentions… risque de pénaliser' = cautious.",{title:"Opinion",glossary:[["fragilisé","weakened"],["il conviendrait","it would be advisable"]],diff:4}),
+      ]},
+      {id:"ee", label:"Expression écrite", icon:"✍️", skill:"writing", mins:30, note:"Three tasks — Sophie grades them at the end.", questions:[
+        wr("Tâche 1 (60–120 mots) — Écrivez un message à un(e) ami(e) pour l'inviter à une activité ce week-end : proposez quoi faire, quand et où, et demandez sa réponse.",["salut","ce week-end","est-ce que","réponds-moi"],"TCF Task 1: a friendly message that invites, gives details (what/when/where), and asks for a reply."),
+        wr("Tâche 2 (120–150 mots) — Racontez une expérience récente (un voyage, un événement, une première fois) et expliquez ce que vous en avez retenu.",["récemment","j'ai","c'était","j'ai appris","finalement"],"TCF Task 2: a clear narrative in the past with a reflective takeaway."),
+        wr("Tâche 3 (120–180 mots) — Deux personnes débattent : l'une dit que les réseaux sociaux rapprochent les gens, l'autre qu'ils les isolent. Comparez les deux points de vue et donnez le vôtre.",["d'un côté","de l'autre","selon moi","tandis que","en définitive"],"TCF Task 3: compare both viewpoints fairly, then give your own reasoned opinion."),
+      ]},
+      {id:"eo", label:"Expression orale", icon:"🗣️", skill:"speaking", mins:9, note:"Speak aloud for each task — Sophie scores you.", questions:[
+        sp("Tâche 1 — Entretien dirigé : présentez-vous à voix haute (qui vous êtes, d'où vous venez, ce que vous faites, pourquoi vous apprenez le français).","Bonjour, je m'appelle… Je viens de… et j'habite au Canada depuis… Je travaille comme… J'apprends le français pour mieux m'intégrer, pour le travail et pour aider mes enfants à l'école.",["je m'appelle","je viens de","j'habite","j'apprends le français"],"TCF Task 1: a clear, natural self-presentation."),
+        sp("Tâche 2 — Mise en situation : vous voulez vous inscrire à la bibliothèque. À voix haute, posez à l'employé les questions nécessaires (documents requis, horaires, prêts, carte).","Bonjour, je voudrais m'inscrire à la bibliothèque. De quels documents ai-je besoin? L'inscription est-elle gratuite? Combien de livres puis-je emprunter à la fois? Et pour combien de temps?",["je voudrais","de quels documents","est-elle gratuite","combien"],"TCF Task 2: a realistic interaction with clear, varied questions."),
+        sp("Tâche 3 — Expression d'un point de vue : « Vaut-il mieux vivre en ville ou à la campagne? » Donnez votre opinion à voix haute avec deux arguments et un exemple.","À mon avis, vivre en ville présente plus d'avantages. D'abord, on a accès à plus de services et de transports. Ensuite, il y a plus d'opportunités d'emploi. Par exemple, à Montréal, on peut tout faire sans voiture. Cela dit, la campagne offre plus de calme.",["à mon avis","d'abord","ensuite","par exemple"],"TCF Task 3: a clear opinion, two arguments, an example, and a brief concession."),
+      ]},
+    ],
+  },
+};
+function mockClbFromPct(p){ return p>=85?8:p>=72?7:p>=56?6:p>=40?5:4; }
+
+// ── SKILLS TAB — on-demand focused practice by skill (v1.5) ──
+const SKILL_DEFS=[
+  {id:"listening",label:"Listening",emoji:"🎧",color:"#7C3AED",bg:"#F5F3FF",desc:"Train your ear on real Quebec audio",types:["listen"]},
+  {id:"speaking",label:"Speaking",emoji:"🗣️",color:"#EA580C",bg:"#FFF7ED",desc:"Speak out loud with live AI coaching",types:["speak"]},
+  {id:"reading",label:"Reading",emoji:"📖",color:"#D97706",bg:"#FFFBEB",desc:"Authentic French passages & comprehension",types:["read","scene"]},
+  {id:"writing",label:"Writing",emoji:"✍️",color:"#2563EB",bg:"#EFF6FF",desc:"AI-graded written French",types:["write"]},
+  {id:"grammar",label:"Grammar",emoji:"🧩",color:"#059669",bg:"#ECFDF5",desc:"Build sentences & fill the gaps",types:["fill","order"]},
+  {id:"vocabulary",label:"Vocabulary",emoji:"🗂️",color:"#DC2626",bg:"#FEF2F2",desc:"Match & recognise key words",types:["match","tap"]},
+];
+
+function SkillsScreen({onStartPractice, onOpenMock}){
+  const isMobile=useIsMobile();
+  const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
+  const allQs=allLessons.flatMap(l=>(l.questions||[]));
+  const poolFor=(types)=>allQs.filter(q=>types.includes(q.type));
+  const start=(def)=>{
+    const pool=poolFor(def.types);
+    if(pool.length===0) return;
+    const shuffled=[...pool].sort(()=>Math.random()-0.5).slice(0,10);
+    onStartPractice({id:`skill-${def.id}`,title:`${def.label} Practice`,skill:def.id,practice:true,questions:shuffled});
+  };
+  let reviewPool=[];
+  try{ reviewPool=JSON.parse(localStorage.getItem("franco_review_pool")||"[]"); }catch{ reviewPool=[]; }
+  const startReview=()=>{
+    if(!reviewPool.length) return;
+    const qs=[...reviewPool].sort(()=>Math.random()-0.5).slice(0,15);
+    onStartPractice({id:"skill-review",title:"Review your mistakes",skill:"review",practice:true,questions:qs});
+  };
+  const track=getTrack();
+  const buddy=getCompanion();
+  return <div style={{minHeight:"100vh",background:"#F1F4F9",padding:isMobile?"16px 12px 80px":"32px 28px",maxWidth:1020,margin:"0 auto"}}>
+    <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?22:28,fontWeight:800,color:"#0F172A",marginBottom:12}}>🎯 Skills Practice</div>
+    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:isMobile?16:22}}>
+      <Avatar companion={buddy} size={isMobile?44:54}/>
+      <SpeechBubble companion={buddy} text={`Pick a skill and we'll do a quick set together — no pressure, just reps. I'm right here, ${buddy.name==="Sophie"?"on y va!":"allons-y!"} 🍁`}/>
+    </div>
+
+    {/* Spaced review of past mistakes */}
+    {reviewPool.length>0&&<button onClick={startReview}
+      style={{width:"100%",textAlign:"left",background:"linear-gradient(135deg,#0F172A,#1E293B)",border:"none",borderRadius:16,padding:isMobile?"14px 16px":"18px 20px",cursor:"pointer",marginBottom:isMobile?12:16,display:"flex",alignItems:"center",gap:14}}>
+      <span style={{fontSize:28,flexShrink:0}}>🔁</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:18,fontWeight:800,color:"#fff"}}>Review your mistakes</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.6)"}}>{reviewPool.length} question{reviewPool.length>1?"s":""} you missed — bring them back until they stick</div>
+      </div>
+      <span style={{fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>Start →</span>
+    </button>}
+
+    {/* Timed mock exam (TEF / TCF) */}
+    <button onClick={onOpenMock}
+      style={{width:"100%",textAlign:"left",background:"linear-gradient(135deg,#1D4ED8,#2563EB)",border:"none",borderRadius:16,padding:isMobile?"14px 16px":"18px 20px",cursor:"pointer",marginBottom:isMobile?14:18,display:"flex",alignItems:"center",gap:14}}>
+      <span style={{fontSize:28,flexShrink:0}}>📝</span>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:18,fontWeight:800,color:"#fff"}}>Mock Exam — TEF & TCF Canada</div>
+        <div style={{fontSize:12,color:"rgba(255,255,255,0.7)"}}>Timed, four sections, scored to CLB. Friendly practice — no pressure.{track.clb?` Your goal: CLB ${track.clb}.`:""}</div>
+      </div>
+      <span style={{fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>Begin →</span>
+    </button>
+
+    <div style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Practise one skill</div>
+    <div style={{display:"grid",gridTemplateColumns:isMobile?"1fr 1fr":"repeat(3,1fr)",gap:isMobile?10:14}}>
+      {SKILL_DEFS.map(def=>{
+        const n=poolFor(def.types).length;
+        const disabled=n===0;
+        return <button key={def.id} onClick={()=>!disabled&&start(def)} disabled={disabled}
+          style={{textAlign:"left",background:disabled?"#F8FAFC":"#fff",border:`1.5px solid ${disabled?"#E2E8F0":def.color+"33"}`,borderRadius:16,padding:isMobile?"14px":"18px 18px 16px",cursor:disabled?"default":"pointer",opacity:disabled?0.55:1,transition:"all 0.15s",display:"flex",flexDirection:"column",gap:8}}
+          onMouseEnter={e=>{if(!disabled){e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 6px 18px rgba(15,23,42,0.08)";}}}
+          onMouseLeave={e=>{e.currentTarget.style.transform="none";e.currentTarget.style.boxShadow="none";}}>
+          <div style={{width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:def.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?22:26}}>{def.emoji}</div>
+          <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?16:18,fontWeight:800,color:"#0F172A"}}>{def.label}</div>
+          <div style={{fontSize:12,color:"#64748B",lineHeight:1.5,minHeight:34}}>{def.desc}</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:2}}>
+            <span style={{fontSize:11,fontWeight:700,color:def.color,background:def.bg,borderRadius:50,padding:"3px 10px"}}>{disabled?"Coming soon":`${Math.min(n,10)} questions`}</span>
+            {!disabled&&<span style={{fontSize:13,fontWeight:800,color:def.color}}>Start →</span>}
+          </div>
+        </button>;
+      })}
+    </div>
+    <div style={{marginTop:isMobile?18:26,fontSize:12,color:"#94A3B8",lineHeight:1.6}}>🎧 Listening & 🗣️ Speaking use your device's French-Canadian voice and microphone — best in a quiet spot with headphones.</div>
+  </div>;
+}
+
+// ── MOCK EXAM RUNNER ──────────────────────────────────────────────────────────
+// Timed, exam-style (no per-question feedback for CO/CE). Encouraging throughout —
+// mistakes are framed as practice, never failure.
+function fmtTime(s){ const m=Math.floor(s/60), ss=s%60; return `${m}:${ss<10?"0":""}${ss}`; }
+
+function MockExamScreen({onExit}){
+  const isMobile=useIsMobile();
+  const track=getTrack();
+  const[examId,setExamId]=useState(null);
+  const[phase,setPhase]=useState("pick"); // pick | intro | run | results
+  const[secIdx,setSecIdx]=useState(0);
+  const[qIdx,setQIdx]=useState(0);
+  const[ans,setAns]=useState({});         // key `${secIdx}-${qIdx}` -> {sel, text, score}
+  const[timeLeft,setTimeLeft]=useState(0);
+  const[grading,setGrading]=useState(false);
+  const[result,setResult]=useState(null);
+  const timerRef=useRef();
+
+  const exam=examId?MOCKS[examId]:null;
+  const section=exam?exam.sections[secIdx]:null;
+  const q=section?section.questions[qIdx]:null;
+  const key=`${secIdx}-${qIdx}`;
+
+  // Section countdown
+  useEffect(()=>{
+    if(phase!=="run"||!section) return;
+    clearInterval(timerRef.current);
+    timerRef.current=setInterval(()=>{
+      setTimeLeft(t=>{ if(t<=1){ clearInterval(timerRef.current); nextSection(); return 0; } return t-1; });
+    },1000);
+    return ()=>clearInterval(timerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[phase,secIdx]);
+
+  const startExam=(id)=>{ setExamId(id); setPhase("intro"); };
+  const beginSections=()=>{ setSecIdx(0); setQIdx(0); setTimeLeft(MOCKS[examId].sections[0].mins*60); setPhase("run"); };
+  const setAnswer=(patch)=>setAns(a=>({...a,[key]:{...(a[key]||{}),...patch}}));
+
+  const nextQ=()=>{
+    stopFrench();
+    if(qIdx < section.questions.length-1){ setQIdx(qIdx+1); }
+    else nextSection();
+  };
+  const nextSection=()=>{
+    stopFrench(); clearInterval(timerRef.current);
+    if(secIdx < exam.sections.length-1){
+      const n=secIdx+1; setSecIdx(n); setQIdx(0); setTimeLeft(exam.sections[n].mins*60);
+    } else finish();
+  };
+
+  async function finish(){
+    setPhase("results"); setGrading(true);
+    const out={ sections:[], examName:exam.name };
+    // Auto-graded sections (listening / reading)
+    for(let s=0;s<exam.sections.length;s++){
+      const sec=exam.sections[s];
+      if(sec.skill==="listening"||sec.skill==="reading"){
+        let correct=0;
+        sec.questions.forEach((qq,i)=>{ if((ans[`${s}-${i}`]||{}).sel===qq.correct) correct++; });
+        const pct=Math.round(100*correct/sec.questions.length);
+        out.sections.push({order:s,label:sec.label,icon:sec.icon,detail:`${correct}/${sec.questions.length} correct`,clb:mockClbFromPct(pct)});
+      } else if(sec.skill==="speaking"){
+        const scores=sec.questions.map((qq,i)=>(ans[`${s}-${i}`]||{}).score).filter(x=>typeof x==="number");
+        const avg=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null;
+        out.sections.push({order:s,label:sec.label,icon:sec.icon,detail:avg!=null?`Sophie scored ${avg}/100`:"Not attempted",clb:avg!=null?mockClbFromPct(avg):null});
+      }
+    }
+    // AI-graded writing (all writing sections)
+    for(let s=0;s<exam.sections.length;s++){
+      const sec=exam.sections[s];
+      if(sec.skill!=="writing") continue;
+      const tasks=sec.questions.map((qq,i)=>`TASK: ${qq.prompt}\nLEARNER WROTE: ${((ans[`${s}-${i}`]||{}).text||"(left blank)")}`).join("\n\n");
+      let clb=null, note="";
+      try{
+        const sys=`You are a TEF/TCF Canada examiner. Grade the learner's written French and estimate their CLB/NCLC level for WRITING (4-9). Be fair but encouraging. Respond ONLY in JSON: {"clb": <integer 4-9>, "note": "<one short encouraging sentence, max 18 words>"}`;
+        const raw=await callClaude(sys, tasks, 200);
+        const parsed=JSON.parse(raw.replace(/```json|```/g,"").trim());
+        clb=parsed.clb; note=parsed.note||"";
+      }catch{ clb=null; note="Couldn't auto-grade — review your writing with Sophie."; }
+      out.sections.push({order:s,label:sec.label,icon:sec.icon,detail:note,clb});
+    }
+    out.sections.sort((a,b)=>a.order-b.order);
+    // Overall
+    const clbs=out.sections.map(x=>x.clb).filter(x=>typeof x==="number");
+    out.overall=clbs.length?Math.min(...clbs):null; // CLB takes the LOWEST section (like IRCC)
+    out.target=track.clb||7;
+    setResult(out); setGrading(false);
+  }
+
+  const wrap=(children)=>(<div style={{minHeight:"100vh",background:"#F1F4F9",padding:isMobile?"16px 12px 90px":"28px 24px",maxWidth:760,margin:"0 auto"}}>{children}</div>);
+  const backBtn=<button onClick={()=>{stopFrench();clearInterval(timerRef.current);onExit();}} style={{background:"none",border:"none",color:"#64748B",fontSize:13,fontWeight:600,cursor:"pointer",padding:"4px 0",marginBottom:8}}>← Exit</button>;
+
+  // ── PICK EXAM ──
+  if(phase==="pick"){
+    const suggested=track.exam||"TEF";
+    return wrap(<>
+      {backBtn}
+      <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?22:28,fontWeight:800,color:"#0F172A",marginBottom:12}}>📝 Mock Exam</div>
+      {(()=>{ const buddy=getCompanion(); return <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:18}}>
+        <Avatar companion={buddy} size={isMobile?44:54}/>
+        <SpeechBubble companion={buddy} text={"Ready for a dry run? Pick your exam below. It's just us practising — take it as many times as you like. 🍁"}/>
+      </div>; })()}
+      {["TEF","TCF"].map(id=>{const m=MOCKS[id]; const rec=id===suggested;
+        return <button key={id} onClick={()=>startExam(id)} style={{width:"100%",textAlign:"left",background:"#fff",border:`2px solid ${rec?"#2563EB":"#E2E8F0"}`,borderRadius:16,padding:"18px",marginBottom:12,cursor:"pointer",display:"flex",alignItems:"center",gap:14}}>
+          <span style={{fontSize:30}}>{m.flag}</span>
+          <div style={{flex:1}}>
+            <div style={{fontFamily:"Georgia,serif",fontSize:18,fontWeight:800,color:"#0F172A"}}>{m.name}{rec&&<span style={{fontSize:11,fontWeight:700,color:"#2563EB",background:"#EFF6FF",borderRadius:50,padding:"2px 8px",marginLeft:8}}>Suggested for you</span>}</div>
+            <div style={{fontSize:12.5,color:"#64748B",marginTop:3,lineHeight:1.5}}>{m.blurb}</div>
+          </div>
+          <span style={{fontSize:13,fontWeight:800,color:"#2563EB"}}>Start →</span>
+        </button>;
+      })}
+    </>);
+  }
+
+  // ── INTRO ──
+  if(phase==="intro"){
+    const buddy=getCompanion();
+    return wrap(<>
+      {backBtn}
+      <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?20:26,fontWeight:800,color:"#0F172A",marginBottom:12}}>{exam.flag} {exam.name}</div>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <Avatar companion={buddy} size={isMobile?46:56}/>
+        <SpeechBubble companion={buddy} text={"Deep breath — this is just practice, and I'm right here with you. Every mistake now is one you won't make on test day. On y va! 💙"}/>
+      </div>
+      <div style={{fontSize:14,color:"#475569",marginBottom:18,lineHeight:1.6}}>Four sections, each timed. You can move on early. Don't worry about a perfect score — I'll show you exactly where you stand and what to practise next.</div>
+      <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden",marginBottom:18}}>
+        {exam.sections.map((s,i)=><div key={s.id} style={{display:"flex",alignItems:"center",gap:12,padding:"14px 16px",borderTop:i?"1px solid #F1F5F9":"none"}}>
+          <span style={{fontSize:22}}>{s.icon}</span>
+          <div style={{flex:1}}><div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>{s.label}</div><div style={{fontSize:12,color:"#94A3B8"}}>{s.questions.length} {s.skill==="writing"||s.skill==="speaking"?"task"+(s.questions.length>1?"s":""):"questions"} · {s.mins} min</div></div>
+        </div>)}
+      </div>
+      <button onClick={beginSections} style={{width:"100%",background:"#0F172A",color:"#fff",border:"none",borderRadius:14,padding:"15px",fontSize:15,fontWeight:800,cursor:"pointer"}}>Begin — bonne chance! 🍀</button>
+    </>);
+  }
+
+  // ── RESULTS ──
+  if(phase==="results"){
+    return wrap(<>
+      <div style={{fontFamily:"Georgia,serif",fontSize:isMobile?22:28,fontWeight:800,color:"#0F172A",marginBottom:6}}>Your results</div>
+      {grading?<div style={{textAlign:"center",padding:"40px 0"}}><div style={{fontSize:34,animation:"float 1s infinite"}}>🧠</div><div style={{marginTop:10,fontWeight:700,color:"#0F172A"}}>Sophie is marking your writing…</div></div>:<>
+        {result?.overall!=null&&(()=>{ const buddy=getCompanion(); const hit=result.overall>=result.target; return <>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
+            <Avatar companion={buddy} size={isMobile?46:56} speaking={hit} showWaves={hit}/>
+            <SpeechBubble companion={buddy} text={hit
+              ? `Regarde ça — you hit CLB ${result.overall}! That's your goal. I'm proud of you. Let's keep this momentum going. 🎉`
+              : `Solid run! You're at CLB ${result.overall}, and your goal is CLB ${result.target}. We lift the lowest section first — totally doable, one rep at a time. 💪`}/>
+          </div>
+          <div style={{background:"linear-gradient(135deg,#0F172A,#1E293B)",borderRadius:18,padding:"22px",marginBottom:16,textAlign:"center"}}>
+            <div style={{fontSize:12,color:"rgba(255,255,255,0.6)",fontWeight:700,textTransform:"uppercase",letterSpacing:1}}>Estimated overall</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:44,fontWeight:900,color:"#fff",lineHeight:1.1,margin:"4px 0"}}>CLB {result.overall}</div>
+            <div style={{fontSize:13,color:hit?"#6EE7B7":"#FCD34D",fontWeight:700}}>
+              {hit?`🎉 You're at your CLB ${result.target} goal!`:`Goal: CLB ${result.target} — you're ${result.target-result.overall} band${result.target-result.overall>1?"s":""} away. You've got this.`}
+            </div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginTop:8}}>Like IRCC, your overall is your lowest section — so we know exactly what to lift next.</div>
+          </div>
+        </>; })()}
+        {(result?.sections||[]).map((s,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:12,background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"14px 16px",marginBottom:8}}>
+          <span style={{fontSize:22}}>{s.icon}</span>
+          <div style={{flex:1,minWidth:0}}><div style={{fontSize:14,fontWeight:700,color:"#0F172A"}}>{s.label}</div><div style={{fontSize:12,color:"#64748B"}}>{s.detail}</div></div>
+          {s.clb!=null?<div style={{fontSize:13,fontWeight:800,color:s.clb>=result.target?"#059669":"#D97706",flexShrink:0}}>CLB {s.clb}</div>:<div style={{fontSize:12,color:"#94A3B8"}}>—</div>}
+        </div>)}
+        <div style={{display:"flex",gap:10,marginTop:16}}>
+          <button onClick={()=>{setExamId(null);setPhase("pick");setAns({});setResult(null);}} style={{flex:1,background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer",color:"#0F172A"}}>Another mock</button>
+          <button onClick={()=>{stopFrench();onExit();}} style={{flex:1,background:"#0F172A",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer"}}>Done</button>
+        </div>
+      </>}
+    </>);
+  }
+
+  // ── RUNNING A SECTION ──
+  const a=ans[key]||{};
+  const totalQ=section.questions.length;
+  return wrap(<>
+    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+      <div style={{fontSize:13,fontWeight:800,color:"#0F172A"}}>{section.icon} {section.label}</div>
+      <div style={{fontSize:13,fontWeight:800,color:timeLeft<30?"#DC2626":"#475569",fontVariantNumeric:"tabular-nums"}}>⏱ {fmtTime(timeLeft)}</div>
+    </div>
+    <div style={{height:5,background:"#E2E8F0",borderRadius:99,marginBottom:6,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.round(100*(qIdx)/totalQ)}%`,background:"#2563EB",transition:"width 0.3s"}}/></div>
+    <div style={{fontSize:11,color:"#94A3B8",marginBottom:12}}>{section.note} · {qIdx+1} of {totalQ}</div>
+
+    {/* Listening */}
+    {q.type==="listen"&&<ListenQuestion key={`l-${secIdx}-${qIdx}`} q={q} selected={a.sel??null} setSelected={(i)=>setAnswer({sel:i})} answered={false}/>}
+
+    {/* Reading */}
+    {q.type==="read"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+      {q.title&&<div style={{padding:"14px 18px 0",fontFamily:"Georgia,serif",fontSize:16,fontWeight:800,color:"#0F172A"}}>{q.title}</div>}
+      <div style={{padding:"14px 18px",background:"#FBFAF7",borderBottom:"1px solid #F1F5F9",borderLeft:"3px solid #D97706",fontSize:14,color:"#1F2937",lineHeight:1.85,maxHeight:240,overflowY:"auto",whiteSpace:"pre-wrap"}}>{q.passage}</div>
+      <div style={{padding:"16px 18px",borderBottom:"1px solid #F1F5F9",fontSize:15,fontWeight:700,color:"#0F172A"}}>{q.prompt}</div>
+      <div style={{display:"flex",flexDirection:"column"}}>
+        {(q.options||[]).map((opt,i)=>{const sel=a.sel===i;
+          return <button key={i} onClick={()=>setAnswer({sel:i})} style={{padding:"13px 18px",border:"none",borderTop:"1px solid #F1F5F9",background:sel?"#EFF6FF":"#fff",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,fontSize:14,color:sel?"#2563EB":"#0F172A",fontWeight:sel?600:400}}>
+            <span style={{width:24,height:24,borderRadius:6,background:sel?"#2563EB":"#F1F5F9",color:sel?"#fff":"#64748B",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11}}>{["A","B","C","D"][i]}</span>{opt}
+          </button>;
+        })}
+      </div>
+    </div>}
+
+    {/* Writing */}
+    {q.type==="write"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",padding:"16px 18px"}}>
+      <div style={{fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55,marginBottom:10}}>{q.prompt}</div>
+      <textarea key={`w-${secIdx}-${qIdx}`} value={a.text||""} onChange={e=>setAnswer({text:e.target.value})} placeholder="Écrivez votre réponse ici…"
+        style={{width:"100%",minHeight:160,padding:"12px",borderRadius:12,border:"1.5px solid #E2E8F0",fontSize:14,fontFamily:"system-ui",lineHeight:1.6,resize:"vertical",boxSizing:"border-box",outline:"none"}}/>
+      <div style={{fontSize:11,color:"#94A3B8",marginTop:6}}>{(a.text||"").trim().split(/\s+/).filter(Boolean).length} words · Sophie grades this at the end</div>
+    </div>}
+
+    {/* Speaking */}
+    {q.type==="speak"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+      <div style={{padding:"16px 18px",borderBottom:"1px solid #F1F5F9",fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
+      <div style={{padding:"14px 18px"}}>
+        <AISpeakingCoach key={`s-${secIdx}-${qIdx}`} prompt={q.prompt} sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""} onDone={(passed,score)=>setAnswer({score:typeof score==="number"?score:(passed?70:45)})}/>
+        {typeof a.score==="number"&&<div style={{marginTop:8,fontSize:12,color:"#059669",fontWeight:700}}>✓ Recorded — Sophie scored {a.score}/100. You can continue.</div>}
+      </div>
+    </div>}
+
+    <div style={{display:"flex",gap:10,marginTop:16}}>
+      <button onClick={nextSection} style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"13px 16px",fontWeight:700,fontSize:13,cursor:"pointer",color:"#64748B"}}>Skip section</button>
+      <button onClick={nextQ} style={{flex:1,background:"#0F172A",color:"#fff",border:"none",borderRadius:12,padding:"13px",fontWeight:700,fontSize:14,cursor:"pointer"}}>
+        {qIdx<totalQ-1?"Next →":(secIdx<exam.sections.length-1?"Next section →":"Finish & see results →")}
+      </button>
+    </div>
+    <div style={{textAlign:"center",marginTop:10}}><button onClick={()=>{stopFrench();clearInterval(timerRef.current);onExit();}} style={{background:"none",border:"none",color:"#94A3B8",fontSize:12,cursor:"pointer"}}>Exit exam</button></div>
+  </>);
+}
+
 function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMode}){
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
@@ -3037,7 +3455,10 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
   const hour=new Date().getHours();
   const greeting=hour<12?"Bonjour":hour<17?"Bon après-midi":"Bonsoir";
   const displayName=user?.displayName||user?.email?.split("@")[0]||null;
-  const nextLesson=allL.find(l=>!progress[l.id]);
+  // Track-aware next lesson: focused tracks (e.g. CLB 5) surface their focus skills first.
+  const track=getTrack();
+  const focusSet=new Set(track.focus);
+  const nextLesson=(track.focus.length<4&&allL.find(l=>!progress[l.id]&&focusSet.has(l.skill)))||allL.find(l=>!progress[l.id]);
   const nextLevel=nextLesson?Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson.id)):null;
   const skillDone=(sk)=>allL.filter(l=>l.skill===sk&&progress[l.id]).length;
   const skillTotal=(sk)=>allL.filter(l=>l.skill===sk).length;
@@ -3077,6 +3498,41 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
         </div>
       ))}
     </div>
+
+    {/* LEVEL + BADGES + DAILY GOAL */}
+    {(()=>{
+      const lvlNum=Math.floor(xp/100)+1;
+      const xpInLvl=xp%100;
+      const todayDone=(()=>{try{return localStorage.getItem("franco_last_day")===new Date().toISOString().split("T")[0];}catch{return false;}})();
+      const badges=[
+        {emoji:"🎯",label:"First lesson",earned:doneL>=1},
+        {emoji:"🔟",label:"10 lessons",earned:doneL>=10},
+        {emoji:"🔥",label:"7-day streak",earned:streak()>=7},
+        {emoji:"⭐",label:"50 lessons",earned:doneL>=50},
+        {emoji:"🏅",label:"B1 reached",earned:doneL>=100},
+        {emoji:"🍁",label:"CLB ready",earned:doneL>=allL.length&&allL.length>0},
+      ];
+      return <div style={{background:"#fff",borderRadius:16,border:"1.5px solid #E2E8F0",padding:isMobile?"14px":"18px 20px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+          <div style={{width:isMobile?40:46,height:isMobile?40:46,borderRadius:12,background:"linear-gradient(135deg,#3B82F6,#7C3AED)",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontFamily:"Georgia,serif",fontWeight:800,fontSize:isMobile?16:19,flexShrink:0}}>{lvlNum}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:800,color:"#0F172A"}}>Level {lvlNum}</div>
+            <div style={{height:6,background:"#F1F5F9",borderRadius:99,overflow:"hidden",marginTop:5}}><div style={{height:"100%",width:`${xpInLvl}%`,background:"linear-gradient(90deg,#3B82F6,#7C3AED)",borderRadius:99,transition:"width 0.8s"}}/></div>
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:3}}>{xpInLvl}/100 XP to level {lvlNum+1}</div>
+          </div>
+          <div style={{textAlign:"center",flexShrink:0,padding:"4px 10px",borderRadius:10,background:todayDone?"#ECFDF5":"#F8FAFC",border:`1px solid ${todayDone?"#A7F3D0":"#E2E8F0"}`}}>
+            <div style={{fontSize:16}}>{todayDone?"✅":"🎯"}</div>
+            <div style={{fontSize:9,fontWeight:700,color:todayDone?"#059669":"#94A3B8",textTransform:"uppercase",letterSpacing:.3}}>{todayDone?"Goal met":"Daily goal"}</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:isMobile?6:8,flexWrap:"wrap"}}>
+          {badges.map((b,i)=><div key={i} title={b.label} style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:50,background:b.earned?"#FFFBEB":"#F8FAFC",border:`1px solid ${b.earned?"#FCD34D":"#E2E8F0"}`,opacity:b.earned?1:0.5}}>
+            <span style={{fontSize:13,filter:b.earned?"none":"grayscale(1)"}}>{b.emoji}</span>
+            <span style={{fontSize:10,fontWeight:700,color:b.earned?"#92400E":"#94A3B8"}}>{b.label}</span>
+          </div>)}
+        </div>
+      </div>;
+    })()}
 
     {/* NEXT LESSON — always full width */}
     <div style={{background:"#0F172A",borderRadius:16,overflow:"hidden",boxShadow:"0 4px 16px rgba(15,23,42,0.18)"}}>
@@ -3137,8 +3593,14 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
 
         {/* CLB Path */}
         <div style={{background:"#fff",borderRadius:14,border:"1.5px solid #E2E8F0",padding:isMobile?"12px 14px":"14px 16px"}}>
-          <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>Your CLB Path</div>
-          <div style={{fontSize:isMobile?14:16,fontWeight:800,color:"#0F172A",marginBottom:2}}>{level.label}</div>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8}}>Your Goal</div>
+            <button onClick={()=>onNavigate("profile")} style={{background:"none",border:"none",color:"#2563EB",fontSize:11,fontWeight:700,cursor:"pointer",padding:0}}>Change</button>
+          </div>
+          <div style={{fontSize:isMobile?14:15,fontWeight:800,color:"#0F172A",marginBottom:2}}>{track.emoji} {track.label}</div>
+          <div style={{fontSize:11,color:"#64748B",marginBottom:8,lineHeight:1.5}}>{track.sub}{track.focus.length<4?" · focus on "+track.focus.join(" & "):""}</div>
+          <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:3}}>Current level</div>
+          <div style={{fontSize:isMobile?13:14,fontWeight:700,color:"#0F172A",marginBottom:2}}>{level.label}</div>
           <div style={{fontSize:11,color:"#64748B",marginBottom:8,lineHeight:1.5}}>{level.desc}</div>
           <div style={{display:"flex",gap:6}}>
             <span style={{fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:50,background:"#0F172A",color:"#fff"}}>{level.cefrTag}</span>
@@ -3268,23 +3730,64 @@ function HubScreen({progress,onStartLesson}){
 }
 
 // Vocab flip cards — extracted so hooks aren't called inside .map()
-// ─── FRENCH TTS — uses browser Web Speech API ────────────────────────────────
-function speakFrench(text){
+// ─── FRENCH TTS ──────────────────────────────────────────────────────────────
+// Primary: ElevenLabs (real French voice) via our serverless proxy /api/tts.
+// Fallback: the browser/device Web Speech API (used if offline or the proxy is
+// unconfigured). The CDN caches each unique line, so audio is fast after first play.
+const TTS_URL = "https://www.franco.app/api/tts";
+const _ttsCache = new Map();   // text -> object URL (per session)
+let _ttsAudio = null;          // currently-playing <audio>
+let _ttsElevenOk = true;       // flips false if the proxy is unavailable, to stop retrying
+
+function stopFrench(){
+  try{ if(_ttsAudio){ _ttsAudio.pause(); _ttsAudio.currentTime=0; } }catch{}
+  try{ window.speechSynthesis?.cancel(); }catch{}
+}
+function _deviceTTS(cleaned){
   if(!('speechSynthesis' in window)) return;
-  // Strip anything in parens (English translations) before speaking
-  const cleaned = text.replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(cleaned);
-  utt.lang = "fr-CA";
-  utt.rate = 0.88;
-  utt.pitch = 1;
-  // Prefer a French voice if available
+  utt.lang = "fr-CA"; utt.rate = 0.9; utt.pitch = 1;
   const voices = window.speechSynthesis.getVoices();
-  const frVoice = voices.find(v=>v.lang.startsWith("fr-CA"))
-    || voices.find(v=>v.lang.startsWith("fr-FR"))
-    || voices.find(v=>v.lang.startsWith("fr"));
+  const frVoice = voices.find(v=>v.lang?.startsWith("fr-CA"))
+    || voices.find(v=>v.lang?.startsWith("fr-FR"))
+    || voices.find(v=>v.lang?.startsWith("fr"));
   if(frVoice) utt.voice = frVoice;
   window.speechSynthesis.speak(utt);
+}
+function _playUrl(url){
+  try{
+    const a = new Audio(url);
+    _ttsAudio = a;
+    a.play().catch(()=>{});
+    return true;
+  }catch{ return false; }
+}
+async function speakFrench(text){
+  if(!text) return;
+  // Strip parenthetical English glosses before speaking.
+  const cleaned = String(text).replace(/\(.*?\)/g,"").replace(/[()→]/g,"").trim();
+  if(!cleaned) return;
+  stopFrench();
+  // Cached object URL from this session?
+  if(_ttsCache.has(cleaned)){ if(_playUrl(_ttsCache.get(cleaned))) return; }
+  if(_ttsElevenOk && typeof fetch==="function"){
+    try{
+      const res = await fetch(`${TTS_URL}?text=${encodeURIComponent(cleaned)}`);
+      if(res.ok){
+        const blob = await res.blob();
+        if(blob && blob.size>0 && blob.type.includes("audio")){
+          const url = URL.createObjectURL(blob);
+          _ttsCache.set(cleaned, url);
+          if(_playUrl(url)) return;
+        }
+      } else if(res.status===503){
+        // Proxy not configured (no key) — stop hammering it this session.
+        _ttsElevenOk = false;
+      }
+    }catch{ /* network/offline — fall through to device TTS */ }
+  }
+  _deviceTTS(cleaned);
 }
 
 function SpeakBtn({text, size=14, style={}}){
@@ -3332,7 +3835,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   const isMobile=useIsMobile();
 
   // ── State ──
-  const[phase,setPhase]=useState("recap"); // recap | teach | questions | review | done
+  const[phase,setPhase]=useState(lesson.practice?"questions":"recap"); // recap | teach | questions | review | done
   const[teachSlide,setTeachSlide]=useState(0);
   const[recapDone,setRecapDone]=useState(false);
   const[qIdx,setQIdx]=useState(0);
@@ -3365,15 +3868,15 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   const isOk = q && (() => {
     if(!q) return false;
     if(q.type==="match") return matchDone.length === (q.pairs||[]).length && matchWrong.length===0;
-    if(q.type==="tap"||q.type==="mcq"||q.type==="scene") return selected===q.correct;
+    if(q.type==="tap"||q.type==="mcq"||q.type==="scene"||q.type==="listen"||q.type==="read") return selected===q.correct;
     if(q.type==="fill") return selected===q.correct;
     if(q.type==="order") return JSON.stringify(orderPlaced)===JSON.stringify(q.answer);
-    return true;
+    return false; // write & speak grade via their own AI components — never auto-pass
   })();
 
   const speak=(text)=>{
     if(!text) return;
-    window.speechSynthesis?.cancel();
+    stopFrench();
     const u=new SpeechSynthesisUtterance(text);
     u.lang="en-CA"; u.rate=0.9;
     window.speechSynthesis?.speak(u);
@@ -3404,7 +3907,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   };
 
   const nextQ=()=>{
-    window.speechSynthesis?.cancel();
+    stopFrench();
     if(phase==="review"){
       if(reviewIdx<wrongQueue.length-1){ setReviewIdx(i=>i+1); resetQ(); }
       else setPhase("done");
@@ -3454,6 +3957,19 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
     if(q?.type==="order"&&!answered) setOrderBank([...(q.words||[])].sort(()=>Math.random()-0.5));
   },[qIdx,phase,reviewIdx]);
 
+  // Persist missed questions to a local review pool — powers "Review your mistakes" (works offline / in guest mode)
+  useEffect(()=>{
+    if(phase!=="done"||lesson.practice) return;
+    try{
+      const prev=JSON.parse(localStorage.getItem("franco_review_pool")||"[]");
+      const key=(x)=>x.prompt||x.fr||x.before||x.audio||x.passage||JSON.stringify(x).slice(0,60);
+      const seen=new Set(prev.map(key));
+      const adds=wrongQueue.filter(x=>x&&!seen.has(key(x))).map(({_review,...rest})=>rest);
+      if(adds.length) localStorage.setItem("franco_review_pool",JSON.stringify([...adds,...prev].slice(0,50)));
+    }catch{}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[phase]);
+
   const diffColor=(d)=>d<=1?"#10B981":d<=2?"#3B82F6":d<=3?"#F59E0B":d<=4?"#EF4444":"#8B5CF6";
   const diffLabel=(d)=>d<=1?"Easy ⭐":d<=2?"Medium ⭐⭐":d<=3?"Hard ⭐⭐⭐":d<=4?"Very Hard":"Expert";
 
@@ -3463,10 +3979,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
       setPhase("teach"); setRecapDone(true);
       return null;
     }
-    return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
-      <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:52,zIndex:50}}>
+    return <div style={{minHeight:"100vh",background:"#F8FAFC"}}>
+      <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,paddingTop:"env(safe-area-inset-top)",zIndex:50}}>
         <div style={{padding:"0 16px",height:46,display:"flex",alignItems:"center",gap:10}}>
-          <button onClick={()=>{window.speechSynthesis?.cancel();onBack();}} style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B"}}>← Back</button>
+          <button onClick={()=>{stopFrench();onBack();}} style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B"}}>← Back</button>
           <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A"}}>Quick Recap</div>
           <div style={{fontSize:11,color:"#94A3B8"}}>Before we start</div>
         </div>
@@ -3494,11 +4010,11 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
     </div>;
   }
 
-  return <div style={{minHeight:"calc(100vh - 52px)",background:"#F8FAFC"}}>
+  return <div style={{minHeight:"100vh",background:"#F8FAFC"}}>
     {/* TOP BAR */}
-    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:52,zIndex:50}}>
+    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,paddingTop:"env(safe-area-inset-top)",zIndex:50}}>
       <div style={{padding:"0 16px",height:46,display:"flex",alignItems:"center",gap:10}}>
-        <button onClick={()=>{if(window.confirm("Leave lesson?")){window.speechSynthesis?.cancel();onBack();}}}
+        <button onClick={()=>{if(window.confirm("Leave lesson?")){stopFrench();onBack();}}}
           style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>← Back</button>
         <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
         <div style={{fontSize:11,fontWeight:600,color:"#94A3B8",flexShrink:0}}>
@@ -3611,11 +4127,14 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
         {/* Question type label */}
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5}}>
-            {q.type==="tap"?"👆 Tap the answer":q.type==="mcq"?"🎯 Choose the best answer":q.type==="fill"?"✏️ Fill in the blank":q.type==="order"?"🔀 Build the sentence":q.type==="match"?"🔗 Match the pairs":q.type==="scene"?"📖 Read & answer":q.type==="speak"?"🎤 Speaking":"✍️ Write"}
+            {q.type==="tap"?"👆 Tap the answer":q.type==="mcq"?"🎯 Choose the best answer":q.type==="fill"?"✏️ Fill in the blank":q.type==="order"?"🔀 Build the sentence":q.type==="match"?"🔗 Match the pairs":q.type==="scene"?"📖 Read & answer":q.type==="listen"?"🎧 Listen & answer":q.type==="read"?"📰 Read the passage":q.type==="speak"?"🎤 Speaking":"✍️ Write"}
           </span>
           <div style={{flex:1,height:1,background:"#F1F5F9"}}/>
           <span style={{fontSize:10,fontWeight:700,color:diffColor(q.diff||2)}}>{diffLabel(q.diff||2)}</span>
         </div>
+
+        {/* Ask Sophie for a hint on this question (resets per question) */}
+        {!answered&&q.type!=="speak"&&<DoubtButton key={phase==="review"?"r"+reviewIdx:"q"+qIdx} q={q}/>}
 
         {/* TAP */}
         {q.type==="tap"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
@@ -3642,6 +4161,27 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
             <div style={{flex:1,fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
             <button onClick={()=>speakFrench(q.prompt)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:"#94A3B8",padding:0}}>🔈</button>
           </div>
+          <div style={{display:"flex",flexDirection:"column"}}>
+            {(q.options||[]).map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+              return <button key={i} disabled={answered} onClick={()=>setSelected(i)}
+                style={{padding:"13px 18px",border:"none",borderTop:"1px solid #F1F5F9",background:isC?"#ECFDF5":isW?"#FEF2F2":isSel?"#EFF6FF":"#fff",cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,fontSize:14,color:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#0F172A",fontWeight:isSel||isC||isW?600:400,transition:"all 0.15s"}}>
+                <span style={{width:24,height:24,borderRadius:6,background:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#F1F5F9",color:isC||isW||isSel?"#fff":"#64748B",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}
+              </button>;
+            })}
+          </div>
+        </div>}
+
+        {/* LISTEN — plays French audio via on-device TTS, then a comprehension MCQ */}
+        {q.type==="listen"&&<ListenQuestion key={`${phase}-${qIdx}-${reviewIdx}`} q={q} selected={selected} setSelected={setSelected} answered={answered}/>}
+
+        {/* READ — shows a real French passage, then a comprehension MCQ */}
+        {q.type==="read"&&<div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+          {q.title&&<div style={{padding:"14px 18px 0",fontFamily:"Georgia,serif",fontSize:16,fontWeight:800,color:"#0F172A"}}>{q.title}</div>}
+          <div style={{padding:"14px 18px",background:"#FBFAF7",borderBottom:"1px solid #F1F5F9",borderLeft:"3px solid #D97706",fontSize:14,color:"#1F2937",lineHeight:1.85,maxHeight:280,overflowY:"auto",whiteSpace:"pre-wrap"}}>{q.passage}</div>
+          {Array.isArray(q.glossary)&&q.glossary.length>0&&<div style={{padding:"10px 18px",display:"flex",flexWrap:"wrap",gap:6,borderBottom:"1px solid #F1F5F9",background:"#FEFCE8"}}>
+            {q.glossary.map((g,i)=><span key={i} style={{fontSize:11,color:"#854D0E",background:"#FEF9C3",border:"1px solid #FDE68A",borderRadius:50,padding:"3px 9px"}}><b>{g[0]}</b> — {g[1]}</span>)}
+          </div>}
+          <div style={{padding:"16px 18px",borderBottom:"1px solid #F1F5F9",fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
           <div style={{display:"flex",flexDirection:"column"}}>
             {(q.options||[]).map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
               return <button key={i} disabled={answered} onClick={()=>setSelected(i)}
@@ -3726,10 +4266,9 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
             {q.hint&&<div style={{fontSize:12,color:"#92400E",background:"#FFFBEB",padding:"8px 12px",borderRadius:8,border:"1px solid #FCD34D",marginTop:8}}>💡 {q.hint}</div>}
           </div>
           <div style={{padding:"14px 18px"}}>
-            <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>Write in French — Claude will check it</div>
-            {!answered?<AIWritingChecker prompt={q.prompt} accepted={q.accepted} level={level?.cefrTag||"A1"}
-              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}speak(ok?"Excellent!":"Good try!");}}}/>
-            :<div style={{padding:"10px 14px",borderRadius:10,background:isOk?"#ECFDF5":"#FEF2F2",fontSize:13,color:isOk?"#059669":"#DC2626",fontWeight:600}}>{isOk?"✓ Great answer!":"✗ Submitted"}</div>}
+            <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>Write in French — Sophie will check it</div>
+            <AIWritingChecker key={`${phase}-${qIdx}-${reviewIdx}`} prompt={q.prompt} accepted={q.accepted} level={level?.cefrTag||"A1"}
+              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);celebrateCorrect();}else{commiserateWrong();setWrongQueue(prev=>[...prev,{...q,_review:true}]);}speak(ok?"Excellent!":"Good try!");}}}/>
           </div>
         </div>}
 
@@ -3739,13 +4278,13 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
             <div style={{fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
           </div>
           <div style={{padding:"14px 18px"}}>
-            <AISpeakingCoach prompt={q.prompt} sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
+            <AISpeakingCoach key={`${phase}-${qIdx}-${reviewIdx}`} prompt={q.prompt} sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
               onDone={(passed)=>{if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}speak(passed?"Excellent!":"Good try!");}}}/>
           </div>
         </div>}
 
-        {/* FEEDBACK */}
-        {answered&&q.type!=="match"&&<div style={{borderRadius:14,border:`1px solid ${isOk?"#6EE7B7":"#FCA5A5"}`,background:isOk?"#F0FDF4":"#FFF5F5",padding:"14px 16px",display:"flex",gap:12}}>
+        {/* FEEDBACK — write & speak show their own AI result, so skip them here */}
+        {answered&&q.type!=="match"&&q.type!=="write"&&q.type!=="speak"&&<div style={{borderRadius:14,border:`1px solid ${isOk?"#6EE7B7":"#FCA5A5"}`,background:isOk?"#F0FDF4":"#FFF5F5",padding:"14px 16px",display:"flex",gap:12}}>
           <span style={{fontSize:20,flexShrink:0}}>{isOk?"✅":"💡"}</span>
           <div>
             <div style={{fontWeight:700,fontSize:13,color:isOk?"#059669":"#DC2626",marginBottom:4}}>
@@ -3763,10 +4302,12 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
               style={{flex:1,padding:"13px",background:matchDone.length===(q.pairs||[]).length?"#0F172A":"#F1F5F9",color:matchDone.length===(q.pairs||[]).length?"#fff":"#94A3B8",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer"}}>
               {qIdx<total-1?"Next →":"See Results →"}
             </button>
+          :(q.type==="write"||q.type==="speak")?
+            (answered?<button onClick={nextQ} style={{flex:1,padding:"13px",background:"#0F172A",color:"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer"}}>{phase==="review"?reviewIdx<wrongQueue.length-1?"Next Review →":"See Results →":qIdx<total-1?"Next Question →":"See Results →"}</button>:null)
           :!answered?
             <button onClick={checkAnswer}
-              disabled={(q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene")?selected===null:q.type==="order"?orderPlaced.length===0:false}
-              style={{flex:1,padding:"13px",background:((q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene")&&selected===null)||(q.type==="order"&&orderPlaced.length===0)?"#F1F5F9":"#0F172A",color:((q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene")&&selected===null)||(q.type==="order"&&orderPlaced.length===0)?"#94A3B8":"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}>
+              disabled={(q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene"||q.type==="listen"||q.type==="read")?selected===null:q.type==="order"?orderPlaced.length===0:false}
+              style={{flex:1,padding:"13px",background:((q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene"||q.type==="listen"||q.type==="read")&&selected===null)||(q.type==="order"&&orderPlaced.length===0)?"#F1F5F9":"#0F172A",color:((q.type==="tap"||q.type==="mcq"||q.type==="fill"||q.type==="scene"||q.type==="listen"||q.type==="read")&&selected===null)||(q.type==="order"&&orderPlaced.length===0)?"#94A3B8":"#fff",border:"none",borderRadius:12,fontFamily:"system-ui",fontWeight:700,fontSize:14,cursor:"pointer",transition:"all 0.2s"}}>
               Check Answer
             </button>
           :
@@ -3820,6 +4361,75 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
       </div>}
 
     </div>
+  </div>;
+}
+
+// LISTEN question — plays French audio (on-device TTS), then a comprehension MCQ.
+// Transcript stays hidden until the learner answers, so they practice the ear first.
+function ListenQuestion({q, selected, setSelected, answered}){
+  const[plays,setPlays]=useState(0);
+  const[playing,setPlaying]=useState(false);
+  const once=!!q.once; // TEF-style single listen
+  const canPlay=!once||plays<1;
+  const play=()=>{
+    if(!canPlay&&!answered) return;
+    setPlays(p=>p+1); setPlaying(true);
+    // Uses the real French voice (ElevenLabs) with device-TTS fallback.
+    try{ speakFrench(q.audio||""); }catch{}
+    // Reset the "playing" indicator after an estimated duration (~14 chars/sec).
+    const ms=Math.min(20000, Math.max(1500, String(q.audio||"").length*70));
+    setTimeout(()=>setPlaying(false), ms);
+  };
+  return <div style={{background:"#fff",borderRadius:16,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+    <div style={{padding:"22px 18px",textAlign:"center",borderBottom:"1px solid #F1F5F9",background:"#F5F3FF"}}>
+      <button onClick={play} disabled={!canPlay&&!answered}
+        style={{background:(canPlay||answered)?"#7C3AED":"#C4B5FD",color:"#fff",border:"none",borderRadius:50,padding:"14px 26px",fontSize:15,fontWeight:700,cursor:(canPlay||answered)?"pointer":"default",display:"inline-flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:18}}>{playing?"🔊":"▶️"}</span>{plays===0?"Play audio":"Play again"}
+      </button>
+      <div style={{marginTop:10,fontSize:11,color:"#7C3AED",fontWeight:600}}>
+        {once?(plays>=1&&!answered?"🎧 One listen only — like the real TEF":"🎧 You'll hear this once (TEF style)"):`🎧 Replay as many times as you need${plays>0?` · played ${plays}×`:""}`}
+      </div>
+    </div>
+    <div style={{padding:"16px 18px",borderBottom:"1px solid #F1F5F9",fontSize:15,fontWeight:700,color:"#0F172A",lineHeight:1.55}}>{q.prompt}</div>
+    <div style={{display:"flex",flexDirection:"column"}}>
+      {(q.options||[]).map((opt,i)=>{const isSel=selected===i,isC=answered&&i===q.correct,isW=answered&&isSel&&i!==q.correct;
+        return <button key={i} disabled={answered} onClick={()=>setSelected(i)}
+          style={{padding:"13px 18px",border:"none",borderTop:"1px solid #F1F5F9",background:isC?"#ECFDF5":isW?"#FEF2F2":isSel?"#EFF6FF":"#fff",cursor:answered?"default":"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,fontSize:14,color:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#0F172A",fontWeight:isSel||isC||isW?600:400,transition:"all 0.15s"}}>
+          <span style={{width:24,height:24,borderRadius:6,background:isC?"#059669":isW?"#DC2626":isSel?"#2563EB":"#F1F5F9",color:isC||isW||isSel?"#fff":"#64748B",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:11,flexShrink:0}}>{["A","B","C","D"][i]}</span>{opt}
+        </button>;
+      })}
+    </div>
+    {/* Reveal transcript only after answering, so listening is the real task */}
+    {answered&&<div style={{padding:"12px 18px",background:"#FBFAF7",borderTop:"1px solid #F1F5F9",fontSize:13,color:"#475569",lineHeight:1.7}}>
+      <span style={{fontWeight:700,color:"#7C3AED"}}>Transcript:</span> {q.audio}{q.transcriptEn&&<div style={{marginTop:4,fontStyle:"italic",color:"#94A3B8"}}>{q.transcriptEn}</div>}
+    </div>}
+  </div>;
+}
+
+// "I have a doubt — ask Sophie": an inline, on-demand hint for the current question.
+function DoubtButton({q}){
+  const[open,setOpen]=useState(false);
+  const[loading,setLoading]=useState(false);
+  const[answer,setAnswer]=useState("");
+  const ask=async()=>{
+    setOpen(true);
+    if(answer||loading) return;
+    setLoading(true);
+    const ctx=q.prompt||q.fr||q.story||q.passage||q.audio||q.before||"this question";
+    const opts=(q.options||q.opts||[]).join(" / ");
+    const sys="You are Sophie, a warm, expert French tutor for Canadian immigrants preparing for CLB/TEF/TCF Canada (you know those exam formats and the CLB levels well). The learner is stuck on a question and tapped 'I have a doubt'. Give a SHORT hint of 2–4 sentences: clarify the concept or nudge them toward the answer, but do NOT simply state which option is correct. Use plain English with small French examples. Never make French feel hard — normalise the confusion ('lots of people mix this up'), keep the hint small and winnable, and end on encouragement.";
+    const msg=`The learner is working on: "${ctx}". Options: ${opts||"(none)"}. Give one helpful hint.`;
+    try{ const r=await callClaude(sys,msg,250); setAnswer(r); }
+    catch{ setAnswer("I couldn't reach Sophie just now — try re-reading the question and looking for words you already recognise. You've got this! 🌟"); }
+    setLoading(false);
+  };
+  return <div>
+    <button onClick={ask} style={{background:"none",border:"none",color:"#7C3AED",fontSize:12,fontWeight:700,cursor:"pointer",padding:"2px 0",display:"flex",alignItems:"center",gap:6,fontFamily:"system-ui,sans-serif"}}>
+      🤔 I have a doubt — ask Sophie
+    </button>
+    {open&&<div style={{marginTop:6,background:"#F5F3FF",border:"1px solid #DDD6FE",borderRadius:12,padding:"11px 13px",fontSize:13,color:"#4C1D95",lineHeight:1.6}}>
+      {loading?<span style={{color:"#7C3AED"}}>Sophie is thinking…</span>:answer}
+    </div>}
   </div>;
 }
 
@@ -3955,7 +4565,7 @@ Analyze their French pronunciation and content. Be encouraging.`;
       </div>}
       <div style={{display:"flex",gap:8}}>
         <button onClick={()=>{setStage("ready");setFeedback(null);}} style={{background:"rgba(255,255,255,0.8)",border:`1.5px solid ${T.border}`,padding:"10px 18px",borderRadius:10,fontWeight:600,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif",color:T.navy}}>Try Again 🔄</button>
-        <button onClick={()=>onDone(feedback.score>=60)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Continue →</button>
+        <button onClick={()=>onDone(feedback.score>=60, feedback.score)} style={{background:T.mint,color:"#fff",border:"none",padding:"10px 20px",borderRadius:10,fontWeight:700,fontSize:13,cursor:"pointer",fontFamily:"system-ui,-apple-system,sans-serif"}}>Continue →</button>
       </div>
     </>}
   </div>;
@@ -3970,17 +4580,21 @@ function AIWritingChecker({prompt, accepted, level, onResult}){
   const checkWithAI=async()=>{
     if(!val.trim()) return;
     setChecking(true);
-    const sys=`You are a warm French language teacher for Canadian learners at ${level} level.
-Check the student's French writing and respond in JSON:
+    const sys=`You are a French language teacher grading a Canadian learner at ${level} level.
+Respond ONLY in JSON:
 {
   "correct": true,
   "score": 90,
   "corrected": "The corrected version of their answer",
-  "explanation": "Brief explanation of what they did right/wrong",
-  "grammar_note": "One specific grammar tip if needed",
-  "encouragement": "Short encouraging message"
+  "explanation": "ONE short sentence (max 12 words) on the key fix",
+  "encouragement": "Max 3 words, e.g. 'Almost there!'"
 }
-Be kind. If mostly correct, mark correct:true. Accept natural variations.`;
+
+GRADING RULES — be fair, not a pushover:
+- Mark correct:FALSE if the answer is empty, gibberish/random letters, written in English, off-topic, or does NOT actually attempt what the prompt asked.
+- Mark correct:TRUE only if the writing genuinely communicates the requested meaning in French. Minor spelling or accent mistakes are fine — judge the MEANING, not perfection.
+- If unsure whether it's a real attempt, mark correct:FALSE.
+Keep explanation to a single short sentence — never a paragraph. Be BRIEF.`;
     const msg=`Prompt: "${prompt}"
 Acceptable answers include: ${accepted.join(", ")}
 Student wrote: "${val}"
@@ -3992,10 +4606,14 @@ Is this correct or close enough? Give feedback.`;
       setResult(parsed);
       onResult(parsed.correct);
     }catch{
-      // Fallback to simple check
+      // Fallback to simple check (only runs if the AI response can't be parsed).
+      // Match against the more meaningful accepted phrases (length >= 4) so short
+      // fragments like "ans" don't false-match inside words like "dans".
       const v=val.trim().toLowerCase();
-      const ok=accepted.some(a=>v.includes(a.toLowerCase()));
-      setResult({correct:ok,score:ok?85:40,corrected:accepted[0],explanation:ok?"Great answer!":"Check the accepted answer below.",encouragement:ok?"Excellent! 🌟":"Keep practicing! 💪"});
+      const pool=accepted.filter(a=>a.length>=4);
+      const checkList=pool.length?pool:accepted;
+      const ok=v.length>=3 && checkList.some(a=>v.includes(a.toLowerCase()));
+      setResult({correct:ok,score:ok?85:40,corrected:accepted[0],explanation:ok?"Great answer!":"Not quite — see the correction.",encouragement:ok?"Bien joué!":"Try again!"});
       onResult(ok);
     }
     setChecking(false);
@@ -4027,8 +4645,7 @@ Is this correct or close enough? Give feedback.`;
         <div style={{fontSize:11,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:4}}>✏️ Corrected:</div>
         <div style={{fontSize:14,fontWeight:600,color:T.navy,fontStyle:"italic"}}>{result.corrected}</div>
       </div>}
-      <div style={{fontSize:13,color:result.correct?"#065F46":"#78350F",lineHeight:1.6}}>{result.explanation}</div>
-      {result.grammar_note&&<div style={{marginTop:8,fontSize:12,color:"#5B21B6",fontWeight:600,background:"#EDE9FE",borderRadius:8,padding:"6px 10px"}}>📚 {result.grammar_note}</div>}
+      <div style={{fontSize:13,color:result.correct?"#065F46":"#78350F",lineHeight:1.5}}>{result.explanation}</div>
     </div>}
   </div>;
 }
@@ -4103,6 +4720,8 @@ Rules:
 - Ask ONE question at a time to keep conversation going
 - When the user makes a French error, gently correct it: "Almost! Say: [correction] 🌟"
 - Be encouraging, Canadian-context focused, and patient
+- You know the CLB levels and the TEF/TCF Canada exams well — reassure with specifics if asked
+- NEVER make French feel hard: normalise mistakes, keep each step small and winnable, name real progress
 - Use relevant emojis
 - Always end with a question or prompt to keep conversation going`;
     const opening=await callClaude(sys,`Start our ${t.label} conversation! Greet me warmly in French and ask me an easy opening question.`,200);
@@ -4124,6 +4743,7 @@ Rules:
 - Gently correct French errors inline: "Presque! On dit: [correction] ✨"  
 - Ask follow-up questions
 - Be encouraging and Canadian-context focused
+- NEVER make French feel hard: normalise mistakes, keep steps small, name progress
 - Mix French with English explanations
 - Use emojis`;
     const history=newMsgs.slice(-6).map(m=>`${m.role==="user"?"Student":"Teacher"}: ${m.text}`).join("\n");
@@ -4542,6 +5162,8 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesso
   // Otherwise she runs free-chat mode.
   const learnerName = (authCtx?.user?.displayName || "").split(" ")[0] || "the learner";
   const clbGoal = parseInt(typeof window!=="undefined" ? localStorage.getItem("franco_clb_goal") : "") || 5;
+  const _tr = getTrack();
+  const _weak = (()=>{ try{ return JSON.parse(localStorage.getItem("franco_review_pool")||"[]").slice(0,3).map(q=>q.prompt||q.fr||q.title||"a recent question"); }catch{ return []; } })();
   const learnerContext = buildSophieSystemPrompt({
     learner: {
       name: learnerName,
@@ -4551,6 +5173,8 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesso
       recentLessons: done.slice(-3).map(l=>l.title),
       nextLessonTitle: notDone[0]?.title || "all done",
       clbGoal,
+      track: `${_tr.label} (target CLB ${_tr.clb||"—"})`,
+      weakSpots: _weak,
     },
     lesson: lesson || null,
   });
@@ -4707,6 +5331,7 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
     }catch(e){setAdminMsg("Error: "+e.message);}
   };
   const{logout, deleteAccount}=useAuth();
+  const[trackId,setTrackId]=useState(()=>getTrack().id);
   const c=companion||COMPANIONS[0];
   const level=SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL=Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
@@ -4785,6 +5410,24 @@ function ProfileScreen({companion,progress,startLevel,onReset,user,guestMode,onA
           {isPremium?"Premium ✓":"Free Plan"}
         </span>
       </div>
+    </div>
+
+    {/* Learning goal / track switcher */}
+    <div style={{background:T.card,border:`1px solid ${T.border}`,borderRadius:16,padding:"20px",marginBottom:16}}>
+      <div style={{fontSize:13,fontWeight:700,color:T.textSoft,marginBottom:12,letterSpacing:0.5}}>LEARNING GOAL</div>
+      {TRACKS.map(t=>{
+        const active=trackId===t.id;
+        return <div key={t.id} onClick={()=>{ try{ localStorage.setItem("franco_track",t.id); localStorage.setItem("franco_clb_goal",String(t.clb||5)); }catch{}; setTrackId(t.id); }}
+          style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 14px",borderRadius:12,marginBottom:8,cursor:"pointer",border:`2px solid ${active?T.blue:T.border}`,background:active?T.blueLight:T.card}}>
+          <div style={{fontSize:22}}>{t.emoji}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.navy}}>{t.label} <span style={{fontSize:11,fontWeight:600,color:T.textSoft}}>· {t.sub}</span></div>
+            <div style={{fontSize:11.5,color:T.textMid,marginTop:3,lineHeight:1.5}}>{t.blurb}</div>
+          </div>
+          {active&&<div style={{color:T.blue,fontSize:18}}>✓</div>}
+        </div>;
+      })}
+      <div style={{fontSize:11,color:T.textSoft,marginTop:2,lineHeight:1.5}}>Changing your goal reorders which lessons Franco surfaces first and sets your mock-exam target.</div>
     </div>
 
     {/* More section */}
@@ -4929,6 +5572,7 @@ function TopBar({screen,onNavigate,companion,progress,user,guestMode,onAuthNav})
   const nav=[
     {id:"dashboard",label:"Home",emoji:"🏠"},
     {id:"hub",label:"Learn",emoji:"📚"},
+    {id:"skills",label:"Skills",emoji:"🎯"},
     {id:"practice",label:"Practice",emoji:"⚡"},
     {id:"profile",label:"Profile",emoji:"👤"},
   ];
@@ -5031,7 +5675,14 @@ function AppInner(){
     setTutorLesson(lesson);
     setScreen("tutor");
   };
+  // Skills tab: start an on-demand, focused practice set (synthetic lesson, not graded into progress).
+  const handleStartPractice=(practiceLesson)=>{
+    setActiveLesson({lesson:practiceLesson, level:null, back:"skills"});
+    setScreen("lesson");
+  };
   const handleLessonComplete=(lessonId, score=4)=>{
+    // Skills-tab practice sessions are not real lessons — don't pollute progress/streak.
+    if(activeLesson?.lesson?.practice){ setScreen(activeLesson.back||"skills"); setActiveLesson(null); return; }
     const newProgress={...progress,[lessonId]:true};
     const today=new Date().toISOString().split("T")[0];
     // Update streak
@@ -5081,14 +5732,16 @@ function AppInner(){
   }
 
   // Main app
-  const showNav=!["welcome","onboarding","lesson"].includes(screen);
+  const showNav=!["welcome","onboarding","lesson","mock"].includes(screen);
   return <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
     {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
     {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen("hub")} onPracticeWithSophie={handlePracticeWithSophie}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen(activeLesson.back||"hub")} onPracticeWithSophie={handlePracticeWithSophie}/>}
+    {screen==="skills"&&<SkillsScreen onStartPractice={handleStartPractice} onOpenMock={()=>setScreen("mock")}/>}
+    {screen==="mock"&&<MockExamScreen onExit={()=>setScreen("skills")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
     {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={(s)=>{if(s!=="tutor") setTutorLesson(null); setScreen(s);}} lesson={tutorLesson}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}

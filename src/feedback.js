@@ -92,12 +92,10 @@ function sequence(notes) {
 // ─── Sound presets ────────────────────────────────────────────────────────────
 // All sounds are intentionally short and not annoying.
 
-// Cheerful 2-note rising chime — "yes, correct!"
+// A single soft bell "ding" on a correct answer.
 export function playCorrect() {
-  sequence([
-    { freq: 660, dur: 0.09, gain: 0.18, gap: 70 },
-    { freq: 880, dur: 0.14, gain: 0.20 },
-  ]);
+  tone(1046, 0.55, 0.17, "sine"); // C6 — clear bell strike
+  tone(1568, 0.45, 0.05, "sine"); // G6 — subtle overtone for a bell shimmer
 }
 
 // Soft falling tone — "not quite", non-punishing.
