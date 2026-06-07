@@ -4533,12 +4533,13 @@ function AISpeakingCoach({prompt, sampleAnswer, onDone}){
   const[feedback,setFeedback]=useState(null);
   const[mediaRec,setMediaRec]=useState(null);
   const recognitionRef=useRef(null);
+  // Speech recognition is a Safari feature and is often unavailable inside the
+  // iOS WebView. When it's missing we fall back to a self-practice flow instead
+  // of dead-ending, so the speaking tasks always work.
+  const srSupported = typeof window!=="undefined" && ("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
 
   const startRecording=()=>{
-    if(!("webkitSpeechRecognition" in window||"SpeechRecognition" in window)){
-      alert("Speech recognition not supported in this browser. Please use Chrome.");
-      return;
-    }
+    if(!srSupported){ return; }
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     const rec=new SR();
     rec.lang="fr-CA";
@@ -4613,12 +4614,20 @@ Analyze their French pronunciation and content. Be encouraging.`;
       </div>
     </div>
 
-    {stage==="ready"&&<>
+    {stage==="ready"&&srSupported&&<>
       {transcript&&<div style={{background:"#fff",borderRadius:10,padding:12,marginBottom:12,fontSize:13,color:T.textMid,fontStyle:"italic"}}>Last attempt: "{transcript}"</div>}
       <button onClick={startRecording} style={{background:"#F97316",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"system-ui,-apple-system,sans-serif"}}>
         🎤 Start Speaking
       </button>
       <div style={{fontSize:12,color:T.textSoft,marginTop:8}}>Uses your microphone · French Canadian dialect</div>
+    </>}
+
+    {/* Fallback: device has no speech recognition — practise aloud, then self-mark */}
+    {stage==="ready"&&!srSupported&&<>
+      <div style={{fontSize:13,color:T.textMid,lineHeight:1.6,marginBottom:12}}>🔊 Tap the speaker to hear the model, then say it aloud yourself a couple of times. Live scoring isn't available on this device — mark it done when you've practised it.</div>
+      <button onClick={()=>onDone(true, 80)} style={{background:"#059669",color:"#fff",border:"none",padding:"14px 28px",borderRadius:14,fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",gap:8,fontFamily:"system-ui,-apple-system,sans-serif"}}>
+        ✓ I practised saying it aloud
+      </button>
     </>}
 
     {stage==="recording"&&<>
