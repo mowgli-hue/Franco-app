@@ -3855,8 +3855,15 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   const[speakResult,setSpeakResult]=useState(null);
   const streak=parseInt(localStorage.getItem("franco_streak")||"0");
 
-  const questions = lesson.questions||[];
-  const recapQs = lesson.recap ? 
+  // Always play a lesson stage-by-stage: easiest questions first, hardest last.
+  // (stable sort — keeps the authored order within the same difficulty)
+  const questions = useMemo(()=>{
+    return (lesson.questions||[])
+      .map((x,i)=>[x,i])
+      .sort((a,b)=>((a[0].diff||2)-(b[0].diff||2))||(a[1]-b[1]))
+      .map(p=>p[0]);
+  },[lesson]);
+  const recapQs = lesson.recap ?
     (lesson.recap.flatMap(lid => {
       const prev = [...(FOUNDATION_LESSONS||[]),...(A1_LESSONS||[]),...(A2_LESSONS||[]),...(B1_LESSONS||[])].find(l=>l.id===lid);
       return prev ? (prev.questions||[]).slice(0,2) : [];
@@ -3865,6 +3872,12 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   const total = questions.length;
   const currentQ = phase==="review" ? wrongQueue[reviewIdx] : questions[qIdx];
   const q = currentQ;
+  // Shuffle the English column of a "match" question so the answer isn't sitting
+  // directly across from its French word. Stable within a question, reshuffles per question.
+  const matchEnOrder = useMemo(
+    ()=> (q && q.type==="match") ? [...(q.pairs||[]).keys()].sort(()=>Math.random()-0.5) : [],
+    [q]
+  );
   const isOk = q && (() => {
     if(!q) return false;
     if(q.type==="match") return matchDone.length === (q.pairs||[]).length && matchWrong.length===0;
@@ -3896,8 +3909,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
     if(ok){
       setCorrect(x=>x+1);
       setXp(x=>x+(q.diff||1)*10);
-      speak(c.messages?.correct||"Excellent!");
-      celebrateCorrect();
+      celebrateCorrect(); // sound + haptic only — no spoken praise
     } else {
       speak(c.messages?.wrong||"Good try!");
       commiserateWrong();
@@ -4012,21 +4024,36 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
 
   return <div style={{minHeight:"100vh",background:"#F8FAFC"}}>
     {/* TOP BAR */}
-    <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,paddingTop:"env(safe-area-inset-top)",zIndex:50}}>
-      <div style={{padding:"0 16px",height:46,display:"flex",alignItems:"center",gap:10}}>
-        <button onClick={()=>{if(window.confirm("Leave lesson?")){stopFrench();onBack();}}}
-          style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B",flexShrink:0}}>← Back</button>
-        <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lesson.title}</div>
-        <div style={{fontSize:11,fontWeight:600,color:"#94A3B8",flexShrink:0}}>
-          {phase==="teach"?"Lesson":phase==="done"?"Done!":phase==="review"?"Review 🔄":`${qIdx+1}/${total}`}
+    {(()=>{
+      const inQ = phase==="questions"||phase==="review";
+      const segTotal = phase==="review" ? Math.max(wrongQueue.length,1) : total;
+      const segCur = phase==="review" ? reviewIdx : qIdx;
+      const accent = phase==="review" ? "#F59E0B" : "#10B981";
+      return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,paddingTop:"env(safe-area-inset-top)",zIndex:50}}>
+        <div style={{padding:"9px 14px 8px",display:"flex",alignItems:"center",gap:12}}>
+          {/* Exit (confirms only mid-lesson) */}
+          <button onClick={()=>{ if(phase==="done"||window.confirm("Leave this lesson? Your progress in it won't be saved.")){ stopFrench(); onBack(); } }}
+            aria-label="Close lesson"
+            style={{background:"#F1F5F9",border:"none",width:30,height:30,borderRadius:"50%",fontSize:15,fontWeight:700,cursor:"pointer",color:"#64748B",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+          {/* Progress — segmented per question (Duolingo-style) when in questions/review */}
+          {inQ
+            ? <div style={{flex:1,display:"flex",gap:4,alignItems:"center"}}>
+                {Array.from({length:Math.min(segTotal,14)}).map((_,i)=>{
+                  const filled = i<segCur || (i===segCur && answered && isOk);
+                  const current = i===segCur;
+                  return <div key={i} style={{flex:1,height:9,borderRadius:99,background:filled?accent:current?"#0F172A":"#E2E8F0",boxShadow:current&&!filled?"0 0 0 2px #0F172A22":"none",transition:"all 0.3s"}}/>;
+                })}
+              </div>
+            : <div style={{flex:1,height:9,background:"#F1F5F9",borderRadius:99,overflow:"hidden"}}><div style={{height:"100%",width:phase==="teach"?"10%":"100%",background:"#10B981",borderRadius:99,transition:"width 0.4s"}}/></div>}
+          <div style={{fontSize:12,fontWeight:800,color:"#0F172A",flexShrink:0,minWidth:40,textAlign:"right",fontVariantNumeric:"tabular-nums"}}>
+            {phase==="teach"?"Intro":phase==="done"?"🎉":`${segCur+1}/${segTotal}`}
+          </div>
         </div>
-      </div>
-      <div style={{height:2,background:"#F1F5F9"}}>
-        <div style={{height:"100%",
-          width:phase==="teach"?"8%":phase==="done"?"100%":phase==="review"?"95%":`${Math.round(((qIdx+(answered?1:0))/total)*100)}%`,
-          background:phase==="review"?"#F59E0B":"#0F172A",transition:"width 0.4s"}}/>
-      </div>
-    </div>
+        <div style={{padding:"0 16px 8px",fontSize:11,fontWeight:600,color:"#94A3B8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+          {phase==="review"?"🔄 Review — these come back so they stick":lesson.title}
+        </div>
+      </div>;
+    })()}
 
     <div style={{padding:"14px 16px 80px",maxWidth:640,margin:"0 auto",display:"flex",flexDirection:"column",gap:14}}>
 
@@ -4228,10 +4255,11 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
               <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>English</div>
-              {(q.pairs||[]).map((pair,i)=>{
+              {matchEnOrder.map((origIdx)=>{
+                const pair=(q.pairs||[])[origIdx]; if(!pair) return null;
                 const isDone=matchDone.includes(pair[0]);
-                const isSel=matchSel?.side==="en"&&matchSel?.idx===i;
-                return <button key={i} disabled={isDone} onClick={()=>handleMatch("en",i)}
+                const isSel=matchSel?.side==="en"&&matchSel?.idx===origIdx;
+                return <button key={origIdx} disabled={isDone} onClick={()=>handleMatch("en",origIdx)}
                   style={{padding:"10px 12px",borderRadius:10,border:`2px solid ${isDone?"#10B981":isSel?"#2563EB":"#E2E8F0"}`,background:isDone?"#ECFDF5":isSel?"#EFF6FF":"#F8FAFC",fontSize:13,fontWeight:500,color:isDone?"#059669":isSel?"#2563EB":"#475569",cursor:isDone?"default":"pointer",textAlign:"left",transition:"all 0.2s"}}>
                   {pair[1]}
                 </button>;
@@ -4268,7 +4296,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
           <div style={{padding:"14px 18px"}}>
             <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>Write in French — Sophie will check it</div>
             <AIWritingChecker key={`${phase}-${qIdx}-${reviewIdx}`} prompt={q.prompt} accepted={q.accepted} level={level?.cefrTag||"A1"}
-              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);celebrateCorrect();}else{commiserateWrong();setWrongQueue(prev=>[...prev,{...q,_review:true}]);}speak(ok?"Excellent!":"Good try!");}}}/>
+              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);celebrateCorrect();}else{commiserateWrong();setWrongQueue(prev=>[...prev,{...q,_review:true}]);speak("Good try!");}}}}/>
           </div>
         </div>}
 
@@ -4279,7 +4307,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
           </div>
           <div style={{padding:"14px 18px"}}>
             <AISpeakingCoach key={`${phase}-${qIdx}-${reviewIdx}`} prompt={q.prompt} sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
-              onDone={(passed)=>{if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}speak(passed?"Excellent!":"Good try!");}}}/>
+              onDone={(passed)=>{if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}else{speak("Good try!");}}}}/>
           </div>
         </div>}
 
@@ -4288,7 +4316,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
           <span style={{fontSize:20,flexShrink:0}}>{isOk?"✅":"💡"}</span>
           <div>
             <div style={{fontWeight:700,fontSize:13,color:isOk?"#059669":"#DC2626",marginBottom:4}}>
-              {isOk?"Correct! 🌟":"Good try — here's why:"}
+              {isOk?"Correct!":"Good try — here's why:"}
             </div>
             <div style={{fontSize:13,color:isOk?"#065F46":"#7F1D1D",lineHeight:1.65}}>{q.explain}</div>
             {!isOk&&phase!=="review"&&<div style={{marginTop:6,fontSize:11,color:"#94A3B8"}}>🔄 This will come back at the end in a different format</div>}
