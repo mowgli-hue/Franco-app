@@ -3242,16 +3242,20 @@ function MockExamScreen({onExit}){
   const q=section?section.questions[qIdx]:null;
   const key=`${secIdx}-${qIdx}`;
 
-  // Section countdown
+  // Section countdown — interval only DECREMENTS; advancing is handled separately
+  // (avoids calling setState/navigation from inside another state updater).
   useEffect(()=>{
     if(phase!=="run"||!section) return;
     clearInterval(timerRef.current);
-    timerRef.current=setInterval(()=>{
-      setTimeLeft(t=>{ if(t<=1){ clearInterval(timerRef.current); nextSection(); return 0; } return t-1; });
-    },1000);
+    timerRef.current=setInterval(()=>{ setTimeLeft(t=> t<=1 ? 0 : t-1); },1000);
     return ()=>clearInterval(timerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[phase,secIdx]);
+  // When the section clock reaches 0, move on.
+  useEffect(()=>{
+    if(phase==="run" && timeLeft===0){ clearInterval(timerRef.current); nextSection(); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[timeLeft,phase]);
 
   const startExam=(id)=>{ setExamId(id); setPhase("intro"); };
   const beginSections=()=>{ setSecIdx(0); setQIdx(0); setTimeLeft(MOCKS[examId].sections[0].mins*60); setPhase("run"); };
@@ -3891,10 +3895,14 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   const[speakResult,setSpeakResult]=useState(null);
   const streak=parseInt(localStorage.getItem("franco_streak")||"0");
 
-  // Always play a lesson stage-by-stage: easiest questions first, hardest last.
-  // (stable sort — keeps the authored order within the same difficulty)
+  // Beginner lessons (Foundation / A1 / A2) play stage-by-stage: easiest first,
+  // hardest last (stable sort). Upper tiers (B1/B2/CLB) keep their authored order,
+  // which is deliberately skill-sequenced (e.g. listen first, then a written reflection).
   const questions = useMemo(()=>{
-    return (lesson.questions||[])
+    const raw = lesson.questions||[];
+    const isBeginner = /^(f|a1|a2)-/.test(lesson.id||"");
+    if(!isBeginner) return raw;
+    return raw
       .map((x,i)=>[x,i])
       .sort((a,b)=>((a[0].diff||2)-(b[0].diff||2))||(a[1]-b[1]))
       .map(p=>p[0]);
@@ -3947,7 +3955,6 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
       setXp(x=>x+(q.diff||1)*10);
       celebrateCorrect(); // sound + haptic only — no spoken praise
     } else {
-      speak(c.messages?.wrong||"Good try!");
       commiserateWrong();
       // Add to wrong queue for review at end (with different type)
       setWrongQueue(prev=>[...prev, {...q, _review:true}]);
@@ -4004,6 +4011,10 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   useEffect(()=>{
     if(q?.type==="order"&&!answered) setOrderBank([...(q.words||[])].sort(()=>Math.random()-0.5));
   },[qIdx,phase,reviewIdx]);
+
+  // Stop any French audio when the lesson unmounts — e.g. if the learner taps a
+  // nav tab instead of the ✕ exit (the tabs are now visible during a lesson).
+  useEffect(()=>()=>stopFrench(),[]);
 
   // Persist missed questions to a local review pool — powers "Review your mistakes" (works offline / in guest mode)
   useEffect(()=>{
@@ -4344,7 +4355,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
           <div style={{padding:"14px 18px"}}>
             <div style={{fontSize:11,color:"#94A3B8",marginBottom:8}}>Write in French — Sophie will check it</div>
             <AIWritingChecker key={`${phase}-${qIdx}-${reviewIdx}`} prompt={q.prompt} accepted={q.accepted} level={level?.cefrTag||"A1"}
-              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);celebrateCorrect();}else{commiserateWrong();setWrongQueue(prev=>[...prev,{...q,_review:true}]);speak("Good try!");}}}}/>
+              onResult={(ok)=>{if(!answered){setAnswered(true);if(ok){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);celebrateCorrect();}else{commiserateWrong();setWrongQueue(prev=>[...prev,{...q,_review:true}]);}}}}/>
           </div>
         </div>}
 
@@ -4355,7 +4366,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
           </div>
           <div style={{padding:"14px 18px"}}>
             <AISpeakingCoach key={`${phase}-${qIdx}-${reviewIdx}`} prompt={q.prompt} sampleAnswer={q.sampleAnswer||q.accepted?.[0]||""}
-              onDone={(passed)=>{if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}else{speak("Good try!");}}}}/>
+              onDone={(passed)=>{if(!answered){setAnswered(true);if(passed){setCorrect(x=>x+1);setXp(x=>x+(q.diff||1)*10);}}}}/>
           </div>
         </div>}
 
