@@ -3626,27 +3626,41 @@ function DashboardScreen({companion,startLevel,progress,onNavigate,user,guestMod
 }
 
 function HubScreen({progress,onStartLesson}){
-  const[expanded,setExpanded]=useState(Object.keys(SYLLABUS)[0]);
-  const[search,setSearch]=useState("");
   const isMobile=useIsMobile();
+  const[search,setSearch]=useState("");
+  const[showBeyond,setShowBeyond]=useState(false);
+  const track=getTrack();
+  // A real path per goal: which levels are on the path (in order) vs. optional "beyond".
+  const path = track.id==="clb5"
+    ? {levels:["foundation","a1","a2","b1"], beyond:["b2","clb"]}
+    : {levels:["foundation","a1","a2","b1","b2","clb"], beyond:[]};
+  const pathLevels = path.levels.map(id=>SYLLABUS[id]).filter(Boolean);
+  const beyondLevels = path.beyond.map(id=>SYLLABUS[id]).filter(Boolean);
   const allLessons=Object.values(SYLLABUS).flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
-  const doneLessons=allLessons.filter(l=>progress[l.id]);
-  const nextLesson=allLessons.find(l=>!progress[l.id]);
-  const nextLevel=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>!progress[l.id]));
-  const pct=Math.round((doneLessons.length/allLessons.length)*100);
+  const pathLessons=pathLevels.flatMap(lv=>lv.modules.flatMap(m=>m.lessons));
+  const pathDone=pathLessons.filter(l=>progress[l.id]).length;
+  const goalPct=Math.round((pathDone/Math.max(pathLessons.length,1))*100);
+  const nextLesson=pathLessons.find(l=>!progress[l.id]) || allLessons.find(l=>!progress[l.id]);
+  const nextLevel=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===nextLesson?.id));
+  const currentLevel=pathLevels.find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>!progress[l.id])) || pathLevels[0];
+  const[expanded,setExpanded]=useState(currentLevel?.id || Object.keys(SYLLABUS)[0]);
 
   return <div style={{padding:isMobile?"10px":"20px 28px",maxWidth:760,margin:"0 auto"}}>
 
-    {/* Compact header */}
-    <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:12}}>
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginBottom:2}}>{doneLessons.length}/{allLessons.length} lessons · {pct}% done</div>
-        <div style={{fontSize:14,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nextLesson?`Next: ${nextLesson.title}`:"All lessons complete! 🎉"}</div>
+    {/* Path header — your goal + progress toward it */}
+    <div style={{background:"#0F172A",borderRadius:14,padding:"14px 16px",marginBottom:12}}>
+      <div style={{fontSize:11,color:"rgba(255,255,255,0.55)",fontWeight:600,marginBottom:5}}>{track.emoji} Your {track.label} path{track.clb?` · goal CLB ${track.clb}`:""}</div>
+      <div style={{display:"flex",alignItems:"center",gap:12}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:14,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{nextLesson?`Next: ${nextLesson.title}`:"Path complete! 🎉"}</div>
+          <div style={{height:6,background:"rgba(255,255,255,0.15)",borderRadius:99,marginTop:8,overflow:"hidden"}}><div style={{height:"100%",width:`${goalPct||2}%`,background:"linear-gradient(90deg,#3B82F6,#10B981)",borderRadius:99,transition:"width 0.8s"}}/></div>
+          <div style={{fontSize:10,color:"rgba(255,255,255,0.45)",marginTop:5}}>{pathDone}/{pathLessons.length} lessons on your path · {goalPct}%</div>
+        </div>
+        {nextLesson&&nextLevel&&<button onClick={()=>onStartLesson(nextLesson,nextLevel)}
+          style={{background:"#fff",color:"#0F172A",border:"none",padding:"10px 18px",borderRadius:10,fontFamily:"system-ui,sans-serif",fontWeight:800,fontSize:13,cursor:"pointer",flexShrink:0}}>
+          Continue →
+        </button>}
       </div>
-      {nextLesson&&nextLevel&&<button onClick={()=>onStartLesson(nextLesson,nextLevel)}
-        style={{background:"#fff",color:"#0F172A",border:"none",padding:"8px 16px",borderRadius:9,fontFamily:"system-ui,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer",flexShrink:0}}>
-        Start →
-      </button>}
     </div>
 
     {/* Search */}
@@ -3678,8 +3692,9 @@ function HubScreen({progress,onStartLesson}){
       })()}
     </div>}
 
-    {/* Level accordion — compact */}
-    {Object.values(SYLLABUS).map(level=>{
+    {/* Your path: levels in order, a goal milestone, then optional levels beyond your goal */}
+    {(()=>{
+      const renderLevel=(level)=>{
       const lLessons=level.modules.flatMap(m=>m.lessons);
       const donePct=Math.round((lLessons.filter(l=>progress[l.id]).length/lLessons.length)*100);
       const doneCount=lLessons.filter(l=>progress[l.id]).length;
@@ -3725,7 +3740,28 @@ function HubScreen({progress,onStartLesson}){
           </div>)}
         </div>}
       </div>;
-    })}
+      };
+      const milestone = track.clb ? <div style={{background:"linear-gradient(135deg,#ECFDF5,#D1FAE5)",border:"1.5px solid #6EE7B7",borderRadius:12,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}>
+        <span style={{fontSize:26}}>🎓</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:800,color:"#065F46"}}>Finish these and you're CLB {track.clb} ready</div>
+          <div style={{fontSize:11,color:"#047857"}}>Then take the {track.exam||"TEF"} mock to confirm it.</div>
+        </div>
+        <div style={{fontSize:14,fontWeight:800,color:"#059669",flexShrink:0}}>{goalPct}%</div>
+      </div> : null;
+      return <>
+        {pathLevels.map(renderLevel)}
+        {milestone}
+        {beyondLevels.length>0 && <>
+          <button onClick={()=>setShowBeyond(s=>!s)} style={{width:"100%",background:"#fff",border:"1.5px dashed #CBD5E0",borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer",display:"flex",alignItems:"center",gap:10,color:"#64748B",fontWeight:700,fontSize:13,fontFamily:"system-ui,sans-serif"}}>
+            <span style={{fontSize:16}}>✨</span>
+            <span style={{flex:1,textAlign:"left"}}>Beyond your goal — keep going to CLB 7+ (optional)</span>
+            <span>{showBeyond?"▲":"▼"}</span>
+          </button>
+          {showBeyond && beyondLevels.map(renderLevel)}
+        </>}
+      </>;
+    })()}
   </div>;
 }
 
@@ -3992,7 +4028,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
       return null;
     }
     return <div style={{minHeight:"100vh",background:"#F8FAFC"}}>
-      <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,paddingTop:"env(safe-area-inset-top)",zIndex:50}}>
+      <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"relative",zIndex:1}}>
         <div style={{padding:"0 16px",height:46,display:"flex",alignItems:"center",gap:10}}>
           <button onClick={()=>{stopFrench();onBack();}} style={{background:"none",border:"none",padding:"4px",fontSize:13,fontWeight:600,cursor:"pointer",color:"#64748B"}}>← Back</button>
           <div style={{flex:1,fontSize:12,fontWeight:700,color:"#0F172A"}}>Quick Recap</div>
@@ -4029,7 +4065,7 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
       const segTotal = phase==="review" ? Math.max(wrongQueue.length,1) : total;
       const segCur = phase==="review" ? reviewIdx : qIdx;
       const accent = phase==="review" ? "#F59E0B" : "#10B981";
-      return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"sticky",top:0,paddingTop:"env(safe-area-inset-top)",zIndex:50}}>
+      return <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",position:"relative",zIndex:1}}>
         <div style={{padding:"9px 14px 8px",display:"flex",alignItems:"center",gap:12}}>
           {/* Exit (confirms only mid-lesson) */}
           <button onClick={()=>{ if(phase==="done"||window.confirm("Leave this lesson? Your progress in it won't be saved.")){ stopFrench(); onBack(); } }}
@@ -4151,14 +4187,26 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
           </div>
         </div>}
 
-        {/* Question type label */}
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5}}>
-            {q.type==="tap"?"👆 Tap the answer":q.type==="mcq"?"🎯 Choose the best answer":q.type==="fill"?"✏️ Fill in the blank":q.type==="order"?"🔀 Build the sentence":q.type==="match"?"🔗 Match the pairs":q.type==="scene"?"📖 Read & answer":q.type==="listen"?"🎧 Listen & answer":q.type==="read"?"📰 Read the passage":q.type==="speak"?"🎤 Speaking":"✍️ Write"}
-          </span>
-          <div style={{flex:1,height:1,background:"#F1F5F9"}}/>
-          <span style={{fontSize:10,fontWeight:700,color:diffColor(q.diff||2)}}>{diffLabel(q.diff||2)}</span>
-        </div>
+        {/* Question type label — colored skill chip */}
+        {(()=>{
+          const tm={
+            tap:{l:"👆 Tap the answer",c:"#2563EB",bg:"#EFF6FF"},
+            mcq:{l:"🎯 Choose the best answer",c:"#2563EB",bg:"#EFF6FF"},
+            fill:{l:"✏️ Fill in the blank",c:"#059669",bg:"#ECFDF5"},
+            order:{l:"🔀 Build the sentence",c:"#059669",bg:"#ECFDF5"},
+            match:{l:"🔗 Match the pairs",c:"#DC2626",bg:"#FEF2F2"},
+            scene:{l:"📖 Read & answer",c:"#D97706",bg:"#FFFBEB"},
+            listen:{l:"🎧 Listen & answer",c:"#7C3AED",bg:"#F5F3FF"},
+            read:{l:"📰 Read the passage",c:"#D97706",bg:"#FFFBEB"},
+            speak:{l:"🎤 Your turn to speak",c:"#EA580C",bg:"#FFF7ED"},
+            write:{l:"✍️ Write it out",c:"#2563EB",bg:"#EFF6FF"},
+          }[q.type]||{l:"✍️ Write it out",c:"#2563EB",bg:"#EFF6FF"};
+          return <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <span style={{fontSize:11.5,fontWeight:800,color:tm.c,background:tm.bg,borderRadius:50,padding:"5px 13px"}}>{tm.l}</span>
+            <div style={{flex:1,minWidth:8}}/>
+            <span style={{fontSize:10,fontWeight:700,color:diffColor(q.diff||2),background:diffColor(q.diff||2)+"18",borderRadius:50,padding:"4px 11px"}}>{diffLabel(q.diff||2)}</span>
+          </div>;
+        })()}
 
         {/* Ask Sophie for a hint on this question (resets per question) */}
         {!answered&&q.type!=="speak"&&<DoubtButton key={phase==="review"?"r"+reviewIdx:"q"+qIdx} q={q}/>}
@@ -5760,7 +5808,7 @@ function AppInner(){
   }
 
   // Main app
-  const showNav=!["welcome","onboarding","lesson","mock"].includes(screen);
+  const showNav=!["welcome","onboarding","mock"].includes(screen);
   return <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
     {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
