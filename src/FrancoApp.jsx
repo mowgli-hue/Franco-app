@@ -3870,7 +3870,7 @@ function VocabFlipList({vocab}){
   </div>;
 }
 
-function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSophie}){
+function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPracticeWithSophie}){
   const c=companion||COMPANIONS[0];
   const isMobile=useIsMobile();
 
@@ -4015,6 +4015,13 @@ function LessonScreen({lesson,level,companion,onComplete,onBack,onPracticeWithSo
   // Stop any French audio when the lesson unmounts — e.g. if the learner taps a
   // nav tab instead of the ✕ exit (the tabs are now visible during a lesson).
   useEffect(()=>()=>stopFrench(),[]);
+
+  // Save progress the moment the lesson reaches its results — so it's never lost,
+  // however the learner leaves the results screen (button, ✕, or a nav tab).
+  useEffect(()=>{
+    if(phase==="done") onDone?.(lesson.id, Math.max(0,Math.min(5,Math.round((correct/Math.max(total,1))*5))));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[phase]);
 
   // Persist missed questions to a local review pool — powers "Review your mistakes" (works offline / in guest mode)
   useEffect(()=>{
@@ -5749,12 +5756,14 @@ function AppInner(){
   },[user]);
 
   const handleOnboard=(comp,lev)=>{setCompanion(comp);setStartLevel(lev);setScreen("dashboard");};
+  const lessonDirtyRef=useRef(false); // true while a lesson is in progress & not yet saved
   const handleStartLesson=(lesson,level)=>{
     // App Store 3.1.1 — on iOS we ship guest-only / all-free since we can't link
     // out to Stripe for digital subscriptions. Web continues to use the paywall.
     // Lesson gating: if not free AND not premium, show paywall.
     // Web → Stripe paywall. iOS → IAP paywall (handled in PaywallModal).
     if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
+    lessonDirtyRef.current=true;
     setActiveLesson({lesson,level}); setScreen("lesson");
   };
   // Practice this lesson 1-on-1 with Sophie (teaching mode).
@@ -5764,15 +5773,14 @@ function AppInner(){
   };
   // Skills tab: start an on-demand, focused practice set (synthetic lesson, not graded into progress).
   const handleStartPractice=(practiceLesson)=>{
+    lessonDirtyRef.current=true;
     setActiveLesson({lesson:practiceLesson, level:null, back:"skills"});
     setScreen("lesson");
   };
-  const handleLessonComplete=(lessonId, score=4)=>{
-    // Skills-tab practice sessions are not real lessons — don't pollute progress/streak.
-    if(activeLesson?.lesson?.practice){ setScreen(activeLesson.back||"skills"); setActiveLesson(null); return; }
+  // Save a finished lesson's progress/streak/XP/SRS — NO navigation.
+  const saveLessonProgress=(lessonId, score=4)=>{
     const newProgress={...progress,[lessonId]:true};
     const today=new Date().toISOString().split("T")[0];
-    // Update streak
     const lastDay=localStorage.getItem("franco_last_day");
     const yesterday=new Date();yesterday.setDate(yesterday.getDate()-1);
     const yStr=yesterday.toISOString().split("T")[0];
@@ -5782,21 +5790,38 @@ function AppInner(){
     else{ newStreak=1; }
     localStorage.setItem("franco_streak",String(newStreak));
     localStorage.setItem("franco_last_day",today);
-    // Update XP
     const newXP=(parseInt(localStorage.getItem("franco_xp")||"0"))+25;
     localStorage.setItem("franco_xp",String(newXP));
     setProgress(newProgress);
-    // Schedule spaced repetition review
     const currentReviews=authCtx?.reviewSchedule||{};
     const prev=currentReviews[lessonId]||{};
     const nextReview=calcNextReview(prev.interval||0, prev.ef||2.5, score);
     const newReviews={...currentReviews,[lessonId]:nextReview};
-    // Save everything to Firebase
     if(authCtx?.user && authCtx?.saveProgress){
       authCtx.saveProgress(newProgress, newXP, newStreak, newReviews);
     }
-    setScreen("hub");
+  };
+  // Fires the moment a lesson reaches its results screen — so progress is saved even
+  // if the learner leaves via ✕ or a nav tab instead of the Continue button.
+  const handleLessonDone=(lessonId, score=4)=>{
+    lessonDirtyRef.current=false;
+    if(activeLesson?.lesson?.practice) return; // practice sets aren't graded into progress
+    saveLessonProgress(lessonId, score);
+  };
+  // The "Complete & Continue" button — navigation only (progress already saved on done).
+  const handleLessonComplete=()=>{
+    lessonDirtyRef.current=false;
+    setScreen(activeLesson?.back||"hub");
     setActiveLesson(null);
+  };
+  // Nav tabs during a lesson: warn before abandoning unfinished (unsaved) work.
+  const handleNav=(target)=>{
+    if(screen==="lesson" && target!=="lesson" && lessonDirtyRef.current){
+      if(!window.confirm("Leave this lesson? Your progress in it won't be saved.")) return;
+      lessonDirtyRef.current=false;
+    }
+    if(screen==="lesson") stopFrench();
+    setScreen(target);
   };
 
   // Loading spinner while Firebase initializes
@@ -5821,12 +5846,12 @@ function AppInner(){
   // Main app
   const showNav=!["welcome","onboarding","mock"].includes(screen);
   return <div style={{fontFamily:"system-ui,-apple-system,sans-serif",background:T.surface,minHeight:"100vh",color:T.text}}>
-    {showNav&&<TopBar screen={screen} onNavigate={setScreen} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
+    {showNav&&<TopBar screen={screen} onNavigate={handleNav} companion={companion} progress={progress} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {screen==="welcome"&&<WelcomeScreen onNext={()=>setScreen(companion?"dashboard":"onboarding")}/>}
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
     {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onBack={()=>setScreen(activeLesson.back||"hub")} onPracticeWithSophie={handlePracticeWithSophie}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onDone={handleLessonDone} onBack={()=>{lessonDirtyRef.current=false;setScreen(activeLesson.back||"hub");}} onPracticeWithSophie={handlePracticeWithSophie}/>}
     {screen==="skills"&&<SkillsScreen onStartPractice={handleStartPractice} onOpenMock={()=>setScreen("mock")}/>}
     {screen==="mock"&&<MockExamScreen onExit={()=>setScreen("skills")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
