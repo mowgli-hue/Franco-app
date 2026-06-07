@@ -39,6 +39,32 @@ if(hasFirebaseConfig){
   }catch(e){ console.error("[firebase] init failed",e); }
 }
 
+// ─── ANALYTICS ────────────────────────────────────────────────────────────────
+// Find where learners drop off (esp. the B1 churn concern). Best-effort & never
+// throws. Three sinks: console, a capped local log (localStorage "franco_events",
+// last 200), and a Firestore "events" collection when available.
+// To view aggregate data: Firebase console → Firestore → "events". This needs a
+// security rule allowing creates on /events, e.g.:
+//   match /events/{id} { allow create: if true; allow read: if false; }
+function _anonId(){
+  try{
+    let id = localStorage.getItem("franco_anon_id");
+    if(!id){ id = "a_"+Math.random().toString(36).slice(2)+Date.now().toString(36); localStorage.setItem("franco_anon_id", id); }
+    return id;
+  }catch{ return "anon"; }
+}
+function logEvent(name, props={}){
+  let track=null; try{ track=localStorage.getItem("franco_track"); }catch{}
+  const evt = { name, ...props, ts: Date.now(), anon: _anonId(), track };
+  try{ console.log("[event]", name, props); }catch{}
+  try{
+    const log = JSON.parse(localStorage.getItem("franco_events")||"[]");
+    log.push(evt);
+    localStorage.setItem("franco_events", JSON.stringify(log.slice(-200)));
+  }catch{}
+  try{ if(_firebaseDb) addDoc(collection(_firebaseDb,"events"), evt).catch(()=>{}); }catch{}
+}
+
 // ─── FIRESTORE USER DATA ──────────────────────────────────────────────────────
 async function saveUserData(userId, data){
   if(!_firebaseDb||!userId) return;
@@ -2996,7 +3022,7 @@ function OnboardingScreen({onComplete}){
         {clbGoal===t.id&&<div style={{color:T.blue,fontSize:18}}>✓</div>}
       </Card>)}
     </div>
-    <Btn onClick={()=>{ const tr=TRACKS.find(x=>x.id===clbGoal)||TRACKS[0]; try{ localStorage.setItem("franco_track",tr.id); localStorage.setItem("franco_clb_goal",String(tr.clb||5)); }catch{}; onComplete(companion,level); }} disabled={clbGoal===null} style={{padding:"15px 40px",fontSize:16}}>Start Learning 🚀</Btn>
+    <Btn onClick={()=>{ const tr=TRACKS.find(x=>x.id===clbGoal)||TRACKS[0]; try{ localStorage.setItem("franco_track",tr.id); localStorage.setItem("franco_clb_goal",String(tr.clb||5)); }catch{}; logEvent("onboarding_complete",{track:tr.id, level}); onComplete(companion,level); }} disabled={clbGoal===null} style={{padding:"15px 40px",fontSize:16}}>Start Learning 🚀</Btn>
   </div>;
 }
 
@@ -3257,7 +3283,7 @@ function MockExamScreen({onExit}){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[timeLeft,phase]);
 
-  const startExam=(id)=>{ setExamId(id); setPhase("intro"); };
+  const startExam=(id)=>{ logEvent("mock_start",{exam:id, track:track.id}); setExamId(id); setPhase("intro"); };
   const beginSections=()=>{ setSecIdx(0); setQIdx(0); setTimeLeft(MOCKS[examId].sections[0].mins*60); setPhase("run"); };
   const setAnswer=(patch)=>setAns(a=>({...a,[key]:{...(a[key]||{}),...patch}}));
 
@@ -3280,10 +3306,15 @@ function MockExamScreen({onExit}){
     for(let s=0;s<exam.sections.length;s++){
       const sec=exam.sections[s];
       if(sec.skill==="listening"||sec.skill==="reading"){
-        let correct=0;
-        sec.questions.forEach((qq,i)=>{ if((ans[`${s}-${i}`]||{}).sel===qq.correct) correct++; });
-        const pct=Math.round(100*correct/sec.questions.length);
-        out.sections.push({order:s,label:sec.label,icon:sec.icon,detail:`${correct}/${sec.questions.length} correct`,clb:mockClbFromPct(pct)});
+        const attempted=sec.questions.filter((qq,i)=>typeof (ans[`${s}-${i}`]||{}).sel==="number").length;
+        if(attempted===0){
+          out.sections.push({order:s,label:sec.label,icon:sec.icon,detail:"Not attempted",clb:null});
+        } else {
+          let correct=0;
+          sec.questions.forEach((qq,i)=>{ if((ans[`${s}-${i}`]||{}).sel===qq.correct) correct++; });
+          const pct=Math.round(100*correct/sec.questions.length);
+          out.sections.push({order:s,label:sec.label,icon:sec.icon,detail:`${correct}/${sec.questions.length} correct`,clb:mockClbFromPct(pct)});
+        }
       } else if(sec.skill==="speaking"){
         const scores=sec.questions.map((qq,i)=>(ans[`${s}-${i}`]||{}).score).filter(x=>typeof x==="number");
         const avg=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null;
@@ -3309,6 +3340,7 @@ function MockExamScreen({onExit}){
     const clbs=out.sections.map(x=>x.clb).filter(x=>typeof x==="number");
     out.overall=clbs.length?Math.min(...clbs):null; // CLB takes the LOWEST section (like IRCC)
     out.target=track.clb||7;
+    logEvent("mock_complete",{exam:exam.id, overall:out.overall, target:out.target});
     setResult(out); setGrading(false);
   }
 
@@ -5771,7 +5803,8 @@ function AppInner(){
     // out to Stripe for digital subscriptions. Web continues to use the paywall.
     // Lesson gating: if not free AND not premium, show paywall.
     // Web → Stripe paywall. iOS → IAP paywall (handled in PaywallModal).
-    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ setPaywallLesson(lesson); return; }
+    if(!isLessonFree(lesson.id) && !isPremiumUnlocked()){ logEvent("paywall_shown",{lessonId:lesson.id}); setPaywallLesson(lesson); return; }
+    logEvent("lesson_start",{lessonId:lesson.id, level:level?.id, skill:lesson.skill});
     lessonDirtyRef.current=true;
     setActiveLesson({lesson,level}); setScreen("lesson");
   };
@@ -5782,6 +5815,7 @@ function AppInner(){
   };
   // Skills tab: start an on-demand, focused practice set (synthetic lesson, not graded into progress).
   const handleStartPractice=(practiceLesson)=>{
+    logEvent("skill_practice_start",{id:practiceLesson.id, skill:practiceLesson.skill});
     lessonDirtyRef.current=true;
     setActiveLesson({lesson:practiceLesson, level:null, back:"skills"});
     setScreen("lesson");
@@ -5814,6 +5848,7 @@ function AppInner(){
   // if the learner leaves via ✕ or a nav tab instead of the Continue button.
   const handleLessonDone=(lessonId, score=4)=>{
     lessonDirtyRef.current=false;
+    logEvent(activeLesson?.lesson?.practice?"practice_complete":"lesson_complete",{lessonId, score});
     if(activeLesson?.lesson?.practice) return; // practice sets aren't graded into progress
     saveLessonProgress(lessonId, score);
   };
@@ -5827,6 +5862,7 @@ function AppInner(){
   const handleNav=(target)=>{
     if(screen==="lesson" && target!=="lesson" && lessonDirtyRef.current){
       if(!window.confirm("Leave this lesson? Your progress in it won't be saved.")) return;
+      logEvent("lesson_abandon",{lessonId:activeLesson?.lesson?.id, via:"tab"});
       lessonDirtyRef.current=false;
     }
     if(screen==="lesson") stopFrench();
@@ -5860,7 +5896,7 @@ function AppInner(){
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
     {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onDone={handleLessonDone} onBack={()=>{lessonDirtyRef.current=false;setScreen(activeLesson.back||"hub");}} onPracticeWithSophie={handlePracticeWithSophie}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onDone={handleLessonDone} onBack={()=>{if(lessonDirtyRef.current&&activeLesson)logEvent("lesson_abandon",{lessonId:activeLesson.lesson?.id, via:"exit"});lessonDirtyRef.current=false;setScreen(activeLesson.back||"hub");}} onPracticeWithSophie={handlePracticeWithSophie}/>}
     {screen==="skills"&&<SkillsScreen onStartPractice={handleStartPractice} onOpenMock={()=>setScreen("mock")}/>}
     {screen==="mock"&&<MockExamScreen onExit={()=>setScreen("skills")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
