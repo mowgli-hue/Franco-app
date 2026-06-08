@@ -3902,6 +3902,44 @@ function VocabFlipList({vocab}){
   </div>;
 }
 
+// Parse a lesson's vocab list ("Bonjour (bohn-ZHOOR) = Hello / Good day")
+// into clean {fr, en} pairs we can build extra practice questions from.
+function parseVocabPairs(vocab){
+  if(!Array.isArray(vocab)) return [];
+  const pairs=[];
+  for(const raw of vocab){
+    if(typeof raw!=="string"||!raw.includes("=")) continue;
+    const idx=raw.indexOf("=");
+    const fr=raw.slice(0,idx).replace(/\([^)]*\)/g,"").trim();
+    const enFull=raw.slice(idx+1).trim();
+    const en=enFull.split("/")[0].split(",")[0].trim();
+    if(fr&&en&&en.length<=42) pairs.push({fr,en,enFull});
+  }
+  // de-dupe by French word
+  const seen=new Set();
+  return pairs.filter(p=>{const k=p.fr.toLowerCase();if(seen.has(k))return false;seen.add(k);return true;});
+}
+
+// Auto-generate extra vocabulary practice so every lesson has more questions to
+// lock the words in. Returns a small set of tap + match questions built from the
+// lesson's own vocab — no per-lesson authoring needed.
+function buildVocabPractice(lesson){
+  const pairs=parseVocabPairs(lesson?.vocab);
+  if(pairs.length<4) return [];
+  const shuffle=(a)=>{const x=[...a];for(let i=x.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[x[i],x[j]]=[x[j],x[i]];}return x;};
+  const out=[];
+  const mPairs=shuffle(pairs).slice(0,5).map(p=>[p.fr,p.en]);
+  out.push({type:"match",prompt:"Extra practice — match the French to its meaning",pairs:mPairs,explain:"Quick review of today's words. Say each one out loud as you match it — that's how they stick.",diff:2,_gen:true});
+  const picks=shuffle(pairs).slice(0,Math.min(4,pairs.length));
+  for(const p of picks){
+    const distractors=shuffle(pairs.filter(q=>q.en!==p.en)).slice(0,3).map(q=>q.en);
+    if(distractors.length<3) continue;
+    const opts=shuffle([p.en,...distractors]);
+    out.push({type:"tap",fr:p.fr,opts,correct:opts.indexOf(p.en),explain:`${p.fr} = ${p.enFull}. Keep practising today's words until they come automatically.`,diff:1,_gen:true});
+  }
+  return out;
+}
+
 function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPracticeWithSophie}){
   const c=companion||COMPANIONS[0];
   const isMobile=useIsMobile();
@@ -4169,6 +4207,12 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
               <div style={{background:"#0F172A",padding:"18px"}}>
                 <div style={{fontSize:10,fontWeight:700,color:"rgba(255,255,255,0.4)",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{level?.cefrTag||"Pre-A1"} · {lesson.skill} · {lesson.mins} min</div>
                 <div style={{fontFamily:"Georgia,serif",fontSize:20,fontWeight:800,color:"#fff",lineHeight:1.25}}>{lesson.title}</div>
+              </div>
+              <div style={{background:"#FFFBEB",borderBottom:"1px solid #FDE68A",padding:"12px 16px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                <div style={{fontSize:20,lineHeight:1}}>📓</div>
+                <div style={{fontSize:12.5,color:"#92400E",lineHeight:1.6}}>
+                  <b>Before you start:</b> watch today's video with Sophie and keep your notebook beside you. Write down the key words as she teaches them — <b>then</b> answer the questions to lock it all in. ✍️
+                </div>
               </div>
               {(()=>{
                 // Video embed appears ONLY when a HeyGen URL is set in
