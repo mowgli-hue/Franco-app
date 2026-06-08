@@ -101,6 +101,18 @@ function isDueForReview(reviewData){
   return new Date(reviewData.nextDate) <= new Date();
 }
 
+// Read the locally-persisted SRS schedule and return the lesson IDs that are due
+// for review today (and that the learner has actually completed). Works for
+// guests / the iOS app, where the review schedule lives in localStorage.
+function getDueReviewIds(progress, cloudReviews){
+  let reviews=cloudReviews;
+  if(!reviews || !Object.keys(reviews).length){
+    try{ reviews=JSON.parse(localStorage.getItem("franco_reviews")||"{}"); }catch{ reviews={}; }
+  }
+  if(!reviews) return [];
+  return Object.keys(reviews).filter(id => progress?.[id] && isDueForReview(reviews[id]));
+}
+
 function mapAuthError(error){
   const code = error?.code || "";
   switch(code){
@@ -2262,7 +2274,7 @@ const CLB_LESSONS = [
   mkL("clb-06","CLB 5 Listening: Service Interactions",25,"listening",
     "CLB 5 listening: understand service interactions (bank, CLSC, government office, employer) of 3-5 minutes. The speakers speak at natural speed with occasional interruptions. You need to: understand the purpose, extract specific details (procedures, deadlines, amounts, requirements), identify the speakers' roles, and understand what action is required. New at CLB 5: multiple speakers, some background noise, occasional Quebec expressions.",
     ["Interaction de service: 3-5 minutes","Vitesse naturelle, quelques interruptions","Identifier les interlocuteurs et leurs rôles","Comprendre la procédure expliquée","Repérer: délais, montants, exigences, actions requises","CLB 5: plusieurs locuteurs possibles","Accent québécois standard","Nouvelle difficulté: inférer ce qui est implicite"],
-    [mcq("In a CLB 5 service interaction, you might need to infer:",["every single word","what the caller needs to do next, even if not directly stated","only the names of speakers","only the topic"],0,"At CLB 5, you must sometimes INFER the next step from context. If a bank employee says 'Votre demande de carte a été approuvée — vous la recevrez dans 7 à 10 jours ouvrables', you can infer: no action needed, just wait. This inference skill is what separates CLB 4 from CLB 5!"),
+    [mcq("In a CLB 5 service interaction, you might need to infer:",["every single word","what the caller needs to do next, even if not directly stated","only the names of speakers","only the topic"],1,"At CLB 5, you must sometimes INFER the next step from context. If a bank employee says 'Votre demande de carte a été approuvée — vous la recevrez dans 7 à 10 jours ouvrables', you can infer: no action needed, just wait. This inference skill is what separates CLB 4 from CLB 5!"),
      li("Bonjour, je vous appelle de Service Canada au sujet de votre demande d'assurance-emploi. Votre dossier est presque complet, mais il nous manque une preuve de résidence. Vous devrez donc nous rappeler avec votre numéro de dossier afin de finaliser le tout.","Que doit faire la personne, et avec quoi?",["Rappeler avec son numéro de dossier pour fournir une preuve de résidence","Se présenter en personne avec son passeport","Payer des frais en ligne immédiatement","Attendre une lettre, sans rien faire"],0,"Catch both the action and what to have ready: « rappeler avec votre numéro de dossier » + what's missing (« une preuve de résidence »). At CLB 5 you must extract the required action, not just the topic.",{diff:3}),
      wr("What 3 questions should you ask after a service interaction to check comprehension?",["qu'est-ce que je dois faire?","quand est-ce que je dois le faire?","qu'est-ce que je dois apporter?","quel est le délai?","quel est le numéro de référence?"],"1) Qu'est-ce que je dois faire exactement? (What exactly do I need to do?) 2) Dans quel délai? (By when?) 3) Quels documents/informations dois-je avoir? (What do I need to have?) These 3 questions ensure you understood the action required — essential for CLB 5 service interactions!")]),
 
@@ -2725,11 +2737,30 @@ async function callClaude(systemPrompt, userMessage, maxTokens=600){
     // eslint-disable-next-line no-console
     console.warn("[callClaude] error:", e?.name, e?.message);
     if(e?.name === "AbortError"){
-      return "Désolé, ma réponse prend trop de temps. Vérifiez votre connexion internet et réessayez! 🌐";
+      return AI_ERROR_PREFIX + "That took too long to respond. Check your connection and try again.";
     }
-    return "Désolé, l'IA n'est pas disponible pour le moment. Essayez de rafraîchir la page ou revenez plus tard! 🔄";
+    return AI_ERROR_PREFIX + "The tutor is unavailable right now. Please try again in a moment.";
   }
 }
+
+// Error sentinel so the chat UI can render a distinct, retryable error bubble
+// instead of a plain message that looks like a real answer.
+const AI_ERROR_PREFIX = "AIERR";
+function aiError(text){
+  return (typeof text==="string" && text.startsWith(AI_ERROR_PREFIX))
+    ? text.slice(AI_ERROR_PREFIX.length)
+    : null;
+}
+// Strip the marker for surfaces that show plain text (no retry affordance).
+function aiClean(text){
+  const e = aiError(text);
+  return e==null ? text : e;
+}
+
+// Stable, unique chat-message ids so React keys don't rely on array index
+// (which breaks reconciliation when bubbles are filtered/replaced on retry).
+let _msgSeq = 0;
+const newMsg = (role, text) => ({ id:`m${++_msgSeq}`, role, text });
 
 async function checkBackendPremium(userId){
   try{
@@ -3699,6 +3730,26 @@ function HubScreen({progress,onStartLesson}){
       </div>
     </div>
 
+    {/* Due for review — spaced-repetition nudge (the strongest retention lever) */}
+    {(()=>{
+      const dueIds=getDueReviewIds(progress);
+      if(!dueIds.length) return null;
+      const dueLessons=dueIds.map(id=>allLessons.find(l=>l.id===id)).filter(Boolean);
+      if(!dueLessons.length) return null;
+      const first=dueLessons[0];
+      const lvl=Object.values(SYLLABUS).find(lv=>lv.modules.flatMap(m=>m.lessons).some(l=>l.id===first.id));
+      const n=dueLessons.length;
+      return <div onClick={()=>onStartLesson(first,lvl)}
+        style={{display:"flex",alignItems:"center",gap:12,background:"#FFFBEB",border:"1.5px solid #FDE68A",borderRadius:14,padding:"12px 14px",marginBottom:12,cursor:"pointer"}}>
+        <div style={{fontSize:24,lineHeight:1}}>🧠</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:800,color:"#92400E"}}>{n} {n===1?"lesson":"lessons"} ready for review</div>
+          <div style={{fontSize:11,color:"#B45309",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Refresh now so it sticks — start with “{first.title}”.</div>
+        </div>
+        <span style={{background:"#92400E",color:"#fff",borderRadius:8,padding:"8px 14px",fontSize:12,fontWeight:800,flexShrink:0}}>Review →</span>
+      </div>;
+    })()}
+
     {/* Search */}
     <div style={{position:"relative",marginBottom:12}}>
       <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",fontSize:14}}>🔍</span>
@@ -3831,9 +3882,24 @@ function _playUrl(url){
   try{
     const a = new Audio(url);
     _ttsAudio = a;
+    // Release the element reference once playback finishes so detached <audio>
+    // nodes can be garbage-collected instead of piling up over a session.
+    a.onended = a.onerror = ()=>{ if(_ttsAudio===a) _ttsAudio=null; };
     a.play().catch(()=>{});
     return true;
   }catch{ return false; }
+}
+// Keep the per-session blob cache bounded so object URLs don't accumulate
+// without limit on long study sessions. Oldest entries are revoked + dropped.
+const _TTS_CACHE_MAX = 60;
+function _cacheTts(key, url){
+  _ttsCache.set(key, url);
+  while(_ttsCache.size > _TTS_CACHE_MAX){
+    const oldest = _ttsCache.keys().next().value;
+    const old = _ttsCache.get(oldest);
+    _ttsCache.delete(oldest);
+    try{ URL.revokeObjectURL(old); }catch{}
+  }
 }
 async function speakFrench(text){
   if(!text) return;
@@ -3850,7 +3916,7 @@ async function speakFrench(text){
         const blob = await res.blob();
         if(blob && blob.size>0 && blob.type.includes("audio")){
           const url = URL.createObjectURL(blob);
-          _ttsCache.set(cleaned, url);
+          _cacheTts(cleaned, url);
           if(_playUrl(url)) return;
         }
       } else if(res.status===503){
@@ -3860,6 +3926,28 @@ async function speakFrench(text){
     }catch{ /* network/offline — fall through to device TTS */ }
   }
   _deviceTTS(cleaned);
+}
+
+// Speak English narration (lesson "story", explanations) using the device voice.
+// Kept separate from speakFrench so we don't burn ElevenLabs credits on English
+// and so the accent is correct (en-CA).
+function speakEnglish(text){
+  if(!text) return;
+  const cleaned = String(text).replace(/\s+/g," ").trim();
+  if(!cleaned) return;
+  stopFrench();
+  if(!('speechSynthesis' in window)) return;
+  try{
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(cleaned);
+    utt.lang = "en-CA"; utt.rate = 0.95; utt.pitch = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const enVoice = voices.find(v=>v.lang?.startsWith("en-CA"))
+      || voices.find(v=>v.lang?.startsWith("en-US"))
+      || voices.find(v=>v.lang?.startsWith("en"));
+    if(enVoice) utt.voice = enVoice;
+    window.speechSynthesis.speak(utt);
+  }catch{}
 }
 
 function SpeakBtn({text, size=14, style={}}){
@@ -4589,7 +4677,7 @@ function DoubtButton({q}){
     const opts=(q.options||q.opts||[]).join(" / ");
     const sys="You are Sophie, a warm, expert French tutor for Canadian immigrants preparing for CLB/TEF/TCF Canada (you know those exam formats and the CLB levels well). The learner is stuck on a question and tapped 'I have a doubt'. Give a SHORT hint of 2–4 sentences: clarify the concept or nudge them toward the answer, but do NOT simply state which option is correct. Use plain English with small French examples. Never make French feel hard — normalise the confusion ('lots of people mix this up'), keep the hint small and winnable, and end on encouragement.";
     const msg=`The learner is working on: "${ctx}". Options: ${opts||"(none)"}. Give one helpful hint.`;
-    try{ const r=await callClaude(sys,msg,250); setAnswer(r); }
+    try{ const r=await callClaude(sys,msg,250); setAnswer(aiError(r)!=null?"I couldn't reach Sophie just now — try re-reading the question and looking for words you already recognise. You've got this! 🌟":r); }
     catch{ setAnswer("I couldn't reach Sophie just now — try re-reading the question and looking for words you already recognise. You've got this! 🌟"); }
     setLoading(false);
   };
@@ -4678,9 +4766,13 @@ Analyze their French pronunciation and content. Be encouraging.`;
       <span style={{fontSize:28}}>🎤</span>
       <div>
         <div style={{fontFamily:"Georgia,serif",fontSize:17,fontWeight:700,color:T.navy}}>AI Speaking Coach</div>
-        <div style={{fontSize:12,color:T.textSoft}}>Powered by Claude AI — speaks French Canadian 🍁</div>
+        <div style={{fontSize:12,color:T.textSoft}}>{srSupported?"Powered by Claude AI — speaks French Canadian 🍁":"Listen-and-repeat mode on this device 🍁"}</div>
       </div>
     </div>
+
+    {!srSupported&&<div style={{background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:10,padding:"9px 12px",marginBottom:14,fontSize:12,color:"#1E40AF",lineHeight:1.5}}>
+      🎧 Live mic scoring isn't available on this device. You'll hear the model phrase and practise it aloud yourself — just as effective for building the habit.
+    </div>}
 
     <div style={{background:"rgba(255,255,255,0.7)",borderRadius:12,padding:14,marginBottom:14}}>
       <div style={{fontSize:12,fontWeight:700,color:T.textSoft,textTransform:"uppercase",letterSpacing:.8,marginBottom:6}}>💬 Say this:</div>
@@ -4840,7 +4932,7 @@ function AIHintButton({question, level}){
     const sys=`You are a warm French teacher helping a Canadian immigrant. Give a short, encouraging hint (2 sentences max) to help with this question. Don't give the answer directly. Be warm and specific.`;
     const msg=`Question type: ${question.type}\nQuestion: ${question.prompt||question.fr||""}\nLevel: ${level}`;
     const h=await callClaude(sys,msg,120);
-    setHint(h);setLoading(false);
+    setHint(aiClean(h));setLoading(false);
   };
   return <div style={{position:"relative"}}>
     <button onClick={getHint}
@@ -4904,13 +4996,13 @@ Rules:
 - Use relevant emojis
 - Always end with a question or prompt to keep conversation going`;
     const opening=await callClaude(sys,`Start our ${t.label} conversation! Greet me warmly in French and ask me an easy opening question.`,200);
-    setMsgs([{role:"assistant",text:opening}]);
+    setMsgs([newMsg("assistant",aiClean(opening))]);
     setLoading(false);
   };
 
   const sendMessage=async()=>{
     if(!input.trim()||loading) return;
-    const userMsg={role:"user",text:input};
+    const userMsg=newMsg("user",input);
     const newMsgs=[...msgs,userMsg];
     setMsgs(newMsgs);
     setInput("");
@@ -4927,7 +5019,7 @@ Rules:
 - Use emojis`;
     const history=newMsgs.slice(-6).map(m=>`${m.role==="user"?"Student":"Teacher"}: ${m.text}`).join("\n");
     const reply=await callClaude(sys,`Conversation so far:\n${history}\n\nContinue naturally. Keep it short and ask a follow-up question.`,200);
-    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    setMsgs(m=>[...m,newMsg("assistant",aiClean(reply))]);
     setLoading(false);
     setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
   };
@@ -4992,7 +5084,7 @@ Rules:
 
       {/* Messages */}
       <div style={{flex:1,overflowY:"auto",padding:"20px 20px 0"}}>
-        {msgs.map((m,i)=><div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row"}}>
+        {msgs.map((m,i)=><div key={m.id||i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row"}}>
           {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
           <div style={{maxWidth:"75%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.65,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 12px rgba(0,0,0,0.06)"}}>
             {m.text}
@@ -5333,6 +5425,7 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesso
   const [loading,setLoading] = useState(false);
   const [mode,setMode] = useState("chat"); // chat | assessment | plan
   const bottomRef = useRef();
+  const lastUserRef = useRef(null); // last learner message, for retry-after-error
   const authCtx = useAuth();
 
   // Build Sophie's system prompt using the new master pedagogy (see src/sophie.js
@@ -5360,7 +5453,8 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesso
 
   const sendMessage = async(text) => {
     if(!text.trim()||loading) return;
-    const userMsg = {role:"user", text};
+    lastUserRef.current = text;
+    const userMsg = newMsg("user", text);
     const newMsgs = [...msgs, userMsg];
     setMsgs(newMsgs);
     setInput("");
@@ -5371,9 +5465,43 @@ function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesso
 Learner: ${text}
 
 Tutor:`, 400);
-    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    setMsgs(m=>[...m,newMsg("assistant",reply)]);
     setLoading(false);
     setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+  };
+
+  // Sophie's opening greeting — extracted so both first-mount and retry use it.
+  const runGreeting = async() => {
+    setLoading(true);
+    const prompt = sophieOpener({
+      learner: { name: learnerName, completed: done.length, nextLessonTitle: notDone[0]?.title },
+      lesson: lesson || null,
+    });
+    const reply = await callClaude(learnerContext, prompt, 200);
+    setMsgs([newMsg("assistant",reply)]);
+    setLoading(false);
+  };
+
+  // Retry after an AI error: drop the trailing error bubble, then re-request a
+  // reply for the existing conversation (no duplicate user bubble). If there's
+  // no prior learner message, re-run the opening greeting.
+  const retryAi = async() => {
+    if(loading) return;
+    const cleaned = msgs.filter(x=>aiError(x.text)==null);
+    const lastMsg = cleaned[cleaned.length-1];
+    if(lastMsg && lastMsg.role==="user"){
+      setMsgs(cleaned);
+      setLoading(true);
+      const history = cleaned.slice(-8).map(m=>`${m.role==="user"?"Learner":"Tutor"}: ${m.text}`).join("");
+      const reply = await callClaude(learnerContext, `${history}
+
+Tutor:`, 400);
+      setMsgs(m=>[...m,newMsg("assistant",reply)]);
+      setLoading(false);
+      setTimeout(()=>bottomRef.current?.scrollIntoView({behavior:"smooth"}),100);
+    } else {
+      await runGreeting();
+    }
   };
 
   const quickPrompts = [
@@ -5386,32 +5514,9 @@ Tutor:`, 400);
   ];
 
   useEffect(()=>{
-    // Auto-greeting based on context: lesson teaching mode OR free chat.
-    const greet = async()=>{
-      setLoading(true);
-      let prompt;
-      if (lesson) {
-        // Teaching mode — Sophie opens with the lesson's Turn 1
-        prompt = sophieOpener({
-          learner: { name: learnerName, completed: done.length, nextLessonTitle: notDone[0]?.title },
-          lesson,
-        });
-      } else if (done.length === 0) {
-        prompt = sophieOpener({
-          learner: { name: learnerName, completed: 0, nextLessonTitle: notDone[0]?.title },
-          lesson: null,
-        });
-      } else {
-        prompt = sophieOpener({
-          learner: { name: learnerName, completed: done.length, nextLessonTitle: notDone[0]?.title },
-          lesson: null,
-        });
-      }
-      const reply = await callClaude(learnerContext, prompt, 200);
-      setMsgs([{role:"assistant",text:reply}]);
-      setLoading(false);
-    };
-    greet();
+    // Auto-greeting on mount (lesson teaching mode OR free chat).
+    runGreeting();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   return <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 64px)",maxWidth:800,margin:"0 auto"}}>
@@ -5444,14 +5549,28 @@ Tutor:`, 400);
 
     {/* Messages */}
     <div style={{flex:1,overflowY:"auto",padding:"20px"}}>
-      {msgs.map((m,i)=>(
-        <div key={i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
+      {msgs.map((m,i)=>{
+        const err = aiError(m.text);
+        if(err!=null) return (
+          <div key={m.id||i} style={{display:"flex",gap:10,marginBottom:16,alignItems:"flex-start"}}>
+            <Avatar companion={c} size={36}/>
+            <div style={{maxWidth:"78%",background:"#FEF2F2",border:"1.5px solid #FECACA",color:"#991B1B",padding:"12px 16px",borderRadius:"18px 18px 18px 4px",fontSize:14,lineHeight:1.6}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,fontWeight:700,marginBottom:4}}>⚠️ Couldn't reach the tutor</div>
+              <div style={{marginBottom:10}}>{err}</div>
+              <button onClick={retryAi} disabled={loading}
+                style={{background:"#DC2626",color:"#fff",border:"none",borderRadius:8,padding:"7px 16px",fontSize:13,fontWeight:700,cursor:loading?"not-allowed":"pointer"}}>↻ Retry</button>
+            </div>
+          </div>
+        );
+        return (
+        <div key={m.id||i} style={{display:"flex",gap:10,marginBottom:16,flexDirection:m.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
           {m.role==="assistant"&&<Avatar companion={c} size={36}/>}
           <div style={{maxWidth:"78%",background:m.role==="user"?`linear-gradient(135deg,${T.blue},${T.navy})`:"#fff",color:m.role==="user"?"#fff":T.text,padding:"12px 16px",borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",fontSize:14,lineHeight:1.7,border:m.role==="assistant"?`1.5px solid ${T.border}`:"none",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
             {m.text}
           </div>
         </div>
-      ))}
+        );
+      })}
       {loading&&<div style={{display:"flex",gap:10,marginBottom:16,alignItems:"flex-start"}}>
         <Avatar companion={c} size={36}/>
         <div style={{background:"#fff",border:`1.5px solid ${T.border}`,padding:"14px 18px",borderRadius:"18px 18px 18px 4px",display:"flex",gap:5}}>
@@ -5810,6 +5929,16 @@ function AppInner(){
         await iapInit();
       } catch (e) { /* ignore — iap.js logs its own warnings */ }
     })();
+    // Re-validate the subscription against RevenueCat whenever the app returns
+    // to the foreground. Without this, a cancelled/expired subscription would
+    // keep unlocking premium until the cached token's exp date (up to ~31 days).
+    // RevenueCat is the ground truth; this just re-syncs the local mirror.
+    const onResume = () => {
+      if (document.visibilityState !== "visible") return;
+      import("./iap.js").then(m => m.refreshEntitlementCache?.()).catch(()=>{});
+    };
+    document.addEventListener("visibilitychange", onResume);
+    return () => document.removeEventListener("visibilitychange", onResume);
   }, []);
 
   useEffect(()=>{
@@ -5880,10 +6009,18 @@ function AppInner(){
     const newXP=(parseInt(localStorage.getItem("franco_xp")||"0"))+25;
     localStorage.setItem("franco_xp",String(newXP));
     setProgress(newProgress);
-    const currentReviews=authCtx?.reviewSchedule||{};
+    // Base the review schedule on whichever store has data (cloud for signed-in
+    // web users, localStorage for guests / the iOS app).
+    let currentReviews=authCtx?.reviewSchedule||{};
+    if(!authCtx?.user){
+      try{ currentReviews=JSON.parse(localStorage.getItem("franco_reviews")||"{}"); }catch{ currentReviews={}; }
+    }
     const prev=currentReviews[lessonId]||{};
     const nextReview=calcNextReview(prev.interval||0, prev.ef||2.5, score);
     const newReviews={...currentReviews,[lessonId]:nextReview};
+    // Always persist locally so the SRS "due for review" surface works offline /
+    // for guest users, not just signed-in web accounts.
+    try{ localStorage.setItem("franco_reviews", JSON.stringify(newReviews)); }catch{}
     if(authCtx?.user && authCtx?.saveProgress){
       authCtx.saveProgress(newProgress, newXP, newStreak, newReviews);
     }
