@@ -1,4 +1,6 @@
 PODS:
+  - Alamofire (5.10.2)
+  - BigInt (5.2.0)
   - Capacitor (8.3.0):
     - CapacitorCordova
   - CapacitorBrowser (8.0.3):
@@ -6,24 +8,40 @@ PODS:
   - CapacitorCordova (8.3.0)
   - CapacitorHaptics (8.0.2):
     - Capacitor
+  - CapacitorLocalNotifications (8.2.0):
+    - Capacitor
+  - CapgoCapacitorUpdater (8.48.0):
+    - Alamofire (= 5.10.2)
+    - BigInt (= 5.2.0)
+    - Capacitor
+    - Version (= 0.8.0)
+    - ZIPFoundation (~> 0.9)
   - PurchasesHybridCommon (18.6.0):
     - RevenueCat (= 5.72.0)
   - RevenueCat (5.72.0)
   - RevenuecatPurchasesCapacitor (13.1.1):
     - Capacitor
     - PurchasesHybridCommon (= 18.6.0)
+  - Version (0.8.0)
+  - ZIPFoundation (0.9.20)
 
 DEPENDENCIES:
   - "Capacitor (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorBrowser (from `../../node_modules/@capacitor/browser`)"
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorHaptics (from `../../node_modules/@capacitor/haptics`)"
+  - "CapacitorLocalNotifications (from `../../node_modules/@capacitor/local-notifications`)"
+  - "CapgoCapacitorUpdater (from `../../node_modules/@capgo/capacitor-updater`)"
   - "RevenuecatPurchasesCapacitor (from `../../node_modules/@revenuecat/purchases-capacitor`)"
 
 SPEC REPOS:
   trunk:
+    - Alamofire
+    - BigInt
     - PurchasesHybridCommon
     - RevenueCat
+    - Version
+    - ZIPFoundation
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -34,18 +52,28 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/ios"
   CapacitorHaptics:
     :path: "../../node_modules/@capacitor/haptics"
+  CapacitorLocalNotifications:
+    :path: "../../node_modules/@capacitor/local-notifications"
+  CapgoCapacitorUpdater:
+    :path: "../../node_modules/@capgo/capacitor-updater"
   RevenuecatPurchasesCapacitor:
     :path: "../../node_modules/@revenuecat/purchases-capacitor"
 
 SPEC CHECKSUMS:
+  Alamofire: 7193b3b92c74a07f85569e1a6c4f4237291e7496
+  BigInt: f668a80089607f521586bbe29513d708491ef2f7
   Capacitor: 22e541237135648c9aa736232bb4d2eec35fddcb
   CapacitorBrowser: c987c73d09d8bd3b5ec13f06338b1e14d5d2be69
   CapacitorCordova: 2e1e2bb93b2f365309dc4ff18b72b9a69a7814a9
   CapacitorHaptics: 296f771ecd89c7a1bd92a7b6826a7d268e2e70f5
+  CapacitorLocalNotifications: 2615aa008f608b95d3921a778ee1988abf1e6148
+  CapgoCapacitorUpdater: 14816d0e8411f515209182d79ef02c9530e1e34f
   PurchasesHybridCommon: 89a3ddba365c20457a4712bc3d6377b0ea3c9b4f
   RevenueCat: 136390ad99039cdd692156af5e479293ae83b2a9
   RevenuecatPurchasesCapacitor: 006d88975222cc477532cb1d87da4006a139fa92
+  Version: de5907f2c5d0f3cf21708db7801d1d5401139486
+  ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: eae37cc857989e3e7d6f7d560163ca881db2942f
+PODFILE CHECKSUM: 795e59e158eb744050dc4df9323c3770812ed21b
 
 COCOAPODS: 1.16.2
