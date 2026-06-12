@@ -5,14 +5,10 @@ const config: CapacitorConfig = {
   appName: 'Franco',
   webDir: 'dist',
   plugins: {
-    // Capgo over-the-air live updates. autoUpdate downloads new web bundles in
-    // the background and applies them on next launch. Takes effect only after
-    // you install @capgo/capacitor-updater and rebuild once. See src/liveupdate.js.
     CapacitorUpdater: {
       autoUpdate: true,
-      // The channel the app listens on. Upload bundles with:
-      //   npx @capgo/cli bundle upload --channel production
-      defaultChannel: 'production'
+      defaultChannel: 'production',
+      appId: 'app.franco.www'
     }
   }
 };
