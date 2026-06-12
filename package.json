@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor/browser": "^8.0.3",
     "@capacitor/cli": "^7.6.1",
     "@capacitor/core": "^8.3.0",
