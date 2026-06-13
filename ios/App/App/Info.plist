@@ -49,5 +49,7 @@
 	<string>Franco uses the microphone for speaking practice.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Franco uses speech recognition to check your French pronunciation.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

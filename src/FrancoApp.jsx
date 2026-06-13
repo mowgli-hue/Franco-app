@@ -3950,6 +3950,81 @@ function speakEnglish(text){
   }catch{}
 }
 
+// Speak a line in Sophie's ElevenLabs voice AND expose the live audio level so a
+// portrait can "talk" (mouth/lean animation). Returns a stop() function.
+// onLevel(0..1) fires every frame; onEnd() fires when she finishes.
+// Falls back to device TTS (no real levels — we fake a gentle pulse) if the
+// ElevenLabs proxy is unavailable.
+function speakSophie(text, { onLevel = () => {}, onEnd = () => {} } = {}) {
+  let stopped = false;
+  let ctx, raf, audioEl;
+  const cleanup = () => {
+    stopped = true;
+    try { cancelAnimationFrame(raf); } catch {}
+    try { audioEl && audioEl.pause(); } catch {}
+    try { ctx && ctx.close(); } catch {}
+    try { window.speechSynthesis?.cancel(); } catch {}
+    onLevel(0);
+  };
+  const cleaned = String(text || "").replace(/\(.*?\)/g, "").replace(/[()→]/g, "").trim();
+  if (!cleaned) { onEnd(); return cleanup; }
+
+  const deviceFallback = () => {
+    if (!("speechSynthesis" in window)) { onEnd(); return; }
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(cleaned);
+      u.lang = "fr-CA"; u.rate = 0.92;
+      const v = window.speechSynthesis.getVoices().find(x => x.lang?.startsWith("fr"));
+      if (v) u.voice = v;
+      // No real amplitude from speechSynthesis — animate a gentle talking pulse.
+      let t = 0;
+      const tick = () => { if (stopped) return; t += 0.18; onLevel(0.35 + 0.35 * Math.abs(Math.sin(t))); raf = requestAnimationFrame(tick); };
+      u.onstart = () => tick();
+      u.onend = () => { onLevel(0); onEnd(); };
+      window.speechSynthesis.speak(u);
+    } catch { onEnd(); }
+  };
+
+  (async () => {
+    try {
+      const res = await fetch(`${TTS_URL}?text=${encodeURIComponent(cleaned)}`);
+      if (!res.ok) throw new Error("tts");
+      const blob = await res.blob();
+      if (!blob || blob.size === 0 || !blob.type.includes("audio")) throw new Error("tts-empty");
+      if (stopped) return;
+      const url = URL.createObjectURL(blob);
+      audioEl = new Audio(url);
+      audioEl.crossOrigin = "anonymous";
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC();
+      const src = ctx.createMediaElementSource(audioEl);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      src.connect(analyser); analyser.connect(ctx.destination);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const loop = () => {
+        if (stopped) return;
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
+        const rms = Math.sqrt(sum / data.length);          // 0..~0.5
+        onLevel(Math.min(1, rms * 3.2));                    // scale to a lively range
+        raf = requestAnimationFrame(loop);
+      };
+      audioEl.onended = () => { try { URL.revokeObjectURL(url); } catch {} cleanup(); onEnd(); };
+      audioEl.onerror = () => { cleanup(); deviceFallback(); };
+      await ctx.resume().catch(() => {});
+      await audioEl.play();
+      loop();
+    } catch {
+      if (!stopped) deviceFallback();
+    }
+  })();
+
+  return cleanup;
+}
+
 function SpeakBtn({text, size=14, style={}}){
   const[speaking,setSpeaking]=useState(false);
   const handle=(e)=>{
@@ -4385,6 +4460,10 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
   // nav tab instead of the ✕ exit (the tabs are now visible during a lesson).
   useEffect(()=>()=>stopFrench(),[]);
 
+  // Stop any in-progress audio whenever the learner moves to a different slide,
+  // question, or phase — so a "Listen" clip never keeps playing on the next page.
+  useEffect(()=>{ stopFrench(); }, [teachSlide, qIdx, reviewIdx, phase]);
+
   // Save progress the moment the lesson reaches its results — so it's never lost,
   // however the learner leaves the results screen (button, ✕, or a nav tab).
   useEffect(()=>{
@@ -4548,7 +4627,7 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
                 <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:14}}>{lesson.teach}</div>
                 {HEYGEN_ENABLED && <button onClick={()=>setShowCall(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"linear-gradient(135deg,#7C3AED,#2563EB)",border:"none",borderRadius:12,padding:"13px 16px",fontSize:14,color:"#fff",cursor:"pointer",fontWeight:800,marginBottom:12}}>📹 Learn this lesson live with Sophie</button>}
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  <button onClick={()=>speakEnglish(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
+                  <button onClick={()=>speakFrench(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
                   {onPracticeWithSophie && <button onClick={()=>onPracticeWithSophie(lesson)} style={{display:"flex",alignItems:"center",gap:6,background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#1E40AF",cursor:"pointer",fontWeight:700}}>🎓 Practice with Sophie</button>}
                 </div>
               </div>
@@ -5685,7 +5764,7 @@ Rules:
 // ─── PERSONAL AI TUTOR ────────────────────────────────────────────────────────
 // `lesson` prop: when set, Sophie enters structured teaching mode for that lesson
 // (uses the lesson arc from src/sophie.js). When null, Sophie runs free chat mode.
-function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesson}){
+function PersonalTutorScreen({companion, progress, startLevel, onNavigate, lesson, onTalkLive}){
   const c = companion||COMPANIONS[0];
   const level = SYLLABUS[startLevel]||SYLLABUS.foundation;
   const allL = Object.values(SYLLABUS).flatMap(l=>l.modules.flatMap(m=>m.lessons));
@@ -5798,7 +5877,9 @@ Tutor:`, 400);
         <div style={{fontWeight:700,fontSize:15,color:T.navy}}>{c.name} — Your Personal Tutor</div>
         <div style={{fontSize:11,color:T.mint,fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
       </div>
-      <div style={{display:"flex",gap:6}}>
+      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+        {onTalkLive && <button onClick={onTalkLive}
+          style={{padding:"6px 12px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7C3AED,#2563EB)",color:"#fff",fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:12,cursor:"pointer"}}>📹 Talk live</button>}
         {[{id:"chat",label:"💬 Chat"},{id:"assessment",label:"📝 Quiz Me"},{id:"plan",label:"📅 Study Plan"}].map(m=>(
           <button key={m.id} onClick={()=>{setMode(m.id);sendMessage(m.id==="assessment"?"Quiz me on my weak areas based on my progress":"Make me a personalized study plan for this week");}}
             style={{padding:"6px 12px",borderRadius:8,border:`1.5px solid ${mode===m.id?T.blue:T.border}`,background:mode===m.id?T.blueLight:"transparent",color:mode===m.id?T.blue:T.textMid,fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:600,fontSize:12,cursor:"pointer"}}>
@@ -6198,6 +6279,7 @@ function AppInner(){
   const[activeLesson,setActiveLesson]=useState(null);
   const[paywallLesson,setPaywallLesson]=useState(null);
   const[tutorLesson,setTutorLesson]=useState(null); // when set, tutor enters lesson teaching mode
+  const[showSophieLive,setShowSophieLive]=useState(false); // live talking-Sophie overlay
   const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
 
   // Check if returning from Stripe payment (web only)
@@ -6238,6 +6320,7 @@ function AppInner(){
       *{box-sizing:border-box;margin:0;padding:0;}
       body{background:${T.surface};}
       @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+        @keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.015)}}
         @keyframes confettiFall{0%{transform:translateY(-10px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
         @keyframes popIn{0%{transform:scale(0.5);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
         @keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
@@ -6372,13 +6455,14 @@ function AppInner(){
     {screen==="skills"&&<SkillsScreen onStartPractice={handleStartPractice} onOpenMock={()=>setScreen("mock")}/>}
     {screen==="mock"&&<MockExamScreen onExit={()=>setScreen("skills")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}
-    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={(s)=>{if(s!=="tutor") setTutorLesson(null); setScreen(s);}} lesson={tutorLesson}/>}
+    {screen==="tutor"&&<PersonalTutorScreen companion={companion} progress={progress} startLevel={startLevel} onNavigate={(s)=>{if(s!=="tutor") setTutorLesson(null); setScreen(s);}} lesson={tutorLesson} onTalkLive={()=>setShowSophieLive(true)}/>}
     {screen==="profile"&&<ProfileScreen companion={companion} progress={progress} startLevel={startLevel} onReset={()=>{setProgress({});setScreen("dashboard");}} user={user} guestMode={guestMode} onAuthNav={goAuth}/>}
     {/* PaywallModal handles BOTH platforms internally:
          - Web: shows Stripe upgrade button
          - iOS: shows Apple IAP "Subscribe" button + "Restore Purchases"
         See PaywallModal definition for the platform branching logic. */}
     {paywallLesson && <PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
+    {showSophieLive && <SophieLive onClose={()=>setShowSophieLive(false)}/>}
   </div>;
 }
 
@@ -6430,6 +6514,141 @@ function UpdateBanner(){
     </div>
     <button onClick={()=>openExternal(APPSTORE_URL)} style={{background:"#3B82F6",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:800,cursor:"pointer",flexShrink:0}}>Update</button>
     <button onClick={()=>{localStorage.setItem("franco_update_dismissed",storeVer);setDismissed(true);}} aria-label="Dismiss update notice" style={{background:"transparent",color:"rgba(255,255,255,0.55)",border:"none",fontSize:16,cursor:"pointer",flexShrink:0,padding:"0 4px"}}>✕</button>
+  </div>;
+}
+
+// ─── LIVE SOPHIE (owned, in-app talking teacher) ──────────────────────────────
+// Sophie's portrait "comes alive" — gentle breathing, a speaking glow, and an
+// amplitude-driven mouth/lean synced to her ElevenLabs voice — while her brain
+// (callClaude) answers questions and teaches in real time. Student talks via the
+// mic (native speech recognition) or types. No HeyGen, no per-minute cost.
+// Drop the portrait at public/sophie-live.png. We improve the animation over time.
+const SOPHIE_IMG = "/sophie-live.png";
+const MOUTH = { x: 50, y: 70 }; // % position of mouth in the portrait (tune to your image)
+
+function SophieLive({ onClose }){
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | thinking | speaking | listening
+  const [level, setLevel] = useState(0);
+  const [started, setStarted] = useState(false);
+  const [imgOk, setImgOk] = useState(true);
+  const stopSpeakRef = useRef(null);
+  const micRef = useRef(null);
+  const bottomRef = useRef(null);
+
+  const learnerName = (typeof localStorage!=="undefined" && localStorage.getItem("franco_name")) || "there";
+  const sysPrompt = useMemo(()=> buildSophieSystemPrompt({ learner:{ name:learnerName }, lesson:null }), [learnerName]);
+
+  const speak = (text) => {
+    if(stopSpeakRef.current) stopSpeakRef.current();
+    setStatus("speaking");
+    stopSpeakRef.current = speakSophie(text, { onLevel:setLevel, onEnd:()=>setStatus("idle") });
+  };
+
+  const ask = async (text) => {
+    const q=(text||"").trim();
+    if(!q || status==="thinking") return;
+    const next=[...msgs,{role:"user",text:q}];
+    setMsgs(next); setInput(""); setStatus("thinking");
+    const history=next.slice(-8).map(m=>`${m.role==="user"?"Student":"Sophie"}: ${m.text}`).join("\n");
+    const reply=aiClean(await callClaude(sysPrompt, `${history}\n\nReply as Sophie — warm, encouraging, brief (2–4 sentences). Teach French for life in Canada, mixing simple French with English. If they spoke French, gently correct and praise.`, 220));
+    setMsgs(m=>[...m,{role:"assistant",text:reply}]);
+    speak(reply);
+  };
+
+  const start = async () => {
+    setStarted(true); setStatus("thinking");
+    const opener=aiClean(await callClaude(sysPrompt, `Greet ${learnerName} warmly as their French teacher Sophie. 2–3 short sentences: introduce yourself and invite them to ask anything or practise speaking. Mix simple French and English.`, 180));
+    setMsgs([{role:"assistant",text:opener}]); speak(opener);
+  };
+
+  const listen = async () => {
+    if(status==="listening"){ try{ await micRef.current?.stop?.(); }catch{} return; }
+    if(status==="speaking" && stopSpeakRef.current){ stopSpeakRef.current(); setStatus("idle"); }
+    setStatus("listening");
+    let finalText="";
+    if(IS_IOS_APP){
+      try{
+        const mod="@capacitor-community/speech-recognition";
+        const { SpeechRecognition } = await import(/* @vite-ignore */ mod);
+        const perm=await SpeechRecognition.requestPermissions();
+        if(perm && perm.speechRecognition==="denied") throw new Error("denied");
+        try{ await SpeechRecognition.removeAllListeners(); }catch{}
+        await SpeechRecognition.addListener("partialResults",(d)=>{ const t=(d?.matches||[])[0]||""; if(t) finalText=t; });
+        await SpeechRecognition.start({ language:"fr-CA", maxResults:1, partialResults:true, popup:false });
+        micRef.current={ stop: async()=>{ try{await SpeechRecognition.stop();}catch{} try{await SpeechRecognition.removeAllListeners();}catch{} finalText?ask(finalText):setStatus("idle"); } };
+        setTimeout(()=>{ micRef.current?.stop?.(); }, 15000);
+        return;
+      }catch{ /* fall through */ }
+    }
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(SR){
+      const rec=new SR(); rec.lang="fr-CA"; rec.interimResults=true;
+      rec.onresult=(e)=>{ finalText=Array.from(e.results).map(r=>r[0].transcript).join(" "); };
+      rec.onend=()=>{ finalText?ask(finalText):setStatus("idle"); };
+      micRef.current={ stop:()=>{try{rec.stop();}catch{}} };
+      try{ rec.start(); }catch{ setStatus("idle"); }
+      setTimeout(()=>{try{rec.stop();}catch{}},15000);
+    } else { setStatus("idle"); }
+  };
+
+  useEffect(()=>()=>{ if(stopSpeakRef.current) stopSpeakRef.current(); try{micRef.current?.stop?.();}catch{} },[]);
+  useEffect(()=>{ bottomRef.current?.scrollIntoView?.({behavior:"smooth"}); },[msgs]);
+
+  const lastSophie=[...msgs].reverse().find(m=>m.role==="assistant");
+  const portraitScale = 1 + (status==="speaking" ? level*0.03 : 0);
+
+  return <div style={{position:"fixed",inset:0,zIndex:400,background:"linear-gradient(160deg,#0B1020,#1E1B4B)",display:"flex",flexDirection:"column"}}>
+    {/* header */}
+    <div style={{padding:"calc(env(safe-area-inset-top) + 10px) 16px 8px",display:"flex",alignItems:"center",gap:8}}>
+      <div style={{width:9,height:9,borderRadius:"50%",background:status==="idle"?"#64748B":status==="listening"?"#F59E0B":"#10B981"}}/>
+      <div style={{color:"#fff",fontSize:14,fontWeight:800}}>Sophie · Live</div>
+      <div style={{flex:1}}/>
+      <button onClick={()=>{ if(stopSpeakRef.current) stopSpeakRef.current(); try{micRef.current?.stop?.();}catch{} onClose(); }} style={{background:"rgba(255,255,255,0.12)",color:"#fff",border:"none",borderRadius:"50%",width:34,height:34,fontSize:16,cursor:"pointer"}}>✕</button>
+    </div>
+
+    {/* portrait */}
+    <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",position:"relative",overflow:"hidden"}}>
+      <div style={{position:"relative",width:"min(72vw,300px)",height:"min(72vw,300px)",borderRadius:"50%",overflow:"hidden",
+        boxShadow:`0 0 ${30+ (status==="speaking"?level*60:0)}px rgba(124,58,237,${0.35+(status==="speaking"?level*0.5:0.15)})`,
+        border:"3px solid rgba(255,255,255,0.15)",transition:"box-shadow 0.08s linear",
+        animation:"breathe 4s ease-in-out infinite"}}>
+        {imgOk
+          ? <img src={SOPHIE_IMG} alt="Sophie" onError={()=>setImgOk(false)}
+              style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top",transform:`scale(${portraitScale})`,transition:"transform 0.08s linear"}}/>
+          : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#7C3AED,#2563EB)",fontSize:72}}>👩‍🏫</div>}
+        {/* amplitude mouth/lean hint — subtle soft shadow at the mouth that pulses while speaking */}
+        {imgOk && status==="speaking" && <div style={{position:"absolute",left:`${MOUTH.x}%`,top:`${MOUTH.y}%`,transform:"translate(-50%,-50%)",
+          width:38,height:10+level*16,borderRadius:"50%",background:"rgba(40,10,10,0.28)",filter:"blur(3px)",opacity:0.4+level*0.5,transition:"all 0.06s linear"}}/>}
+      </div>
+    </div>
+
+    {/* caption */}
+    <div style={{minHeight:64,padding:"0 18px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{color:"#E2E8F0",fontSize:15,lineHeight:1.5,textAlign:"center",maxWidth:560}}>
+        {status==="thinking"?<span style={{opacity:0.7}}>Sophie is thinking…</span>
+         :status==="listening"?<span style={{opacity:0.7}}>🎙️ Listening… speak now</span>
+         :lastSophie?lastSophie.text:""}
+      </div>
+    </div>
+    <div ref={bottomRef}/>
+
+    {/* controls */}
+    {!started
+      ? <div style={{padding:"0 18px calc(env(safe-area-inset-bottom) + 24px)",display:"flex",justifyContent:"center"}}>
+          <button onClick={start} style={{background:"linear-gradient(135deg,#7C3AED,#2563EB)",color:"#fff",border:"none",borderRadius:50,padding:"16px 32px",fontSize:16,fontWeight:800,cursor:"pointer"}}>▶ Start talking with Sophie</button>
+        </div>
+      : <div style={{padding:"10px 14px calc(env(safe-area-inset-bottom) + 14px)",display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={listen} title="Speak"
+            style={{flexShrink:0,width:52,height:52,borderRadius:"50%",border:"none",cursor:"pointer",fontSize:22,
+              background:status==="listening"?"#EF4444":"linear-gradient(135deg,#7C3AED,#2563EB)",color:"#fff"}}>🎤</button>
+          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")ask(input);}}
+            placeholder="Or type your question…"
+            style={{flex:1,padding:"13px 16px",borderRadius:26,border:"none",fontSize:15,outline:"none",background:"rgba(255,255,255,0.12)",color:"#fff"}}/>
+          <button onClick={()=>ask(input)} disabled={!input.trim()||status==="thinking"}
+            style={{flexShrink:0,background:input.trim()?"#10B981":"rgba(255,255,255,0.12)",color:"#fff",border:"none",borderRadius:26,padding:"13px 18px",fontSize:15,fontWeight:800,cursor:input.trim()?"pointer":"default"}}>Send</button>
+        </div>}
   </div>;
 }
 
