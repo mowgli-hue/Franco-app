@@ -5878,7 +5878,7 @@ Tutor:`, 400);
         <div style={{fontSize:11,color:T.mint,fontWeight:600}}>● Personalized for your CLB journey · {done.length} lessons tracked</div>
       </div>
       <div style={{display:"flex",gap:6,alignItems:"center"}}>
-        {onTalkLive && <button onClick={onTalkLive}
+        {SOPHIE_LIVE_ENABLED && onTalkLive && <button onClick={onTalkLive}
           style={{padding:"6px 12px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7C3AED,#2563EB)",color:"#fff",fontFamily:"system-ui,-apple-system,sans-serif",fontWeight:800,fontSize:12,cursor:"pointer"}}>📹 Talk live</button>}
         {[{id:"chat",label:"💬 Chat"},{id:"assessment",label:"📝 Quiz Me"},{id:"plan",label:"📅 Study Plan"}].map(m=>(
           <button key={m.id} onClick={()=>{setMode(m.id);sendMessage(m.id==="assessment"?"Quiz me on my weak areas based on my progress":"Make me a personalized study plan for this week");}}
@@ -6523,6 +6523,7 @@ function UpdateBanner(){
 // (callClaude) answers questions and teaches in real time. Student talks via the
 // mic (native speech recognition) or types. No HeyGen, no per-minute cost.
 // Drop the portrait at public/sophie-live.png. We improve the animation over time.
+const SOPHIE_LIVE_ENABLED = false; // flip true once tested on a device + image is in public/
 const SOPHIE_IMG = "/sophie-live.png";
 const MOUTH = { x: 50, y: 70 }; // % position of mouth in the portrait (tune to your image)
 
