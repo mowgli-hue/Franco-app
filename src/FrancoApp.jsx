@@ -3955,32 +3955,38 @@ function speakEnglish(text){
 // onLevel(0..1) fires every frame; onEnd() fires when she finishes.
 // Falls back to device TTS (no real levels — we fake a gentle pulse) if the
 // ElevenLabs proxy is unavailable.
-function speakSophie(text, { onLevel = () => {}, onEnd = () => {} } = {}) {
-  let stopped = false;
-  let ctx, raf, audioEl;
+// Reuse ONE Audio element (unlocked by a user tap) so iOS lets ElevenLabs audio
+// play even after an async AI call. Animation is driven by a lively timed pulse
+// (no Web Audio analyser — that path is flaky on iOS and forced the device-voice
+// fallback). v1 "moving portrait"; real lip-sync is a future improvement.
+function speakSophie(text, { onLevel = () => {}, onEnd = () => {}, audioEl = null } = {}) {
+  let stopped = false, raf, t = 0;
+  const el = audioEl || new Audio();
   const cleanup = () => {
     stopped = true;
     try { cancelAnimationFrame(raf); } catch {}
-    try { audioEl && audioEl.pause(); } catch {}
-    try { ctx && ctx.close(); } catch {}
+    try { el.pause(); } catch {}
+    try { if (el.src && el.src.startsWith("blob:")) URL.revokeObjectURL(el.src); } catch {}
     try { window.speechSynthesis?.cancel(); } catch {}
     onLevel(0);
   };
   const cleaned = String(text || "").replace(/\(.*?\)/g, "").replace(/[()→]/g, "").trim();
   if (!cleaned) { onEnd(); return cleanup; }
 
+  // Lively talking pulse for the portrait while she speaks.
+  const pulse = () => { if (stopped) return; t += 0.3; onLevel(Math.min(1, 0.45 + 0.35*Math.abs(Math.sin(t)) + 0.2*Math.abs(Math.sin(t*2.7)))); raf = requestAnimationFrame(pulse); };
+
   const deviceFallback = () => {
     if (!("speechSynthesis" in window)) { onEnd(); return; }
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(cleaned);
-      u.lang = "fr-CA"; u.rate = 0.92;
-      const v = window.speechSynthesis.getVoices().find(x => x.lang?.startsWith("fr"));
+      u.lang = "fr-CA"; u.rate = 0.92; u.pitch = 1.08;
+      const vs = window.speechSynthesis.getVoices();
+      const female = vs.find(v => v.lang?.startsWith("fr") && /amélie|amelie|audrey|marie|chantal|aurélie|female|femme/i.test(v.name));
+      const v = female || vs.find(v => v.lang?.startsWith("fr-CA")) || vs.find(v => v.lang?.startsWith("fr"));
       if (v) u.voice = v;
-      // No real amplitude from speechSynthesis — animate a gentle talking pulse.
-      let t = 0;
-      const tick = () => { if (stopped) return; t += 0.18; onLevel(0.35 + 0.35 * Math.abs(Math.sin(t))); raf = requestAnimationFrame(tick); };
-      u.onstart = () => tick();
+      u.onstart = () => pulse();
       u.onend = () => { onLevel(0); onEnd(); };
       window.speechSynthesis.speak(u);
     } catch { onEnd(); }
@@ -3994,29 +4000,10 @@ function speakSophie(text, { onLevel = () => {}, onEnd = () => {} } = {}) {
       if (!blob || blob.size === 0 || !blob.type.includes("audio")) throw new Error("tts-empty");
       if (stopped) return;
       const url = URL.createObjectURL(blob);
-      audioEl = new Audio(url);
-      audioEl.crossOrigin = "anonymous";
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ctx = new AC();
-      const src = ctx.createMediaElementSource(audioEl);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      src.connect(analyser); analyser.connect(ctx.destination);
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      const loop = () => {
-        if (stopped) return;
-        analyser.getByteTimeDomainData(data);
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sum += v * v; }
-        const rms = Math.sqrt(sum / data.length);          // 0..~0.5
-        onLevel(Math.min(1, rms * 3.2));                    // scale to a lively range
-        raf = requestAnimationFrame(loop);
-      };
-      audioEl.onended = () => { try { URL.revokeObjectURL(url); } catch {} cleanup(); onEnd(); };
-      audioEl.onerror = () => { cleanup(); deviceFallback(); };
-      await ctx.resume().catch(() => {});
-      await audioEl.play();
-      loop();
+      el.src = url;
+      el.onended = () => { try { URL.revokeObjectURL(url); } catch {} cleanup(); onEnd(); };
+      pulse();
+      await el.play();   // works because `el` was unlocked by the Start tap
     } catch {
       if (!stopped) deviceFallback();
     }
@@ -4117,8 +4104,12 @@ function buildVocabPractice(lesson){
 //      HEYGEN_ENABLED = true.
 // NOTE: HeyGen now also offers @heygen/liveavatar-web-sdk (the streaming-avatar
 //   package is being deprecated) — if you migrate, only this file changes.
-const HEYGEN_ENABLED = true; // live-call button shown in lessons
-const HEYGEN_AVATAR_ID = "408e64a52f484a5aa4b28e9abb2b76e0"; // owner's avatar id
+// Flip true once: (1) you've created a HeyGen Photo/Interactive Avatar of Sophie
+// and pasted its STREAMING avatar id below, (2) HEYGEN_API_KEY is set in Vercel,
+// (3) npm i @heygen/streaming-avatar. Until then the floating button uses the
+// free owned animation. The live HeyGen call is PREMIUM-ONLY (per-minute cost).
+const HEYGEN_ENABLED = false;
+const HEYGEN_AVATAR_ID = "REPLACE_WITH_YOUR_INTERACTIVE_AVATAR_ID"; // HeyGen → Interactive Avatar → your Sophie photo-avatar id
 const HEYGEN_TOKEN_URL = "https://www.franco.app/api/heygen-token";
 
 function LessonVideoCall({ lesson, learner, onClose }){
@@ -4163,7 +4154,10 @@ function LessonVideoCall({ lesson, learner, onClose }){
 
         await avatar.createStartAvatar({ avatarName: HEYGEN_AVATAR_ID, quality: AvatarQuality.Low, language: "fr" });
         try{ await avatar.startVoiceChat({ useSilencePrompt: false }); }catch{}
-        const opener = aiClean(await callClaude(sysPrompt, `Greet the student warmly by voice and introduce today's lesson "${lesson.title}" in 2-3 short sentences, mixing simple French with English. End by inviting them to repeat after you or ask anything.`, 180));
+        const openerPrompt = lesson
+          ? `Greet the student warmly by voice and introduce today's lesson "${lesson.title}" in 2-3 short sentences, mixing simple French with English. End by inviting them to repeat after you or ask anything.`
+          : `Greet the student warmly by voice as their French teacher Sophie, in 2-3 short sentences, mixing simple French with English. Invite them to ask anything or practise speaking.`;
+        const opener = aiClean(await callClaude(sysPrompt, openerPrompt, 180));
         if(mounted){ try{ await avatar.speak({ text: opener, taskType: TaskType.REPEAT }); }catch{} }
       }catch(e){
         if(mounted){ setError("Couldn't start the live call. Check your connection and try again."); setStatus("error"); }
@@ -4187,7 +4181,7 @@ function LessonVideoCall({ lesson, learner, onClose }){
       </div>}
       <div style={{position:"absolute",top:0,left:0,right:0,padding:"calc(env(safe-area-inset-top) + 10px) 16px 10px",display:"flex",alignItems:"center",gap:8,background:"linear-gradient(180deg,rgba(0,0,0,0.5),transparent)"}}>
         <div style={{width:9,height:9,borderRadius:"50%",background:(status==="speaking"||status==="live")?"#10B981":"#F59E0B"}}/>
-        <div style={{color:"#fff",fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Sophie · {lesson.title}</div>
+        <div style={{color:"#fff",fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Sophie · {lesson?.title || "Live"}</div>
       </div>
       {caption&&(status==="live"||status==="speaking")&&<div style={{position:"absolute",left:16,right:16,bottom:20,background:"rgba(0,0,0,0.55)",color:"#fff",borderRadius:12,padding:"10px 14px",fontSize:14,lineHeight:1.5,textAlign:"center"}}>{caption}</div>}
     </div>
@@ -5078,6 +5072,15 @@ function AISpeakingCoach({prompt, sampleAnswer, onDone}){
     // Safety net: if onend never fires, advance anyway.
     setTimeout(finish,1500);
   };
+
+  // Stop the mic / native recognition if the learner leaves mid-recording, so
+  // listeners and the Apple Speech session don't leak after unmount.
+  useEffect(()=>()=>{
+    doneRef.current=true;
+    try{ nativeRef.current?.stop?.(); }catch{}
+    try{ nativeRef.current?.removeAllListeners?.(); }catch{}
+    try{ recognitionRef.current?.stop?.(); }catch{}
+  },[]);
 
   const analyzeWithAI=async(spokenText)=>{
     if(!spokenText.trim()){
@@ -6279,7 +6282,15 @@ function AppInner(){
   const[activeLesson,setActiveLesson]=useState(null);
   const[paywallLesson,setPaywallLesson]=useState(null);
   const[tutorLesson,setTutorLesson]=useState(null); // when set, tutor enters lesson teaching mode
-  const[showSophieLive,setShowSophieLive]=useState(false); // live talking-Sophie overlay
+  const[showSophieLive,setShowSophieLive]=useState(false); // free owned talking-Sophie overlay
+  const[showHeyGenCall,setShowHeyGenCall]=useState(false); // premium HeyGen live call
+  // Live "Talk to Sophie": HeyGen (premium) when configured, else the free owned animation.
+  const openLive = ()=>{
+    if(HEYGEN_ENABLED){
+      if(isPremiumUnlocked()) setShowHeyGenCall(true);
+      else setPaywallLesson({title:"Live video call with Sophie 🎥"});
+    } else { setShowSophieLive(true); }
+  };
   const[guestMode,setGuestMode]=useLocalState("franco_guest",false);
 
   // Check if returning from Stripe payment (web only)
@@ -6462,7 +6473,17 @@ function AppInner(){
          - iOS: shows Apple IAP "Subscribe" button + "Restore Purchases"
         See PaywallModal definition for the platform branching logic. */}
     {paywallLesson && <PaywallModal lessonTitle={paywallLesson.title} onClose={()=>setPaywallLesson(null)}/>}
+    {/* Always-available floating "Talk to Sophie live" button (hidden in lessons/mock/onboarding) */}
+    {(SOPHIE_LIVE_ENABLED||HEYGEN_ENABLED) && showNav && screen!=="lesson" && !showSophieLive && !showHeyGenCall && !paywallLesson &&
+      <button onClick={openLive} aria-label="Talk to Sophie live"
+        style={{position:"fixed",right:16,bottom:"calc(env(safe-area-inset-bottom) + 18px)",zIndex:200,
+          display:"flex",alignItems:"center",gap:8,padding:"12px 16px 12px 14px",borderRadius:50,border:"none",cursor:"pointer",
+          background:"linear-gradient(135deg,#7C3AED,#2563EB)",color:"#fff",fontWeight:800,fontSize:13,
+          boxShadow:"0 6px 22px rgba(124,58,237,0.45)"}}>
+        <span style={{fontSize:18,lineHeight:1}}>📹</span> Talk to Sophie
+      </button>}
     {showSophieLive && <SophieLive onClose={()=>setShowSophieLive(false)}/>}
+    {showHeyGenCall && <LessonVideoCall lesson={null} learner={{ name:(typeof localStorage!=="undefined"&&localStorage.getItem("franco_name"))||"there" }} onClose={()=>setShowHeyGenCall(false)}/>}
   </div>;
 }
 
@@ -6523,7 +6544,7 @@ function UpdateBanner(){
 // (callClaude) answers questions and teaches in real time. Student talks via the
 // mic (native speech recognition) or types. No HeyGen, no per-minute cost.
 // Drop the portrait at public/sophie-live.png. We improve the animation over time.
-const SOPHIE_LIVE_ENABLED = false; // flip true once tested on a device + image is in public/
+const SOPHIE_LIVE_ENABLED = false; // turn on after dropping public/sophie-live.png + testing on device
 const SOPHIE_IMG = "/sophie-live.png";
 const MOUTH = { x: 50, y: 70 }; // % position of mouth in the portrait (tune to your image)
 
@@ -6534,9 +6555,14 @@ function SophieLive({ onClose }){
   const [level, setLevel] = useState(0);
   const [started, setStarted] = useState(false);
   const [imgOk, setImgOk] = useState(true);
+  const [notice, setNotice] = useState("");
   const stopSpeakRef = useRef(null);
   const micRef = useRef(null);
   const bottomRef = useRef(null);
+  const audioRef = useRef(null);       // ONE element, unlocked on the Start tap (iOS)
+  const silenceRef = useRef(null);     // auto-submit timer when the speaker pauses
+  const msgsRef = useRef([]);          // live mirror of msgs (avoids stale closure in voice callbacks)
+  useEffect(()=>{ msgsRef.current = msgs; }, [msgs]);
 
   const learnerName = (typeof localStorage!=="undefined" && localStorage.getItem("franco_name")) || "there";
   const sysPrompt = useMemo(()=> buildSophieSystemPrompt({ learner:{ name:learnerName }, lesson:null }), [learnerName]);
@@ -6544,61 +6570,79 @@ function SophieLive({ onClose }){
   const speak = (text) => {
     if(stopSpeakRef.current) stopSpeakRef.current();
     setStatus("speaking");
-    stopSpeakRef.current = speakSophie(text, { onLevel:setLevel, onEnd:()=>setStatus("idle") });
+    stopSpeakRef.current = speakSophie(text, { onLevel:setLevel, onEnd:()=>setStatus("idle"), audioEl:audioRef.current });
   };
 
   const ask = async (text) => {
     const q=(text||"").trim();
     if(!q || status==="thinking") return;
-    const next=[...msgs,{role:"user",text:q}];
+    const base = msgsRef.current;                       // read latest, not a stale render's msgs
+    const next=[...base,{role:"user",text:q}];
     setMsgs(next); setInput(""); setStatus("thinking");
     const history=next.slice(-8).map(m=>`${m.role==="user"?"Student":"Sophie"}: ${m.text}`).join("\n");
-    const reply=aiClean(await callClaude(sysPrompt, `${history}\n\nReply as Sophie — warm, encouraging, brief (2–4 sentences). Teach French for life in Canada, mixing simple French with English. If they spoke French, gently correct and praise.`, 220));
+    const raw = await callClaude(sysPrompt, `${history}\n\nReply as Sophie — warm, encouraging, brief (2–3 sentences). Teach French for life in Canada, mixing simple French with English. If they spoke French, gently correct and praise. Reply quickly and naturally, like a real teacher in conversation.`, 160);
+    // If the AI call failed, don't speak the raw error sentence — give a short, human retry line.
+    const reply = aiError(raw)!=null ? "Désolée, I lost the connection for a second — could you say that again?" : aiClean(raw);
     setMsgs(m=>[...m,{role:"assistant",text:reply}]);
     speak(reply);
   };
 
+  // Unlock audio inside the user gesture so ElevenLabs plays later (iOS).
+  const unlockAudio = () => {
+    try{
+      if(!audioRef.current) audioRef.current = new Audio();
+      audioRef.current.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+      audioRef.current.play().then(()=>{ try{audioRef.current.pause();}catch{} }).catch(()=>{});
+    }catch{}
+  };
+
   const start = async () => {
+    unlockAudio();
     setStarted(true); setStatus("thinking");
-    const opener=aiClean(await callClaude(sysPrompt, `Greet ${learnerName} warmly as their French teacher Sophie. 2–3 short sentences: introduce yourself and invite them to ask anything or practise speaking. Mix simple French and English.`, 180));
+    const opener=aiClean(await callClaude(sysPrompt, `Greet ${learnerName} warmly as their French teacher Sophie. 2 short sentences: introduce yourself and invite them to ask anything or practise speaking. Mix simple French and English.`, 140));
     setMsgs([{role:"assistant",text:opener}]); speak(opener);
   };
 
   const listen = async () => {
     if(status==="listening"){ try{ await micRef.current?.stop?.(); }catch{} return; }
     if(status==="speaking" && stopSpeakRef.current){ stopSpeakRef.current(); setStatus("idle"); }
-    setStatus("listening");
+    unlockAudio(); // tapping the mic is a gesture — keep audio unlocked for the reply
+    setStatus("listening"); setNotice("");
     let finalText="";
+    // Auto-submit ~2.2s after the speaker stops producing new words (only armed
+    // once they've actually said something, so a slow start isn't cut off).
+    const armSilence=()=>{ clearTimeout(silenceRef.current); silenceRef.current=setTimeout(()=>{ micRef.current?.stop?.(); }, 2200); };
     if(IS_IOS_APP){
       try{
         const mod="@capacitor-community/speech-recognition";
         const { SpeechRecognition } = await import(/* @vite-ignore */ mod);
         const perm=await SpeechRecognition.requestPermissions();
-        if(perm && perm.speechRecognition==="denied") throw new Error("denied");
+        if(perm && perm.speechRecognition==="denied"){ setNotice("Microphone access is off. Enable it in Settings → Franco → Microphone, or type your question below."); setStatus("idle"); return; }
         try{ await SpeechRecognition.removeAllListeners(); }catch{}
-        await SpeechRecognition.addListener("partialResults",(d)=>{ const t=(d?.matches||[])[0]||""; if(t) finalText=t; });
+        await SpeechRecognition.addListener("partialResults",(d)=>{ const t=(d?.matches||[])[0]||""; if(t){ finalText=t; armSilence(); } });
         await SpeechRecognition.start({ language:"fr-CA", maxResults:1, partialResults:true, popup:false });
-        micRef.current={ stop: async()=>{ try{await SpeechRecognition.stop();}catch{} try{await SpeechRecognition.removeAllListeners();}catch{} finalText?ask(finalText):setStatus("idle"); } };
-        setTimeout(()=>{ micRef.current?.stop?.(); }, 15000);
+        micRef.current={ stop: async()=>{ clearTimeout(silenceRef.current); try{await SpeechRecognition.stop();}catch{} try{await SpeechRecognition.removeAllListeners();}catch{} finalText?ask(finalText):setStatus("idle"); } };
+        setTimeout(()=>{ micRef.current?.stop?.(); }, 20000);
         return;
-      }catch{ /* fall through */ }
+      }catch{ /* fall through to web speech */ }
     }
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(SR){
       const rec=new SR(); rec.lang="fr-CA"; rec.interimResults=true;
-      rec.onresult=(e)=>{ finalText=Array.from(e.results).map(r=>r[0].transcript).join(" "); };
-      rec.onend=()=>{ finalText?ask(finalText):setStatus("idle"); };
+      rec.onresult=(e)=>{ finalText=Array.from(e.results).map(r=>r[0].transcript).join(" "); armSilence(); };
+      rec.onerror=()=>{ clearTimeout(silenceRef.current); setStatus("idle"); };
+      rec.onend=()=>{ clearTimeout(silenceRef.current); finalText?ask(finalText):setStatus("idle"); };
       micRef.current={ stop:()=>{try{rec.stop();}catch{}} };
       try{ rec.start(); }catch{ setStatus("idle"); }
-      setTimeout(()=>{try{rec.stop();}catch{}},15000);
-    } else { setStatus("idle"); }
+      setTimeout(()=>{try{rec.stop();}catch{}},20000);
+    } else { setNotice("Speaking isn't available on this device — type your question below."); setStatus("idle"); }
   };
 
-  useEffect(()=>()=>{ if(stopSpeakRef.current) stopSpeakRef.current(); try{micRef.current?.stop?.();}catch{} },[]);
+  useEffect(()=>()=>{ if(stopSpeakRef.current) stopSpeakRef.current(); try{micRef.current?.stop?.();}catch{} clearTimeout(silenceRef.current); },[]);
   useEffect(()=>{ bottomRef.current?.scrollIntoView?.({behavior:"smooth"}); },[msgs]);
 
   const lastSophie=[...msgs].reverse().find(m=>m.role==="assistant");
-  const portraitScale = 1 + (status==="speaking" ? level*0.03 : 0);
+  const portraitScale = 1 + (status==="speaking" ? level*0.06 : 0);
 
   return <div style={{position:"fixed",inset:0,zIndex:400,background:"linear-gradient(160deg,#0B1020,#1E1B4B)",display:"flex",flexDirection:"column"}}>
     {/* header */}
@@ -6619,16 +6663,17 @@ function SophieLive({ onClose }){
           ? <img src={SOPHIE_IMG} alt="Sophie" onError={()=>setImgOk(false)}
               style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"center top",transform:`scale(${portraitScale})`,transition:"transform 0.08s linear"}}/>
           : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#7C3AED,#2563EB)",fontSize:72}}>👩‍🏫</div>}
-        {/* amplitude mouth/lean hint — subtle soft shadow at the mouth that pulses while speaking */}
+        {/* mouth "talking" hint — soft shadow at the mouth that opens/closes with the pulse */}
         {imgOk && status==="speaking" && <div style={{position:"absolute",left:`${MOUTH.x}%`,top:`${MOUTH.y}%`,transform:"translate(-50%,-50%)",
-          width:38,height:10+level*16,borderRadius:"50%",background:"rgba(40,10,10,0.28)",filter:"blur(3px)",opacity:0.4+level*0.5,transition:"all 0.06s linear"}}/>}
+          width:44,height:6+level*30,borderRadius:"50%",background:"rgba(35,8,8,0.4)",filter:"blur(4px)",opacity:0.35+level*0.55,transition:"all 0.05s linear"}}/>}
       </div>
     </div>
 
     {/* caption */}
     <div style={{minHeight:64,padding:"0 18px",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{color:"#E2E8F0",fontSize:15,lineHeight:1.5,textAlign:"center",maxWidth:560}}>
-        {status==="thinking"?<span style={{opacity:0.7}}>Sophie is thinking…</span>
+        {notice?<span style={{color:"#FCA5A5"}}>{notice}</span>
+         :status==="thinking"?<span style={{opacity:0.7}}>Sophie is thinking…</span>
          :status==="listening"?<span style={{opacity:0.7}}>🎙️ Listening… speak now</span>
          :lastSophie?lastSophie.text:""}
       </div>
