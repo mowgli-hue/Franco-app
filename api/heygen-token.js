@@ -1,21 +1,20 @@
-// Vercel serverless function — mints a short-lived HeyGen Streaming Avatar
-// session token for the "Learn live with Sophie" video-call feature.
+// Vercel serverless function — mints a HeyGen **LiveAvatar** session token for the
+// live "Talk to Sophie" video call. (HeyGen retired the old Interactive-Avatar
+// streaming API on 2026-03-31; LiveAvatar is the replacement.)
 //
-// Why this exists:
-//   The HeyGen Interactive/Streaming Avatar SDK runs in the app (browser/WebView)
-//   and needs a session token. That token is created with your HeyGen API KEY,
-//   which must NEVER ship in the app bundle (anyone could extract it and spend
-//   your credits). So the app calls THIS endpoint, and we create the token
-//   server-side with the secret key.
+// We use FULL mode: HeyGen runs ASR + LLM + TTS, so the avatar holds the whole
+// conversation. Sophie's teaching personality lives in a LiveAvatar "Knowledge
+// Base" (context_id) you create in the LiveAvatar dashboard.
 //
-// Setup (one time):
-//   1. Vercel dashboard → franco-app → Settings → Environment Variables
-//   2. Add: HEYGEN_API_KEY = <your HeyGen API key>   (HeyGen → Settings → API)
-//   3. Redeploy.
+// Setup (Vercel → Settings → Environment Variables → Redeploy):
+//   HEYGEN_API_KEY            your LiveAvatar/HeyGen API key  (required)
+//   LIVEAVATAR_AVATAR_ID      your Sophie avatar id           (defaults to sandbox test avatar)
+//   LIVEAVATAR_CONTEXT_ID     your knowledge-base/context id  (defaults to sandbox)
+//   LIVEAVATAR_VOICE_ID       voice id for the avatar         (optional)
+//   LIVEAVATAR_LANGUAGE       e.g. "fr" or "en"               (default "en")
+//   LIVEAVATAR_SANDBOX        "true" = no credits (testing).  Set "false" to go live.
 //
-// Client usage:
-//   GET /api/heygen-token  →  200 { token: "..." }
-//   (503 if the key isn't configured — the app then hides the live-call button.)
+// Returns: { token: "<session_token>", sessionId: "<uuid>" }   (503 if no key)
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -24,29 +23,41 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   const apiKey = process.env.HEYGEN_API_KEY;
-  if (!apiKey) {
-    console.error("[api/heygen-token] HEYGEN_API_KEY not set");
-    return res.status(503).json({ error: "HeyGen not configured (HEYGEN_API_KEY missing)." });
-  }
+  if (!apiKey) return res.status(503).json({ error: "LiveAvatar not configured (HEYGEN_API_KEY missing)." });
+
+  // Defaults = HeyGen's documented sandbox test avatar (free, English) so the
+  // pipeline can be verified before a real Sophie avatar exists.
+  const avatarId  = process.env.LIVEAVATAR_AVATAR_ID  || "65f9e3c9-d48b-4118-b73a-4ae2e3cbb8f0";
+  const contextId = process.env.LIVEAVATAR_CONTEXT_ID || "158f5d55-2d4f-11f1-8d28-066a7fa2e369";
+  const voiceId   = process.env.LIVEAVATAR_VOICE_ID   || undefined;
+  const language  = process.env.LIVEAVATAR_LANGUAGE   || "en";
+  const sandbox   = process.env.LIVEAVATAR_SANDBOX !== "false"; // default ON until you go live
+
+  const persona = { context_id: contextId, language };
+  if (voiceId) persona.voice_id = voiceId;
 
   try {
-    const upstream = await fetch("https://api.heygen.com/v1/streaming.create_token", {
+    const upstream = await fetch("https://api.liveavatar.com/v1/sessions/token", {
       method: "POST",
-      headers: { "x-api-key": apiKey },
+      headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "FULL",
+        avatar_id: avatarId,
+        is_sandbox: sandbox,
+        interactivity_type: "CONVERSATIONAL",
+        avatar_persona: persona,
+      }),
     });
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "");
-      console.error("[api/heygen-token] HeyGen error:", upstream.status, errText);
-      return res.status(upstream.status).json({ error: "HeyGen token request failed", status: upstream.status });
+    const data = await upstream.json().catch(() => ({}));
+    const token = data?.data?.session_token;
+    if (!token) {
+      console.error("[api/heygen-token] LiveAvatar token error:", upstream.status, JSON.stringify(data));
+      return res.status(upstream.status || 502).json({ error: "No session token from LiveAvatar", detail: data });
     }
-    const data = await upstream.json();
-    const token = data?.data?.token || data?.token;
-    if (!token) return res.status(502).json({ error: "No token in HeyGen response" });
-    // Tokens are short-lived and per-session — never cache.
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ token });
+    return res.status(200).json({ token, sessionId: data?.data?.session_id });
   } catch (e) {
     console.error("[api/heygen-token] handler error:", e);
-    return res.status(502).json({ error: e?.message || "HeyGen proxy error" });
+    return res.status(502).json({ error: e?.message || "LiveAvatar proxy error" });
   }
 }
