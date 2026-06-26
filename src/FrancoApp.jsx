@@ -4121,6 +4121,12 @@ function LessonVideoCall({ lesson, learner, onClose }){
 
   useEffect(()=>{
     let mounted = true;
+    // Credit savers: LiveAvatar bills per streaming minute (idle time included),
+    // so we auto-end after a stretch of silence and cap the total call length.
+    let idleTimer = null, hardCap = null;
+    const IDLE_MS = 40000;        // ~40s with no speech → end
+    const MAX_CALL_MS = 5*60*1000; // hard 5-min ceiling per call
+    const clearTimers = ()=>{ clearTimeout(idleTimer); clearTimeout(hardCap); };
     (async ()=>{
       try{
         // 1) Session token (FULL mode) from our serverless proxy.
@@ -4135,20 +4141,23 @@ function LessonVideoCall({ lesson, learner, onClose }){
         const session = new LiveAvatarSession(token, { voiceChat: true, apiUrl: "https://api.liveavatar.com" });
         avatarRef.current = session;
 
+        const endCall = ()=>{ clearTimers(); try{ session.stop(); }catch{} if(mounted) setStatus("ended"); };
+        const bumpIdle = ()=>{ clearTimeout(idleTimer); idleTimer = setTimeout(endCall, IDLE_MS); };
+
         session.on(SessionEvent.SESSION_STREAM_READY, ()=>{
           try{ if(videoRef.current) session.attach(videoRef.current); }catch{}
           if(mounted) setStatus("live");
-          // Deterministic spoken greeting (verbatim TTS in the avatar's voice).
-          const greet = lesson
-            ? `Bonjour! I'm Sophie. Let's work on "${lesson.title}". Ask me anything or repeat after me!`
-            : `Bonjour! I'm Sophie, your French teacher. Ask me anything, or let's practise speaking together!`;
-          try{ session.repeat(greet); }catch{}
+          // Short, calm spoken greeting (verbatim TTS in the avatar's voice).
+          // Kept to one line on purpose — every spoken word costs credits.
+          try{ session.repeat("Bonjour! I'm Sophie. How are you today?"); }catch{}
+          bumpIdle();
+          hardCap = setTimeout(endCall, MAX_CALL_MS);
         });
-        session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, ()=>{ if(mounted) setStatus("speaking"); });
-        session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, ()=>{ if(mounted) setStatus("live"); });
-        session.on(AgentEventsEnum.USER_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("You: "+t); });
-        session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("Sophie: "+t); });
-        session.on(SessionEvent.SESSION_DISCONNECTED, ()=>{ if(mounted) setStatus("ended"); });
+        session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, ()=>{ if(mounted) setStatus("speaking"); bumpIdle(); });
+        session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, ()=>{ if(mounted) setStatus("live"); bumpIdle(); });
+        session.on(AgentEventsEnum.USER_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("You: "+t); bumpIdle(); });
+        session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("Sophie: "+t); bumpIdle(); });
+        session.on(SessionEvent.SESSION_DISCONNECTED, ()=>{ clearTimers(); if(mounted) setStatus("ended"); });
 
         // 3) Start the session + open the mic. In FULL mode HeyGen handles
         //    listening, the LLM, and the avatar's speech automatically.
@@ -4158,7 +4167,7 @@ function LessonVideoCall({ lesson, learner, onClose }){
         if(mounted){ setError("Couldn't start the live call. Check your connection and try again."); setStatus("error"); }
       }
     })();
-    return ()=>{ mounted = false; try{ avatarRef.current?.stop?.(); }catch{} };
+    return ()=>{ mounted = false; clearTimers(); try{ avatarRef.current?.stop?.(); }catch{} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
