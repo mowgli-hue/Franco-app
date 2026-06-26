@@ -32,21 +32,37 @@ export default async function handler(req, res) {
   const voiceId   = process.env.LIVEAVATAR_VOICE_ID   || undefined;
   const language  = process.env.LIVEAVATAR_LANGUAGE   || "en";
   const sandbox   = process.env.LIVEAVATAR_SANDBOX !== "false"; // default ON until you go live
+  // LITE = 1 credit/min (we run the brain + voice). FULL = 2 credits/min (HeyGen runs it).
+  // Flip this env to switch modes — no app code change needed.
+  const mode = (process.env.LIVEAVATAR_MODE || "LITE").toUpperCase();
 
-  const persona = { context_id: contextId, language };
-  if (voiceId) persona.voice_id = voiceId;
+  let payload;
+  if (mode === "LITE") {
+    // LITE: HeyGen only renders the avatar video; the app drives speech via repeatAudio.
+    payload = {
+      mode: "LITE",
+      avatar_id: avatarId,
+      is_sandbox: sandbox,
+      video_settings: { quality: "high", encoding: "VP8" },
+    };
+  } else {
+    // FULL: HeyGen runs ASR + LLM (context) + TTS.
+    const persona = { context_id: contextId, language };
+    if (voiceId) persona.voice_id = voiceId;
+    payload = {
+      mode: "FULL",
+      avatar_id: avatarId,
+      is_sandbox: sandbox,
+      interactivity_type: "CONVERSATIONAL",
+      avatar_persona: persona,
+    };
+  }
 
   try {
     const upstream = await fetch("https://api.liveavatar.com/v1/sessions/token", {
       method: "POST",
       headers: { "X-API-KEY": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        mode: "FULL",
-        avatar_id: avatarId,
-        is_sandbox: sandbox,
-        interactivity_type: "CONVERSATIONAL",
-        avatar_persona: persona,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await upstream.json().catch(() => ({}));
     const token = data?.data?.session_token;
@@ -55,7 +71,7 @@ export default async function handler(req, res) {
       return res.status(upstream.status || 502).json({ error: "No session token from LiveAvatar", detail: data });
     }
     res.setHeader("Cache-Control", "no-store");
-    return res.status(200).json({ token, sessionId: data?.data?.session_id });
+    return res.status(200).json({ token, sessionId: data?.data?.session_id, mode });
   } catch (e) {
     console.error("[api/heygen-token] handler error:", e);
     return res.status(502).json({ error: e?.message || "LiveAvatar proxy error" });

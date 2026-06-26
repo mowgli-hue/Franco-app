@@ -4155,9 +4155,23 @@ function LiveLimitModal({ onClose }){
   </div>;
 }
 
+// LITE mode: fetch Sophie's line from ElevenLabs as raw 16-bit 24kHz PCM and
+// return it as a binary string (1 char = 1 byte) — the exact shape the
+// LiveAvatar SDK's repeatAudio() chunks and streams to drive her lips.
+async function ttsPcmBinaryString(text){
+  const r = await fetch(`${TTS_URL}?fmt=pcm&text=${encodeURIComponent(String(text).slice(0,600))}`);
+  if(!r.ok) throw new Error("tts "+r.status);
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  let s = ""; const CH = 0x8000;
+  for(let i=0;i<bytes.length;i+=CH){ s += String.fromCharCode.apply(null, bytes.subarray(i, i+CH)); }
+  return s;
+}
+
 function LessonVideoCall({ lesson, learner, onClose }){
   const videoRef = useRef(null);
   const avatarRef = useRef(null);
+  const micRef = useRef(null);     // active speech-recognition handle (LITE mode)
+  const silenceRef = useRef(null); // auto-submit timer (LITE mode)
   const startTsRef = useRef(0); // when streaming started, for usage metering
   const usageRef = useRef(null); // flushes elapsed usage on unmount
   const [status, setStatus] = useState("connecting"); // connecting|live|speaking|ended|error
@@ -4173,55 +4187,111 @@ function LessonVideoCall({ lesson, learner, onClose }){
     const IDLE_MS = 40000;        // ~40s with no speech → end
     const MAX_CALL_MS = 5*60*1000; // hard 5-min ceiling per call
     const clearTimers = ()=>{ clearTimeout(idleTimer); clearTimeout(hardCap); };
+    const stopMic = ()=>{ clearTimeout(silenceRef.current); try{ micRef.current?.stop?.(); }catch{} micRef.current=null; };
     (async ()=>{
       try{
-        // 1) Session token (FULL mode) from our serverless proxy.
+        // 1) Session token from our serverless proxy. The proxy decides the mode
+        //    (LITE = 1 credit/min, we run brain+voice; FULL = 2 credits/min, HeyGen runs it).
         const tRes = await fetch(HEYGEN_TOKEN_URL);
         if(!tRes.ok) throw new Error("token");
-        const { token } = await tRes.json();
+        const { token, mode } = await tRes.json();
         if(!token) throw new Error("token");
+        const isLite = String(mode||"").toUpperCase()==="LITE";
         // 2) LiveAvatar SDK — real import so Vite bundles it (a bare-name runtime
         //    import can't resolve inside the WebView).
         const SA = await import("@heygen/liveavatar-web-sdk");
         const { LiveAvatarSession, SessionEvent, AgentEventsEnum } = SA;
-        const session = new LiveAvatarSession(token, { voiceChat: true, apiUrl: "https://api.liveavatar.com" });
+        const session = new LiveAvatarSession(token, { voiceChat: !isLite, apiUrl: "https://api.liveavatar.com" });
         avatarRef.current = session;
 
         // Meter the streaming time against the user's weekly live-minute budget.
         const recordUsage = ()=>{ if(startTsRef.current){ addLiveUsage((Date.now()-startTsRef.current)/1000); startTsRef.current=0; } };
-        const endCall = ()=>{ clearTimers(); recordUsage(); try{ session.stop(); }catch{} if(mounted) setStatus("ended"); };
+        const endCall = ()=>{ clearTimers(); stopMic(); recordUsage(); try{ session.stop(); }catch{} if(mounted) setStatus("ended"); };
         const bumpIdle = ()=>{ clearTimeout(idleTimer); idleTimer = setTimeout(endCall, IDLE_MS); };
         usageRef.current = recordUsage; // so unmount cleanup can also flush usage
 
-        session.on(SessionEvent.SESSION_STREAM_READY, ()=>{
+        // ── LITE conversation loop: speech-in → Claude → ElevenLabs → avatar lips ──
+        const sophieSay = async(text)=>{
+          if(!mounted || !text) return;
+          setCaption("Sophie: "+text); bumpIdle();
+          try{
+            const pcm = await ttsPcmBinaryString(text);
+            if(!mounted) return;
+            session.repeatAudio(pcm); // SDK chunks + streams it; AVATAR_SPEAK_* events fire
+          }catch{ if(mounted) liteListen(); }
+        };
+        const handleUser = async(text)=>{
+          const t=(text||"").trim();
+          if(!mounted){ return; }
+          if(!t){ liteListen(); return; }
+          try{ session.interrupt(); }catch{}
+          setStatus("thinking"); setCaption("You: "+t); bumpIdle();
+          let reply=null;
+          try{ reply = aiClean(await callClaude(sysPrompt, t, 160)); }catch{ reply=null; }
+          if(!mounted) return;
+          if(!reply || aiError(reply)!=null){ await sophieSay("Désolée, I didn't catch that. Could you say it again?"); return; }
+          await sophieSay(reply);
+        };
+        const liteListen = async()=>{
+          if(!mounted) return;
+          stopMic();
+          setStatus("listening");
+          const armSilence=()=>{ clearTimeout(silenceRef.current); silenceRef.current=setTimeout(()=>{ stopMic(); }, 2200); };
+          if(IS_IOS_APP){
+            try{
+              const { SpeechRecognition } = await import("@capacitor-community/speech-recognition");
+              const perm = await SpeechRecognition.requestPermissions();
+              if(perm && perm.speechRecognition==="denied"){ if(mounted){ setError("Microphone is off. Enable it in Settings → Franco → Microphone."); setStatus("error"); } return; }
+              let finalText="";
+              try{ await SpeechRecognition.removeAllListeners(); }catch{}
+              await SpeechRecognition.addListener("partialResults",(d)=>{ const x=(d?.matches||[])[0]||""; if(x){ finalText=x; armSilence(); } });
+              await SpeechRecognition.start({ language:"fr-CA", maxResults:1, partialResults:true, popup:false });
+              micRef.current={ stop: async()=>{ clearTimeout(silenceRef.current); try{await SpeechRecognition.stop();}catch{} try{await SpeechRecognition.removeAllListeners();}catch{} micRef.current=null; handleUser(finalText); } };
+              setTimeout(()=>{ micRef.current?.stop?.(); }, 18000);
+            }catch{ if(mounted){ setError("Speaking isn't available on this device."); setStatus("error"); } }
+          } else {
+            const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+            if(!SR){ if(mounted){ setError("Speaking isn't available on this browser."); setStatus("error"); } return; }
+            const rec=new SR(); rec.lang="fr-CA"; rec.interimResults=true; rec.maxAlternatives=1;
+            let finalText="";
+            rec.onresult=(e)=>{ let s=""; for(let i=0;i<e.results.length;i++) s+=e.results[i][0].transcript; finalText=s; armSilence(); };
+            rec.onerror=()=>{ clearTimeout(silenceRef.current); };
+            rec.onend=()=>{ clearTimeout(silenceRef.current); micRef.current=null; handleUser(finalText); };
+            micRef.current={ stop:()=>{ try{rec.stop();}catch{} } };
+            try{ rec.start(); }catch{}
+            setTimeout(()=>{ try{rec.stop();}catch{} }, 18000);
+          }
+        };
+
+        session.on(SessionEvent.SESSION_STREAM_READY, async ()=>{
           try{ if(videoRef.current) session.attach(videoRef.current); }catch{}
           if(mounted) setStatus("live");
           startTsRef.current = Date.now();
-          // Short, calm spoken greeting (verbatim TTS in the avatar's voice).
-          // Kept to one line on purpose — every spoken word costs credits.
-          try{ session.repeat("Bonjour! I'm Sophie. How are you today?"); }catch{}
           bumpIdle();
           // Cap the call at whatever's lower: the 5-min ceiling or the user's
           // remaining weekly budget (no cap shrink while testing/bypassing).
           const capMs = HEYGEN_TEST_BYPASS_PREMIUM ? MAX_CALL_MS
                       : Math.min(MAX_CALL_MS, Math.max(10000, remainingLiveSec()*1000));
           hardCap = setTimeout(endCall, capMs);
+          // Short, calm greeting. LITE: our ElevenLabs voice. FULL: avatar's own TTS.
+          if(isLite){ await sophieSay("Bonjour! I'm Sophie. How are you today?"); }
+          else { try{ session.repeat("Bonjour! I'm Sophie. How are you today?"); }catch{} }
         });
         session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, ()=>{ if(mounted) setStatus("speaking"); bumpIdle(); });
-        session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, ()=>{ if(mounted) setStatus("live"); bumpIdle(); });
+        session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, ()=>{ if(mounted) setStatus("live"); bumpIdle(); if(isLite) liteListen(); });
         session.on(AgentEventsEnum.USER_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("You: "+t); bumpIdle(); });
         session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("Sophie: "+t); bumpIdle(); });
-        session.on(SessionEvent.SESSION_DISCONNECTED, ()=>{ clearTimers(); recordUsage(); if(mounted) setStatus("ended"); });
+        session.on(SessionEvent.SESSION_DISCONNECTED, ()=>{ clearTimers(); stopMic(); recordUsage(); if(mounted) setStatus("ended"); });
 
-        // 3) Start the session + open the mic. In FULL mode HeyGen handles
-        //    listening, the LLM, and the avatar's speech automatically.
+        // 3) Start the session. FULL: open HeyGen's mic/voiceChat. LITE: our loop
+        //    starts after the greeting finishes (AVATAR_SPEAK_ENDED → liteListen).
         await session.start();
-        try{ await session.voiceChat?.start?.({}); }catch{}
+        if(!isLite){ try{ await session.voiceChat?.start?.({}); }catch{} }
       }catch(e){
         if(mounted){ setError("Couldn't start the live call. Check your connection and try again."); setStatus("error"); }
       }
     })();
-    return ()=>{ mounted = false; clearTimers(); try{ usageRef.current?.(); }catch{} try{ avatarRef.current?.stop?.(); }catch{} };
+    return ()=>{ mounted = false; clearTimers(); stopMic(); try{ usageRef.current?.(); }catch{} try{ avatarRef.current?.stop?.(); }catch{} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
@@ -4230,18 +4300,19 @@ function LessonVideoCall({ lesson, learner, onClose }){
   return <div style={{position:"fixed",inset:0,background:"#0B1020",zIndex:300,display:"flex",flexDirection:"column"}}>
     <div style={{flex:1,position:"relative",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
       <video ref={videoRef} autoPlay playsInline style={{width:"100%",height:"100%",objectFit:"cover",background:"#0B1020"}}/>
-      {status!=="live"&&status!=="speaking"&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,color:"#fff",textAlign:"center",padding:24}}>
+      {(status==="connecting"||status==="ended"||status==="error")&&<div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,color:"#fff",textAlign:"center",padding:24}}>
         <div style={{fontSize:44}}>{status==="error"?"😕":"📹"}</div>
         <div style={{fontSize:15,fontWeight:700,maxWidth:300}}>
-          {status==="connecting"?"Connecting you with Sophie…":status==="ended"?"Call ended":status==="error"?error:"…"}
+          {status==="connecting"?"Connecting you with Sophie…":status==="ended"?"Call ended":error}
         </div>
         {(status==="error"||status==="ended")&&<button onClick={hangUp} style={{marginTop:6,background:"#3B82F6",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontWeight:700,cursor:"pointer"}}>Close</button>}
       </div>}
       <div style={{position:"absolute",top:0,left:0,right:0,padding:"calc(env(safe-area-inset-top) + 10px) 16px 10px",display:"flex",alignItems:"center",gap:8,background:"linear-gradient(180deg,rgba(0,0,0,0.5),transparent)"}}>
-        <div style={{width:9,height:9,borderRadius:"50%",background:(status==="speaking"||status==="live")?"#10B981":"#F59E0B"}}/>
+        <div style={{width:9,height:9,borderRadius:"50%",background:(status==="speaking"||status==="live"||status==="listening"||status==="thinking")?"#10B981":"#F59E0B"}}/>
         <div style={{color:"#fff",fontSize:13,fontWeight:700,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>Sophie · {lesson?.title || "Live"}</div>
+        {(status==="listening"||status==="thinking")&&<div style={{marginLeft:"auto",color:"#fff",fontSize:12,fontWeight:700,opacity:0.9}}>{status==="listening"?"🎙 Listening…":"💭 Thinking…"}</div>}
       </div>
-      {caption&&(status==="live"||status==="speaking")&&<div style={{position:"absolute",left:16,right:16,bottom:20,background:"rgba(0,0,0,0.55)",color:"#fff",borderRadius:12,padding:"10px 14px",fontSize:14,lineHeight:1.5,textAlign:"center"}}>{caption}</div>}
+      {caption&&(status==="live"||status==="speaking"||status==="listening"||status==="thinking")&&<div style={{position:"absolute",left:16,right:16,bottom:20,background:"rgba(0,0,0,0.55)",color:"#fff",borderRadius:12,padding:"10px 14px",fontSize:14,lineHeight:1.5,textAlign:"center"}}>{caption}</div>}
     </div>
     <div style={{padding:"14px 16px calc(env(safe-area-inset-bottom) + 14px)",display:"flex",justifyContent:"center",background:"#0B1020"}}>
       <button onClick={hangUp} style={{background:"#EF4444",color:"#fff",border:"none",borderRadius:50,padding:"14px 28px",fontSize:15,fontWeight:800,cursor:"pointer"}}>✕ End call</button>

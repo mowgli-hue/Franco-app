@@ -44,6 +44,9 @@ export default async function handler(req, res) {
   const body = req.body || {};
   let text = (req.method === "POST" ? body.text : q.text) || "";
   const voiceId = (req.method === "POST" ? body.v : q.v) || process.env.ELEVENLABS_VOICE_ID || DEFAULT_VOICE_ID;
+  // fmt=pcm → raw 16-bit 24kHz PCM (for the LITE-mode live avatar's repeatAudio).
+  // Default (mp3) is used everywhere else for normal lesson playback.
+  const wantPcm = String((req.method === "POST" ? body.fmt : q.fmt) || "").toLowerCase() === "pcm";
 
   text = String(text).trim().slice(0, MAX_CHARS);
   if (!text) return res.status(400).json({ error: "Missing required parameter: text" });
@@ -56,14 +59,16 @@ export default async function handler(req, res) {
   }
 
   try {
+    const outputFormat = wantPcm ? "pcm_24000" : "mp3_44100_128";
+    const accept = wantPcm ? "audio/pcm" : "audio/mpeg";
     const upstream = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=${outputFormat}`,
       {
         method: "POST",
         headers: {
           "xi-api-key": apiKey,
           "content-type": "application/json",
-          "accept": "audio/mpeg",
+          "accept": accept,
         },
         body: JSON.stringify({
           text,
@@ -83,7 +88,7 @@ export default async function handler(req, res) {
     }
 
     const arrayBuf = await upstream.arrayBuffer();
-    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("Content-Type", wantPcm ? "audio/pcm" : "audio/mpeg");
     // Generate-once: cache hard at the CDN. Identical text+voice served from cache for everyone.
     res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=31536000, immutable");
     return res.status(200).send(Buffer.from(arrayBuf));
