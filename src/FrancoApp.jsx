@@ -4107,7 +4107,8 @@ function buildVocabPractice(lesson){
 // Until then the floating button uses the free owned animation. PREMIUM-ONLY (per-minute cost).
 // To TEST free first: leave LIVEAVATAR_SANDBOX unset — the token defaults to
 // HeyGen's free sandbox test avatar so you can confirm a face streams + talks.
-const HEYGEN_ENABLED = false;
+const HEYGEN_ENABLED = true;
+const HEYGEN_TEST_BYPASS_PREMIUM = true; // TEMP for testing — set false before OTA so the call is premium-only
 const HEYGEN_TOKEN_URL = "https://www.franco.app/api/heygen-token";
 
 function LessonVideoCall({ lesson, learner, onClose }){
@@ -4127,9 +4128,9 @@ function LessonVideoCall({ lesson, learner, onClose }){
         if(!tRes.ok) throw new Error("token");
         const { token } = await tRes.json();
         if(!token) throw new Error("token");
-        // 2) LiveAvatar SDK (lazy/vite-ignored so the web build doesn't need it pre-install).
-        const mod = "@heygen/liveavatar-web-sdk";
-        const SA = await import(/* @vite-ignore */ mod);
+        // 2) LiveAvatar SDK — real import so Vite bundles it (a bare-name runtime
+        //    import can't resolve inside the WebView).
+        const SA = await import("@heygen/liveavatar-web-sdk");
         const { LiveAvatarSession, SessionEvent, AgentEventsEnum } = SA;
         const session = new LiveAvatarSession(token, { voiceChat: true, apiUrl: "https://api.liveavatar.com" });
         avatarRef.current = session;
@@ -4285,7 +4286,7 @@ function MiniGameQuestion({pairs, onComplete}){
   </div>;
 }
 
-function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPracticeWithSophie}){
+function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPracticeWithSophie,onUpgrade}){
   const c=companion||COMPANIONS[0];
   const isMobile=useIsMobile();
 
@@ -4296,6 +4297,12 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
   const resumed = resumedRef.current;
   const[phase,setPhase]=useState(lesson.practice?"questions":(resumed&&resumed.qIdx>0?"questions":"recap")); // recap | teach | questions | review | done
   const[showCall,setShowCall]=useState(false); // HeyGen live "video call with Sophie"
+  const videoIframeRef=useRef(null);
+  // Pause/resume the lesson's YouTube video (enablejsapi=1) for the "Ask Sophie" flow.
+  const ytCmd=(func)=>{ try{ videoIframeRef.current?.contentWindow?.postMessage(JSON.stringify({event:"command",func,args:[]}),"*"); }catch{} };
+  const canLive=()=> HEYGEN_TEST_BYPASS_PREMIUM || isPremiumUnlocked();
+  const startLiveQA=()=>{ if(canLive()) setShowCall(true); else onUpgrade?.(); };
+  const askSophieLive=()=>{ if(!canLive()){ onUpgrade?.(); return; } ytCmd("pauseVideo"); setShowCall(true); };
   const[teachSlide,setTeachSlide]=useState(0);
   const[recapDone,setRecapDone]=useState(false);
   const[qIdx,setQIdx]=useState(resumed?.qIdx||0);
@@ -4602,18 +4609,24 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
                 if (!embed) return null;
                 return <div style={{position:"relative",width:"100%",paddingBottom:"56.25%",background:"#000"}}>
                   <iframe
+                    ref={videoIframeRef}
                     src={embed}
                     title={lesson.title}
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",border:0}}
                   />
+                  {/* Pause the lesson video anytime and ask Sophie live, then resume. */}
+                  {HEYGEN_ENABLED && <button onClick={askSophieLive}
+                    style={{position:"absolute",right:10,bottom:10,display:"flex",alignItems:"center",gap:6,background:"rgba(124,58,237,0.95)",color:"#fff",border:"none",borderRadius:50,padding:"9px 14px",fontSize:12.5,fontWeight:800,cursor:"pointer",boxShadow:"0 3px 12px rgba(0,0,0,0.35)"}}>
+                    ✋ Ask Sophie
+                  </button>}
                 </div>;
               })()}
               <div style={{padding:"16px 18px"}}>
                 <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.8,marginBottom:10}}>The story</div>
                 <div style={{fontSize:14,color:"#334155",lineHeight:1.85,marginBottom:14}}>{lesson.teach}</div>
-                {HEYGEN_ENABLED && <button onClick={()=>setShowCall(true)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"linear-gradient(135deg,#7C3AED,#2563EB)",border:"none",borderRadius:12,padding:"13px 16px",fontSize:14,color:"#fff",cursor:"pointer",fontWeight:800,marginBottom:12}}>📹 Learn this lesson live with Sophie</button>}
+                {HEYGEN_ENABLED && <button onClick={startLiveQA} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8,background:"linear-gradient(135deg,#7C3AED,#2563EB)",border:"none",borderRadius:12,padding:"13px 16px",fontSize:14,color:"#fff",cursor:"pointer",fontWeight:800,marginBottom:12}}>📹 Learn this lesson live with Sophie</button>}
                 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                   <button onClick={()=>speakFrench(lesson.teach)} style={{display:"flex",alignItems:"center",gap:6,background:"#F8FAFC",border:"1px solid #E2E8F0",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#64748B",cursor:"pointer",fontWeight:600}}>🔈 Listen</button>
                   {onPracticeWithSophie && <button onClick={()=>onPracticeWithSophie(lesson)} style={{display:"flex",alignItems:"center",gap:6,background:"#EFF6FF",border:"1px solid #BFDBFE",borderRadius:50,padding:"6px 14px",fontSize:12,color:"#1E40AF",cursor:"pointer",fontWeight:700}}>🎓 Practice with Sophie</button>}
@@ -4918,7 +4931,7 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
       </div>}
 
     </div>
-    {showCall && <LessonVideoCall lesson={lesson} learner={{ name:(typeof localStorage!=="undefined"&&localStorage.getItem("franco_name"))||"there" }} onClose={()=>setShowCall(false)}/>}
+    {showCall && <LessonVideoCall lesson={lesson} learner={{ name:(typeof localStorage!=="undefined"&&localStorage.getItem("franco_name"))||"there" }} onClose={()=>{ setShowCall(false); ytCmd("playVideo"); }}/>}
   </div>;
 }
 
@@ -6281,7 +6294,7 @@ function AppInner(){
   // Live "Talk to Sophie": HeyGen (premium) when configured, else the free owned animation.
   const openLive = ()=>{
     if(HEYGEN_ENABLED){
-      if(isPremiumUnlocked()) setShowHeyGenCall(true);
+      if(HEYGEN_TEST_BYPASS_PREMIUM || isPremiumUnlocked()) setShowHeyGenCall(true);
       else setPaywallLesson({title:"Live video call with Sophie 🎥"});
     } else { setShowSophieLive(true); }
   };
@@ -6456,7 +6469,7 @@ function AppInner(){
     {screen==="onboarding"&&<OnboardingScreen onComplete={handleOnboard}/>}
     {screen==="dashboard"&&<DashboardScreen companion={companion} startLevel={startLevel} progress={progress} onNavigate={setScreen} user={user} guestMode={guestMode}/>}
     {screen==="hub"&&<HubScreen progress={progress} onStartLesson={handleStartLesson}/>}
-    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onDone={handleLessonDone} onBack={()=>{if(lessonDirtyRef.current&&activeLesson)logEvent("lesson_abandon",{lessonId:activeLesson.lesson?.id, via:"exit"});lessonDirtyRef.current=false;setScreen(activeLesson.back||"hub");}} onPracticeWithSophie={handlePracticeWithSophie}/>}
+    {screen==="lesson"&&activeLesson&&<LessonScreen lesson={activeLesson.lesson} level={activeLesson.level} companion={companion} onComplete={handleLessonComplete} onDone={handleLessonDone} onBack={()=>{if(lessonDirtyRef.current&&activeLesson)logEvent("lesson_abandon",{lessonId:activeLesson.lesson?.id, via:"exit"});lessonDirtyRef.current=false;setScreen(activeLesson.back||"hub");}} onPracticeWithSophie={handlePracticeWithSophie} onUpgrade={()=>setPaywallLesson({title:"Live Q&A with Sophie 🎥"})}/>}
     {screen==="skills"&&<SkillsScreen onStartPractice={handleStartPractice} onOpenMock={()=>setScreen("mock")}/>}
     {screen==="mock"&&<MockExamScreen onExit={()=>setScreen("skills")}/>}
     {screen==="practice"&&<PracticeScreen companion={companion}/>}

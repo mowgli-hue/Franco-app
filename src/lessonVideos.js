@@ -14,7 +14,7 @@
 
 export const LESSON_VIDEOS = {
   // ─── Foundation 25 (FREE) ───────────────────────────────────────────────────
-  "f-01": { url: null, durationMin: 9,  tier: "free" }, // Bonjour Canada
+  "f-01": { url: "https://youtu.be/geKhmWIpI1s", durationMin: 9,  tier: "free" }, // Bonjour Canada
   "f-02": { url: null, durationMin: 8,  tier: "free" }, // Pronunciation Part 1
   "f-03": { url: null, durationMin: 8,  tier: "free" }, // Je m'appelle
   "f-04": { url: null, durationMin: 8,  tier: "free" }, // Numbers 0-20
@@ -96,15 +96,18 @@ export function isLessonVideoReady(lessonId) {
  */
 export function youTubeEmbedUrl(url) {
   if (!url) return null;
+  // enablejsapi=1 lets us pause/resume the video (for the "Ask Sophie" feature)
+  // via postMessage; playsinline keeps it inline on iOS.
+  const params = "enablejsapi=1&playsinline=1&rel=0";
   try {
     // https://youtu.be/ID
     let m = url.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/);
-    if (m) return `https://www.youtube.com/embed/${m[1]}`;
+    if (m) return `https://www.youtube.com/embed/${m[1]}?${params}`;
     // https://www.youtube.com/watch?v=ID
     m = url.match(/[?&]v=([A-Za-z0-9_-]{6,})/);
-    if (m) return `https://www.youtube.com/embed/${m[1]}`;
+    if (m) return `https://www.youtube.com/embed/${m[1]}?${params}`;
     // Already an embed URL
-    if (url.includes("/embed/")) return url;
+    if (url.includes("/embed/")) return url.includes("?") ? url : `${url}?${params}`;
   } catch { /* ignore */ }
   return null;
 }
