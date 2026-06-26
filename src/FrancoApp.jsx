@@ -4111,9 +4111,55 @@ const HEYGEN_ENABLED = true;
 const HEYGEN_TEST_BYPASS_PREMIUM = true; // TEMP for testing — set false before OTA so the call is premium-only
 const HEYGEN_TOKEN_URL = "https://www.franco.app/api/heygen-token";
 
+// ─── LIVE-MINUTE BUDGET (per subscriber, per week) ────────────────────────────
+// LiveAvatar bills per streaming minute, so each premium subscriber gets a
+// weekly allowance of live "Talk to Sophie" time. Start small; bump this when
+// you move to a bigger LiveAvatar plan. Tracked locally per device.
+const LIVE_MINUTES_PER_WEEK = 3;
+function liveWeekKey(d=new Date()){
+  const t=new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+  const day=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-day+3);
+  const firstThu=new Date(Date.UTC(t.getUTCFullYear(),0,4));
+  const week=1+Math.round(((t-firstThu)/86400000-3+((firstThu.getUTCDay()+6)%7))/7);
+  return `${t.getUTCFullYear()}-W${week}`;
+}
+function readLiveUsage(){
+  try{ const r=JSON.parse(localStorage.getItem("franco_live_usage")||"null");
+    if(r&&r.week===liveWeekKey()) return r; }catch{}
+  return { week:liveWeekKey(), usedSec:0 };
+}
+function remainingLiveSec(){ return Math.max(0, LIVE_MINUTES_PER_WEEK*60 - readLiveUsage().usedSec); }
+function addLiveUsage(sec){
+  if(!(sec>0)) return;
+  const u=readLiveUsage();
+  try{ localStorage.setItem("franco_live_usage", JSON.stringify({ week:u.week, usedSec:u.usedSec+Math.round(sec) })); }catch{}
+}
+// Three outcomes: "ok" (open the call) | "upgrade" (not premium) | "nominutes" (premium, used up).
+function liveAccess(){
+  if(HEYGEN_TEST_BYPASS_PREMIUM) return "ok";
+  if(!isPremiumUnlocked()) return "upgrade";
+  if(remainingLiveSec()<=0) return "nominutes";
+  return "ok";
+}
+
+function LiveLimitModal({ onClose }){
+  return <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:320,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+    <div style={{background:"#fff",borderRadius:18,padding:"26px 22px",maxWidth:340,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+      <div style={{fontSize:40,marginBottom:8}}>🎥</div>
+      <div style={{fontSize:18,fontWeight:800,color:"#0F172A",marginBottom:8}}>Live minutes used up</div>
+      <div style={{fontSize:14,lineHeight:1.55,color:"#475569",marginBottom:18}}>
+        You've used your {LIVE_MINUTES_PER_WEEK} live minutes with Sophie this week — they reset Monday. Until then, keep practising with text &amp; voice Sophie. It's unlimited!
+      </div>
+      <button onClick={onClose} style={{background:"linear-gradient(135deg,#7C3AED,#2563EB)",color:"#fff",border:"none",borderRadius:12,padding:"12px 24px",fontSize:15,fontWeight:800,cursor:"pointer",width:"100%"}}>Got it</button>
+    </div>
+  </div>;
+}
+
 function LessonVideoCall({ lesson, learner, onClose }){
   const videoRef = useRef(null);
   const avatarRef = useRef(null);
+  const startTsRef = useRef(0); // when streaming started, for usage metering
+  const usageRef = useRef(null); // flushes elapsed usage on unmount
   const [status, setStatus] = useState("connecting"); // connecting|live|speaking|ended|error
   const [error, setError] = useState("");
   const [caption, setCaption] = useState("");
@@ -4141,23 +4187,31 @@ function LessonVideoCall({ lesson, learner, onClose }){
         const session = new LiveAvatarSession(token, { voiceChat: true, apiUrl: "https://api.liveavatar.com" });
         avatarRef.current = session;
 
-        const endCall = ()=>{ clearTimers(); try{ session.stop(); }catch{} if(mounted) setStatus("ended"); };
+        // Meter the streaming time against the user's weekly live-minute budget.
+        const recordUsage = ()=>{ if(startTsRef.current){ addLiveUsage((Date.now()-startTsRef.current)/1000); startTsRef.current=0; } };
+        const endCall = ()=>{ clearTimers(); recordUsage(); try{ session.stop(); }catch{} if(mounted) setStatus("ended"); };
         const bumpIdle = ()=>{ clearTimeout(idleTimer); idleTimer = setTimeout(endCall, IDLE_MS); };
+        usageRef.current = recordUsage; // so unmount cleanup can also flush usage
 
         session.on(SessionEvent.SESSION_STREAM_READY, ()=>{
           try{ if(videoRef.current) session.attach(videoRef.current); }catch{}
           if(mounted) setStatus("live");
+          startTsRef.current = Date.now();
           // Short, calm spoken greeting (verbatim TTS in the avatar's voice).
           // Kept to one line on purpose — every spoken word costs credits.
           try{ session.repeat("Bonjour! I'm Sophie. How are you today?"); }catch{}
           bumpIdle();
-          hardCap = setTimeout(endCall, MAX_CALL_MS);
+          // Cap the call at whatever's lower: the 5-min ceiling or the user's
+          // remaining weekly budget (no cap shrink while testing/bypassing).
+          const capMs = HEYGEN_TEST_BYPASS_PREMIUM ? MAX_CALL_MS
+                      : Math.min(MAX_CALL_MS, Math.max(10000, remainingLiveSec()*1000));
+          hardCap = setTimeout(endCall, capMs);
         });
         session.on(AgentEventsEnum.AVATAR_SPEAK_STARTED, ()=>{ if(mounted) setStatus("speaking"); bumpIdle(); });
         session.on(AgentEventsEnum.AVATAR_SPEAK_ENDED, ()=>{ if(mounted) setStatus("live"); bumpIdle(); });
         session.on(AgentEventsEnum.USER_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("You: "+t); bumpIdle(); });
         session.on(AgentEventsEnum.AVATAR_TRANSCRIPTION, (e)=>{ const t=(e?.text||"").trim(); if(t&&mounted) setCaption("Sophie: "+t); bumpIdle(); });
-        session.on(SessionEvent.SESSION_DISCONNECTED, ()=>{ clearTimers(); if(mounted) setStatus("ended"); });
+        session.on(SessionEvent.SESSION_DISCONNECTED, ()=>{ clearTimers(); recordUsage(); if(mounted) setStatus("ended"); });
 
         // 3) Start the session + open the mic. In FULL mode HeyGen handles
         //    listening, the LLM, and the avatar's speech automatically.
@@ -4167,7 +4221,7 @@ function LessonVideoCall({ lesson, learner, onClose }){
         if(mounted){ setError("Couldn't start the live call. Check your connection and try again."); setStatus("error"); }
       }
     })();
-    return ()=>{ mounted = false; clearTimers(); try{ avatarRef.current?.stop?.(); }catch{} };
+    return ()=>{ mounted = false; clearTimers(); try{ usageRef.current?.(); }catch{} try{ avatarRef.current?.stop?.(); }catch{} };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
@@ -4306,12 +4360,12 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
   const resumed = resumedRef.current;
   const[phase,setPhase]=useState(lesson.practice?"questions":(resumed&&resumed.qIdx>0?"questions":"recap")); // recap | teach | questions | review | done
   const[showCall,setShowCall]=useState(false); // HeyGen live "video call with Sophie"
+  const[showLiveLimit,setShowLiveLimit]=useState(false); // weekly minutes used up
   const videoIframeRef=useRef(null);
   // Pause/resume the lesson's YouTube video (enablejsapi=1) for the "Ask Sophie" flow.
   const ytCmd=(func)=>{ try{ videoIframeRef.current?.contentWindow?.postMessage(JSON.stringify({event:"command",func,args:[]}),"*"); }catch{} };
-  const canLive=()=> HEYGEN_TEST_BYPASS_PREMIUM || isPremiumUnlocked();
-  const startLiveQA=()=>{ if(canLive()) setShowCall(true); else onUpgrade?.(); };
-  const askSophieLive=()=>{ if(!canLive()){ onUpgrade?.(); return; } ytCmd("pauseVideo"); setShowCall(true); };
+  const startLiveQA=()=>{ const a=liveAccess(); if(a==="ok") setShowCall(true); else if(a==="nominutes") setShowLiveLimit(true); else onUpgrade?.(); };
+  const askSophieLive=()=>{ const a=liveAccess(); if(a==="nominutes"){ setShowLiveLimit(true); return; } if(a!=="ok"){ onUpgrade?.(); return; } ytCmd("pauseVideo"); setShowCall(true); };
   const[teachSlide,setTeachSlide]=useState(0);
   const[recapDone,setRecapDone]=useState(false);
   const[qIdx,setQIdx]=useState(resumed?.qIdx||0);
@@ -4941,6 +4995,7 @@ function LessonScreen({lesson,level,companion,onComplete,onDone,onBack,onPractic
 
     </div>
     {showCall && <LessonVideoCall lesson={lesson} learner={{ name:(typeof localStorage!=="undefined"&&localStorage.getItem("franco_name"))||"there" }} onClose={()=>{ setShowCall(false); ytCmd("playVideo"); }}/>}
+    {showLiveLimit && <LiveLimitModal onClose={()=>{ setShowLiveLimit(false); ytCmd("playVideo"); }}/>}
   </div>;
 }
 
@@ -6300,10 +6355,13 @@ function AppInner(){
   const[tutorLesson,setTutorLesson]=useState(null); // when set, tutor enters lesson teaching mode
   const[showSophieLive,setShowSophieLive]=useState(false); // free owned talking-Sophie overlay
   const[showHeyGenCall,setShowHeyGenCall]=useState(false); // premium HeyGen live call
+  const[showLiveLimit,setShowLiveLimit]=useState(false); // weekly minutes used up
   // Live "Talk to Sophie": HeyGen (premium) when configured, else the free owned animation.
   const openLive = ()=>{
     if(HEYGEN_ENABLED){
-      if(HEYGEN_TEST_BYPASS_PREMIUM || isPremiumUnlocked()) setShowHeyGenCall(true);
+      const a=liveAccess();
+      if(a==="ok") setShowHeyGenCall(true);
+      else if(a==="nominutes") setShowLiveLimit(true);
       else setPaywallLesson({title:"Live video call with Sophie 🎥"});
     } else { setShowSophieLive(true); }
   };
@@ -6500,6 +6558,7 @@ function AppInner(){
       </button>}
     {showSophieLive && <SophieLive onClose={()=>setShowSophieLive(false)}/>}
     {showHeyGenCall && <LessonVideoCall lesson={null} learner={{ name:(typeof localStorage!=="undefined"&&localStorage.getItem("franco_name"))||"there" }} onClose={()=>setShowHeyGenCall(false)}/>}
+    {showLiveLimit && <LiveLimitModal onClose={()=>setShowLiveLimit(false)}/>}
   </div>;
 }
 
