@@ -4108,7 +4108,7 @@ function buildVocabPractice(lesson){
 // To TEST free first: leave LIVEAVATAR_SANDBOX unset — the token defaults to
 // HeyGen's free sandbox test avatar so you can confirm a face streams + talks.
 const HEYGEN_ENABLED = true;
-const HEYGEN_TEST_BYPASS_PREMIUM = true; // TEMP for testing — set false before OTA so the call is premium-only
+const HEYGEN_TEST_BYPASS_PREMIUM = false; // LIVE: premium-only + weekly minute budget enforced
 const HEYGEN_TOKEN_URL = "https://www.franco.app/api/heygen-token";
 
 // ─── LIVE-MINUTE BUDGET (per subscriber, per week) ────────────────────────────
